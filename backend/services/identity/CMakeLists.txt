@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+project(identity CXX)
+set(CMAKE_CXX_STANDARD 20)
+add_executable(identity main.cpp)
+target_include_directories(identity PRIVATE ../../third_party)

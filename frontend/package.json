@@ -1,0 +1,16 @@
+{
+  "name": "conveyancers-frontend",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 5173",
+    "build": "next build",
+    "start": "next start -p 3000"
+  },
+  "dependencies": {
+    "next": "14.2.3",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "typescript": "5.4.2",
+    "zustand": "4.5.2"
+  }
+}

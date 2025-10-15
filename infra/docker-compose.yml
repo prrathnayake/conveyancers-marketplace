@@ -1,0 +1,97 @@
+version: "3.9"
+services:
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./tls:/etc/nginx/tls:ro
+      - ../frontend/.next:/var/www/frontend/.next
+      - ../frontend/public:/var/www/frontend/public
+    ports: ["80:80", "443:443"]
+    depends_on: [gateway]
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: convey
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: appsecret
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../backend/sql/1_schema.sql:/docker-entrypoint-initdb.d/1_schema.sql:ro
+      - ../backend/sql/2_seed.sql:/docker-entrypoint-initdb.d/2_seed.sql:ro
+    ports: ["5432:5432"]
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    volumes: [ "miniodata:/data" ]
+    ports: ["9000:9000","9001:9001"]
+  clamav:
+    image: clamav/clamav:1.2
+    ports: ["3310:3310"]
+  otel:
+    image: otel/opentelemetry-collector:latest
+    command: ["--config=/etc/otel-config.yaml"]
+    volumes:
+      - ./otel/otel-config.yaml:/etc/otel-config.yaml:ro
+    ports: ["4317:4317"]
+  loki:
+    image: grafana/loki:2.9.8
+    command: -config.file=/etc/loki/local-config.yaml
+    ports: ["3100:3100"]
+  prom:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prom.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+  grafana:
+    image: grafana/grafana:10.4.3
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    ports: ["3000:3000"]
+    depends_on: [prom, loki]
+  gateway:
+    build: ../backend/gateway
+    environment:
+      DB_URL: postgres://app:appsecret@postgres:5432/convey
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minio
+      MINIO_SECRET_KEY: minio12345
+      JWT_SECRET: dev-jwt-secret-change
+      PSP_PROVIDER: sandbox
+    depends_on: [postgres, redis, minio, identity, jobs, payments]
+    ports: ["8080:8080"]
+  identity:
+    build: ../backend/services/identity
+    environment:
+      DB_URL: postgres://app:appsecret@postgres:5432/convey
+      JWT_SECRET: dev-jwt-secret-change
+    depends_on: [postgres]
+  jobs:
+    build: ../backend/services/jobs
+    environment:
+      DB_URL: postgres://app:appsecret@postgres:5432/convey
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minio
+      MINIO_SECRET_KEY: minio12345
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
+    depends_on: [postgres, minio, clamav]
+    ports: ["9002:9002"]  # WebSocket chat
+  payments:
+    build: ../backend/services/payments
+    environment:
+      DB_URL: postgres://app:appsecret@postgres:5432/convey
+      PSP_PROVIDER: sandbox
+      PSP_SECRET: dev-psp-secret
+    depends_on: [postgres]
+volumes:
+  pgdata: {}
+  miniodata: {}
