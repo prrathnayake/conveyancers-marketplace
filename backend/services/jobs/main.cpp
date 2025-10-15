@@ -1,2 +1,11 @@
+#include <chrono>
 #include <iostream>
-int main(){ std::cout<<"jobs service running (ws on 9002)\n"; while(true){} }
+#include <thread>
+
+int main() {
+  std::cout << "jobs service running (ws on 9002)\n";
+  // Keep the placeholder service alive without burning CPU.
+  while (true) {
+    std::this_thread::sleep_for(std::chrono::hours(1));
+  }
+}
