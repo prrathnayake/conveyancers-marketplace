@@ -82,6 +82,21 @@ services:
       PROFILE_FALLBACK_SECRET: ${PROFILE_FALLBACK_SECRET:-}
       PROFILE_FALLBACK_PAYLOAD: ${PROFILE_FALLBACK_PAYLOAD:-}
     depends_on: [gateway]
+  admin-portal:
+    build:
+      context: ..
+      dockerfile: admin-portal/Dockerfile
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: '1'
+      NEXT_PUBLIC_MAIN_APP_URL: ${NEXT_PUBLIC_MAIN_APP_URL:-https://localhost}
+      JWT_SECRET: ${JWT_SECRET}
+      LOG_DIRECTORY: /workspace/logs
+    depends_on: [gateway]
+    ports: ["4300:4300"]
+    volumes:
+      - ../frontend/data:/workspace/frontend/data
+      - ../logs:/workspace/logs:ro
   gateway:
     build:
       context: ../backend
