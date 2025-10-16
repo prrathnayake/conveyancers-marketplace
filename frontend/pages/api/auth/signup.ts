@@ -2,23 +2,9 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import bcrypt from 'bcryptjs'
 import db from '../../../lib/db'
 import { createSessionCookie } from '../../../lib/session'
+import { ensureAdminSeeded } from '../../../lib/adminSeed'
 
 const allowedRoles = new Set(['buyer', 'seller', 'conveyancer'])
-
-const ensureAdminSeeded = () => {
-  const countStmt = db.prepare("SELECT COUNT(1) as total FROM users WHERE role = 'admin'")
-  const { total } = countStmt.get() as { total: number }
-  if (total === 0) {
-    const adminEmail = process.env.DEFAULT_ADMIN_EMAIL
-    const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD
-    if (adminEmail && adminPassword) {
-      const hash = bcrypt.hashSync(adminPassword, 12)
-      db.prepare(
-        'INSERT OR IGNORE INTO users (email, password_hash, role, full_name) VALUES (?, ?, ?, ?)'
-      ).run(adminEmail.toLowerCase(), hash, 'admin', 'Platform Administrator')
-    }
-  }
-}
 
 type SignupRequest = {
   email?: string

@@ -28,8 +28,35 @@ db.exec(`
     bio TEXT DEFAULT '',
     phone TEXT DEFAULT '',
     state TEXT DEFAULT '',
+    suburb TEXT DEFAULT '',
     website TEXT DEFAULT '',
+    remote_friendly INTEGER DEFAULT 0,
+    turnaround TEXT DEFAULT '',
+    response_time TEXT DEFAULT '',
+    specialties TEXT DEFAULT '[]',
+    verified INTEGER DEFAULT 0,
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS conveyancer_reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conveyancer_id INTEGER NOT NULL,
+    reviewer_name TEXT NOT NULL,
+    rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+    comment TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(conveyancer_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS admin_audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_id INTEGER,
+    action TEXT NOT NULL,
+    entity TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    metadata TEXT DEFAULT '{}',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(actor_id) REFERENCES users(id) ON DELETE SET NULL
   );
 
   CREATE TABLE IF NOT EXISTS conversations (
@@ -72,5 +99,20 @@ db.exec(`
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 `)
+
+const ensureColumn = (table: string, column: string, ddl: string): void => {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+  const exists = columns.some((entry) => entry.name === column)
+  if (!exists) {
+    db.prepare(`ALTER TABLE ${table} ADD COLUMN ${ddl}`).run()
+  }
+}
+
+ensureColumn('conveyancer_profiles', 'suburb', "suburb TEXT DEFAULT ''")
+ensureColumn('conveyancer_profiles', 'remote_friendly', 'remote_friendly INTEGER DEFAULT 0')
+ensureColumn('conveyancer_profiles', 'turnaround', "turnaround TEXT DEFAULT ''")
+ensureColumn('conveyancer_profiles', 'response_time', "response_time TEXT DEFAULT ''")
+ensureColumn('conveyancer_profiles', 'specialties', "specialties TEXT DEFAULT '[]'")
+ensureColumn('conveyancer_profiles', 'verified', 'verified INTEGER DEFAULT 0')
 
 export default db

@@ -22,7 +22,6 @@ type SubNavItem =
 const mainNav: PrimaryNavItem[] = [
   { href: '/', label: 'Overview' },
   { href: '/search', label: 'Find experts' },
-  { href: '/admin/seed', label: 'Operations' },
 ]
 
 const workflowNav: SubNavItem[] = [
@@ -35,12 +34,6 @@ const sellerNav: SubNavItem[] = [
   { href: '/search?seller=true', label: 'Seller dashboard' },
   { href: '/search?tab=jobs', label: 'Active jobs' },
   { href: '/search?tab=documents', label: 'Documents' },
-]
-
-const adminNav: SubNavItem[] = [
-  { href: '/admin/seed#access-control', label: 'Access control' },
-  { href: '/admin/seed#data-ops', label: 'Data operations' },
-  { href: '/admin/seed#audit-trails', label: 'Audit log' },
 ]
 
 type LayoutProps = {
@@ -62,9 +55,6 @@ const Layout: FC<LayoutProps> = ({ children }) => {
   }
 
   const subNav = useMemo(() => {
-    if (router.pathname.startsWith('/admin')) {
-      return adminNav
-    }
     if (router.pathname.startsWith('/search')) {
       return sellerNav
     }
@@ -77,7 +67,7 @@ const Layout: FC<LayoutProps> = ({ children }) => {
     const controller = new AbortController()
     const loadBanner = async () => {
       try {
-        const response = await fetch('/api/admin/settings', { signal: controller.signal })
+        const response = await fetch('/api/platform/settings', { signal: controller.signal })
         if (!response.ok) {
           return
         }
