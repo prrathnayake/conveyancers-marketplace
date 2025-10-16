@@ -10,6 +10,8 @@ const roleLabels: Record<string, string> = {
   admin: 'Admin',
 }
 
+const adminPortalUrl = process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL
+
 const UserMenu = (): JSX.Element => {
   const { user, logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
@@ -61,10 +63,16 @@ const UserMenu = (): JSX.Element => {
         <Link href="/chat" className="dropdown-item" role="menuitem">
           Secure chat
         </Link>
-        {user.role === 'admin' ? (
-          <Link href="/admin" className="dropdown-item" role="menuitem">
-            Admin controls
-          </Link>
+        {user.role === 'admin' && adminPortalUrl ? (
+          <a
+            href={adminPortalUrl}
+            className="dropdown-item"
+            role="menuitem"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            Admin portal
+          </a>
         ) : null}
         <button
           type="button"

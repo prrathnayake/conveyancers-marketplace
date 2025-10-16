@@ -11,7 +11,13 @@ interface ConveyancerProfileProps {
     bio: string
     phone: string
     state: string
+    suburb: string
     website: string
+    remoteFriendly: boolean
+    turnaround: string
+    responseTime: string
+    specialties: string[]
+    verified: boolean
   }
 }
 
@@ -24,13 +30,21 @@ const ConveyancerProfilePage = ({ user, initialProfile }: ConveyancerProfileProp
     setProfile((prev) => ({ ...prev, [name]: value }))
   }
 
+  const handleToggle = (event: ChangeEvent<HTMLInputElement>) => {
+    const { name, checked } = event.target
+    setProfile((prev) => ({ ...prev, [name]: checked }))
+  }
+
   const handleSave = async () => {
     setStatus('saving')
     try {
       const response = await fetch('/api/conveyancers/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(profile),
+        body: JSON.stringify({
+          ...profile,
+          specialties: profile.specialties,
+        }),
       })
       if (!response.ok) {
         throw new Error('save_failed')
@@ -62,6 +76,10 @@ const ConveyancerProfilePage = ({ user, initialProfile }: ConveyancerProfileProp
               Practising state
             </label>
             <input id="state" name="state" value={profile.state} onChange={handleChange} className="input" />
+            <label htmlFor="suburb" className="field-label">
+              Primary suburb
+            </label>
+            <input id="suburb" name="suburb" value={profile.suburb} onChange={handleChange} className="input" />
             <label htmlFor="phone" className="field-label">
               Contact phone
             </label>
@@ -81,6 +99,52 @@ const ConveyancerProfilePage = ({ user, initialProfile }: ConveyancerProfileProp
               className="input input--multiline"
               rows={4}
             />
+            <label htmlFor="turnaround" className="field-label">
+              Typical turnaround
+            </label>
+            <input id="turnaround" name="turnaround" value={profile.turnaround} onChange={handleChange} className="input" />
+            <label htmlFor="responseTime" className="field-label">
+              Average response time
+            </label>
+            <input
+              id="responseTime"
+              name="responseTime"
+              value={profile.responseTime}
+              onChange={handleChange}
+              className="input"
+            />
+            <label htmlFor="specialties" className="field-label">
+              Specialties (comma separated)
+            </label>
+            <input
+              id="specialties"
+              name="specialties"
+              value={profile.specialties.join(', ')}
+              onChange={(event) =>
+                setProfile((prev) => ({
+                  ...prev,
+                  specialties: event.target.value
+                    .split(',')
+                    .map((item) => item.trim())
+                    .filter((item) => item.length > 0),
+                }))
+              }
+              className="input"
+            />
+            <label className="field-label field-label--toggle">
+              <input
+                id="remoteFriendly"
+                name="remoteFriendly"
+                type="checkbox"
+                checked={profile.remoteFriendly}
+                onChange={handleToggle}
+              />
+              Remote friendly
+            </label>
+            <label className="field-label field-label--toggle">
+              <input id="verified" name="verified" type="checkbox" checked={profile.verified} onChange={handleToggle} />
+              Verified listing
+            </label>
             <button type="button" className="cta-primary" onClick={handleSave} disabled={status === 'saving'}>
               {status === 'saving' ? 'Saving…' : 'Publish profile'}
             </button>

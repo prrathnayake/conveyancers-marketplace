@@ -2,77 +2,44 @@ import Head from 'next/head'
 import type { FormEvent } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-type RawProfile = {
+type ApiProfile = {
   id: string
   name: string
   state: string
   suburb: string
   verified: boolean
+  rating?: number
+  reviewCount?: number
+  turnaround?: string
+  specialties?: string[]
+  remoteFriendly?: boolean
+  responseTime?: string
 }
 
-type Profile = RawProfile & {
-  rating: number
-  reviewCount: number
-  turnaround: string
+type Profile = Required<Omit<ApiProfile, 'specialties' | 'turnaround' | 'responseTime'>> & {
   specialties: string[]
-  remoteFriendly: boolean
+  turnaround: string
   responseTime: string
 }
 
 type SortOption = 'relevance' | 'rating' | 'reviews' | 'name_asc'
 type ViewMode = 'grid' | 'table'
 
-const PROFILE_METADATA: Record<string, Omit<Profile, keyof RawProfile>> = {
-  pro_1001: {
-    rating: 4.9,
-    reviewCount: 128,
-    turnaround: '24-48 hours',
-    specialties: ['Residential settlements', 'Off-the-plan'],
-    remoteFriendly: true,
-    responseTime: 'within 30 minutes',
-  },
-  pro_1002: {
-    rating: 4.8,
-    reviewCount: 86,
-    turnaround: '2-3 business days',
-    specialties: ['First-home buyers', 'Commercial conveyancing'],
-    remoteFriendly: false,
-    responseTime: 'within 1 hour',
-  },
-  pro_1003: {
-    rating: 4.5,
-    reviewCount: 45,
-    turnaround: 'Same week settlements',
-    specialties: ['Queensland compliance', 'Title insurance'],
-    remoteFriendly: true,
-    responseTime: 'within 3 hours',
-  },
-  pro_1004: {
-    rating: 4.7,
-    reviewCount: 52,
-    turnaround: '3-5 business days',
-    specialties: ['ACT eConveyancing', 'Developments'],
-    remoteFriendly: true,
-    responseTime: 'within 45 minutes',
-  },
-}
-
 const states = ['ACT', 'NSW', 'NT', 'QLD', 'SA', 'TAS', 'VIC', 'WA']
 
-const enrichProfile = (profile: RawProfile, index: number): Profile => {
-  const metadata = PROFILE_METADATA[profile.id]
-  if (metadata) {
-    return { ...profile, ...metadata }
-  }
-
+const enrichProfile = (profile: ApiProfile): Profile => {
   return {
-    ...profile,
-    rating: 4.4 + (index % 3) * 0.1,
-    reviewCount: 24 + index * 5,
-    turnaround: '3-5 business days',
-    specialties: ['Residential settlements'],
-    remoteFriendly: index % 2 === 0,
-    responseTime: 'within 2 hours',
+    id: profile.id,
+    name: profile.name,
+    state: profile.state,
+    suburb: profile.suburb,
+    verified: Boolean(profile.verified),
+    rating: typeof profile.rating === 'number' ? profile.rating : 0,
+    reviewCount: typeof profile.reviewCount === 'number' ? profile.reviewCount : 0,
+    turnaround: profile.turnaround || '3-5 business days',
+    specialties: Array.isArray(profile.specialties) ? profile.specialties : [],
+    remoteFriendly: Boolean(profile.remoteFriendly),
+    responseTime: profile.responseTime || 'within 24 hours',
   }
 }
 
@@ -108,8 +75,8 @@ const Search = (): JSX.Element => {
       if (!response.ok) {
         throw new Error(`Request failed with status ${response.status}`)
       }
-      const payload = (await response.json()) as RawProfile[]
-      setProfiles(payload.map((profile, index) => enrichProfile(profile, index)))
+      const payload = (await response.json()) as ApiProfile[]
+      setProfiles(payload.map(enrichProfile))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unexpected error')
       setProfiles([])

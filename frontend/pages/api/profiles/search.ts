@@ -1,84 +1,94 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 
-import { decryptJsonPayload } from '../../../lib/crypto'
+import db from '../../../lib/db'
 
-const DEFAULT_GATEWAY_ORIGIN = 'http://127.0.0.1:8080'
-
-const STATIC_FALLBACK_PROFILES: Array<{ id: string; name: string; state: string; suburb: string; verified: boolean }> = [
-  { id: 'pro_1001', name: 'Harbourline Conveyancing', state: 'NSW', suburb: 'Sydney', verified: true },
-  { id: 'pro_1002', name: 'Reid Property Law', state: 'VIC', suburb: 'Melbourne', verified: true },
-  { id: 'pro_1003', name: 'River City Settlements', state: 'QLD', suburb: 'Brisbane', verified: true },
-  { id: 'pro_1004', name: 'Capital Chambers Conveyancing', state: 'ACT', suburb: 'Canberra', verified: true },
-]
-
-const loadFallbackProfiles = () => {
-  const secret = process.env.PROFILE_FALLBACK_SECRET ?? ''
-  const payload = process.env.PROFILE_FALLBACK_PAYLOAD ?? ''
-  const decrypted =
-    secret && payload
-      ? decryptJsonPayload<
-          Array<{ id: string; name: string; state: string; suburb: string; verified: boolean }>
-        >({
-          secretBase64: secret,
-          payloadBase64: payload,
-        })
-      : null
-
-  if (Array.isArray(decrypted) && decrypted.length > 0) {
-    return decrypted
-  }
-
-  return STATIC_FALLBACK_PROFILES
+type SearchRow = {
+  id: number
+  full_name: string
+  firm_name: string
+  state: string
+  suburb: string
+  verified: number
+  remote_friendly: number
+  turnaround: string
+  response_time: string
+  specialties: string
+  rating: number
+  review_count: number
 }
 
-const buildQueryString = (query: NextApiRequest['query']): string => {
-  const params = new URLSearchParams()
-  for (const [key, value] of Object.entries(query)) {
-    if (Array.isArray(value)) {
-      value.forEach((item) => params.append(key, item))
-    } else if (value !== undefined) {
-      params.set(key, value)
+const parseSpecialties = (value: string): string[] => {
+  try {
+    const parsed = JSON.parse(value)
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item): item is string => typeof item === 'string')
     }
+  } catch {
+    return []
   }
-  const serialized = params.toString()
-  return serialized ? `?${serialized}` : ''
+  return []
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
+const searchProfiles = (q: string | undefined, state: string | undefined) => {
+  const conditions: string[] = ['u.role = "conveyancer"']
+  const params: Array<string | number> = []
+
+  if (q) {
+    conditions.push('(LOWER(u.full_name) LIKE ? OR LOWER(cp.firm_name) LIKE ? OR LOWER(cp.suburb) LIKE ?)')
+    const like = `%${q.toLowerCase()}%`
+    params.push(like, like, like)
+  }
+
+  if (state) {
+    conditions.push('LOWER(cp.state) = ?')
+    params.push(state.toLowerCase())
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+
+  const rows = db
+    .prepare(
+      `SELECT u.id, u.full_name, cp.firm_name, cp.state, cp.suburb, cp.verified, cp.remote_friendly, cp.turnaround,
+              cp.response_time, cp.specialties,
+              COALESCE(AVG(r.rating), 0) AS rating,
+              COUNT(r.id) AS review_count
+         FROM users u
+         JOIN conveyancer_profiles cp ON cp.user_id = u.id
+    LEFT JOIN conveyancer_reviews r ON r.conveyancer_id = u.id
+        ${whereClause}
+     GROUP BY u.id, cp.firm_name, cp.state, cp.suburb, cp.verified, cp.remote_friendly, cp.turnaround,
+              cp.response_time, cp.specialties`
+    )
+    .all(...params) as SearchRow[]
+
+  return rows.map((row) => ({
+    id: `conveyancer_${row.id}`,
+    name: row.firm_name || row.full_name,
+    state: row.state,
+    suburb: row.suburb,
+    verified: Boolean(row.verified),
+    rating: Number(row.rating ?? 0),
+    reviewCount: Number(row.review_count ?? 0),
+    turnaround: row.turnaround,
+    specialties: parseSpecialties(row.specialties),
+    remoteFriendly: Boolean(row.remote_friendly),
+    responseTime: row.response_time,
+  }))
+}
+
+const handler = (req: NextApiRequest, res: NextApiResponse): void => {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET')
     res.status(405).json({ error: 'method_not_allowed' })
     return
   }
 
-  const gatewayOrigin = process.env.GATEWAY_ORIGIN ?? DEFAULT_GATEWAY_ORIGIN
-  const targetUrl = `${gatewayOrigin.replace(/\/$/, '')}/api/profiles/search${buildQueryString(req.query)}`
+  const { q, state } = req.query
+  const query = typeof q === 'string' ? q.trim() : undefined
+  const stateFilter = typeof state === 'string' ? state.trim() : undefined
 
-  try {
-    const response = await fetch(targetUrl, {
-      headers: {
-        Accept: 'application/json',
-      },
-    })
-
-    const contentType = response.headers.get('content-type') ?? 'application/json'
-    res.status(response.status)
-
-    if (!response.ok) {
-      throw new Error(`Gateway responded with status ${response.status}`)
-    }
-
-    if (contentType.includes('application/json')) {
-      const body = await response.json()
-      res.json(body)
-      return
-    }
-
-    const textBody = await response.text()
-    res.setHeader('Content-Type', contentType)
-    res.send(textBody)
-  } catch (error) {
-    res.setHeader('X-Data-Source', 'fallback')
-    res.status(200).json(loadFallbackProfiles())
-  }
+  const results = searchProfiles(query && query.length > 0 ? query : undefined, stateFilter && stateFilter.length > 0 ? stateFilter : undefined)
+  res.status(200).json(results)
 }
+
+export default handler

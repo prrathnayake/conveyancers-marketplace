@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import bcrypt from 'bcryptjs'
 import db from '../../../lib/db'
 import { createSessionCookie } from '../../../lib/session'
+import { ensureAdminSeeded } from '../../../lib/adminSeed'
 
 const handler = (req: NextApiRequest, res: NextApiResponse): void => {
   if (req.method !== 'POST') {
@@ -9,6 +10,8 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
     res.status(405).end('Method Not Allowed')
     return
   }
+
+  ensureAdminSeeded()
 
   const { email, password } = req.body as { email?: string; password?: string }
   if (!email || !password) {
