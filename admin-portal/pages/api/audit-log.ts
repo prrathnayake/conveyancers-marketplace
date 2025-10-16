@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 
-import db from '../../../lib/db'
-import { requireRole } from '../../../lib/session'
+import db from '../../../frontend/lib/db'
+import { requireRole } from '../../../frontend/lib/session'
 
 type AuditRow = {
   id: number
@@ -13,7 +13,16 @@ type AuditRow = {
   actor_email: string | null
 }
 
-const handler = (req: NextApiRequest, res: NextApiResponse): void => {
+type AuditEntry = {
+  id: number
+  action: string
+  entity: string
+  details: string | null
+  createdAt: string
+  actorEmail: string | null
+}
+
+const handler = (req: NextApiRequest, res: NextApiResponse<AuditEntry[] | { error: string }>): void => {
   const user = requireRole(req, res, ['admin'])
   if (!user) {
     return
@@ -35,23 +44,26 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
     )
     .all() as AuditRow[]
 
-  const entries = rows.map((row) => ({
+  const entries = rows.map<AuditEntry>((row) => ({
     id: row.id,
     action: row.action,
     entity: row.entity,
-    entityId: row.entity_id,
     createdAt: row.created_at,
     actorEmail: row.actor_email,
-    metadata: (() => {
+    details: (() => {
       try {
-        return JSON.parse(row.metadata)
+        const parsed = JSON.parse(row.metadata)
+        if (parsed && typeof parsed === 'object') {
+          return JSON.stringify(parsed, null, 2)
+        }
+        return String(parsed)
       } catch {
-        return {}
+        return row.metadata || null
       }
     })(),
   }))
 
-  res.status(200).json({ entries })
+  res.status(200).json(entries)
 }
 
 export default handler

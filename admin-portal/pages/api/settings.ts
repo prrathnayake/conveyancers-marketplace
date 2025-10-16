@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import db from '../../../lib/db'
-import { requireRole } from '../../../lib/session'
+
+import db from '../../../frontend/lib/db'
+import { requireRole } from '../../../frontend/lib/session'
 
 const allowedKeys = new Set(['supportEmail', 'statusBanner'])
 

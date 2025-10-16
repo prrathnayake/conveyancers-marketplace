@@ -107,10 +107,11 @@ cp frontend/.env.example frontend/.env.local
 (cd frontend && npm install)
 
 # 6. Seed sample data using the admin UI (optional but recommended)
-# With the stack running via Docker you can visit https://localhost/admin/seed and trigger the workflow
+# Start the admin portal locally (see the Admin portal workflow below) to access the seeding shortcuts and dashboards
 
 # 7. Access the stack
 # Frontend: https://localhost
+# Admin portal: http://localhost:5300
 # Grafana:  https://localhost/grafana (admin / admin)
 ```
 
@@ -147,6 +148,16 @@ npm run dev           # Dev server with hot reload
 npm run lint          # ESLint + TypeScript checks
 npm run test          # Vitest component/API tests
 ```
+
+### Admin portal (Next.js)
+
+```bash
+cd admin-portal
+npm install
+npm run dev           # Runs the dashboard on http://localhost:5300
+```
+
+> The first administrator account is provisioned from `ADMIN_SEED_EMAIL` and `ADMIN_SEED_PASSWORD{,_HASH}` in your environment. Set the same `JWT_SECRET` for both the public site and the admin portal so that sessions are shared.
 
 ### Backend (C++ services)
 

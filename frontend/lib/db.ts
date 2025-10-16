@@ -2,7 +2,21 @@ import Database from 'better-sqlite3'
 import fs from 'fs'
 import path from 'path'
 
-const databaseDirectory = path.join(process.cwd(), 'data')
+const resolveDataDirectory = (): string => {
+  if (process.env.PLATFORM_DATA_DIR) {
+    return path.resolve(process.cwd(), process.env.PLATFORM_DATA_DIR)
+  }
+
+  const cwd = process.cwd()
+  const normalized = cwd.replace(/\\/g, '/')
+  if (normalized.includes('/admin-portal')) {
+    return path.resolve(cwd, '../frontend/data')
+  }
+
+  return path.join(cwd, 'data')
+}
+
+const databaseDirectory = resolveDataDirectory()
 const databasePath = path.join(databaseDirectory, 'app.db')
 
 if (!fs.existsSync(databaseDirectory)) {

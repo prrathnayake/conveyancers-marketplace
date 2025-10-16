@@ -2,9 +2,9 @@ import Head from 'next/head'
 import type { GetServerSideProps } from 'next'
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 
-import AdminLayout from '../../components/AdminLayout'
-import type { SessionUser } from '../../lib/session'
-import { getSessionFromRequest } from '../../lib/session'
+import AdminLayout from '../components/AdminLayout'
+import type { SessionUser } from '../../frontend/lib/session'
+import { getSessionFromRequest } from '../../frontend/lib/session'
 
 type Conveyancer = {
   id: number
@@ -54,12 +54,12 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
   const loadRecords = async () => {
     setStatus('loading')
     try {
-      const response = await fetch('/api/admin/conveyancers')
+      const response = await fetch('/api/conveyancers')
       if (!response.ok) {
         throw new Error('load_failed')
       }
-      const payload = (await response.json()) as { conveyancers: Conveyancer[] }
-      setRecords(payload.conveyancers)
+      const payload = (await response.json()) as Conveyancer[]
+      setRecords(payload)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unexpected error')
     } finally {
@@ -111,7 +111,7 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
         specialties: formState.specialties,
       }
       if (selectedId) {
-        const response = await fetch('/api/admin/conveyancers', {
+        const response = await fetch('/api/conveyancers', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: selectedId, profile: payload, fullName: formState.fullName }),
@@ -123,7 +123,7 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
         if (!password || password.length < 12) {
           throw new Error('Password must be at least 12 characters long for new accounts.')
         }
-        const response = await fetch('/api/admin/conveyancers', {
+        const response = await fetch('/api/conveyancers', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -153,7 +153,7 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
     setStatus('loading')
     setError(null)
     try {
-      const response = await fetch(`/api/admin/conveyancers?id=${id}`, { method: 'DELETE' })
+      const response = await fetch(`/api/conveyancers?id=${id}`, { method: 'DELETE' })
       if (!response.ok) {
         throw new Error('delete_failed')
       }
@@ -199,8 +199,8 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Firm</th>
                 <th>State</th>
-                <th>Verified</th>
                 <th>Rating</th>
                 <th>Reviews</th>
                 <th>Actions</th>
@@ -208,20 +208,17 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
             </thead>
             <tbody>
               {records.map((record) => (
-                <tr key={record.id} data-active={selectedId === record.id}>
-                  <td>
-                    <strong>{record.firmName || record.fullName}</strong>
-                    <span>{record.email}</span>
-                  </td>
+                <tr key={record.id}>
+                  <td>{record.fullName}</td>
+                  <td>{record.firmName}</td>
                   <td>{record.state}</td>
-                  <td>{record.verified ? 'Yes' : 'No'}</td>
                   <td>{record.rating.toFixed(1)}</td>
                   <td>{record.reviewCount}</td>
                   <td>
-                    <button type="button" onClick={() => setSelectedId(record.id)}>
+                    <button type="button" onClick={() => setSelectedId(record.id)} disabled={status === 'loading'}>
                       Edit
                     </button>
-                    <button type="button" onClick={() => handleDelete(record.id)} className="danger">
+                    <button type="button" onClick={() => void handleDelete(record.id)} className="danger" disabled={status === 'loading'}>
                       Delete
                     </button>
                   </td>
@@ -231,32 +228,29 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
           </table>
         </div>
         <form className="editor" onSubmit={handleSubmit}>
-          <h2>{selectedId ? 'Edit listing' : 'Create listing'}</h2>
+          <h2>{selectedId ? 'Update conveyancer' : 'Create conveyancer'}</h2>
           <div className="grid">
             <label>
               Email
               <input
+                type="email"
                 value={formState.email}
                 onChange={(event) => setFormState((prev) => ({ ...prev, email: event.target.value }))}
-                type="email"
-                required={!selectedId}
+                required
                 disabled={Boolean(selectedId)}
               />
             </label>
             <label>
               Full name
-              <input
-                value={formState.fullName}
-                onChange={(event) => setFormState((prev) => ({ ...prev, fullName: event.target.value }))}
-                required
-              />
+              <input value={formState.fullName} onChange={(event) => setFormState((prev) => ({ ...prev, fullName: event.target.value }))} required />
             </label>
             <label>
-              Firm name
-              <input
-                value={formState.firmName}
-                onChange={(event) => setFormState((prev) => ({ ...prev, firmName: event.target.value }))}
-              />
+              Firm
+              <input value={formState.firmName} onChange={(event) => setFormState((prev) => ({ ...prev, firmName: event.target.value }))} />
+            </label>
+            <label>
+              Phone
+              <input value={formState.phone} onChange={(event) => setFormState((prev) => ({ ...prev, phone: event.target.value }))} />
             </label>
             <label>
               State
@@ -264,81 +258,66 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
             </label>
             <label>
               Suburb
-              <input
-                value={formState.suburb}
-                onChange={(event) => setFormState((prev) => ({ ...prev, suburb: event.target.value }))}
-              />
-            </label>
-            <label>
-              Phone
-              <input value={formState.phone} onChange={(event) => setFormState((prev) => ({ ...prev, phone: event.target.value }))} />
+              <input value={formState.suburb} onChange={(event) => setFormState((prev) => ({ ...prev, suburb: event.target.value }))} />
             </label>
             <label>
               Website
-              <input
-                value={formState.website}
-                onChange={(event) => setFormState((prev) => ({ ...prev, website: event.target.value }))}
-              />
-            </label>
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={formState.remoteFriendly}
-                onChange={(event) => setFormState((prev) => ({ ...prev, remoteFriendly: event.target.checked }))}
-              />
-              Remote friendly
-            </label>
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={formState.verified}
-                onChange={(event) => setFormState((prev) => ({ ...prev, verified: event.target.checked }))}
-              />
-              Verified listing
+              <input value={formState.website} onChange={(event) => setFormState((prev) => ({ ...prev, website: event.target.value }))} />
             </label>
             <label>
               Turnaround
-              <input
-                value={formState.turnaround}
-                onChange={(event) => setFormState((prev) => ({ ...prev, turnaround: event.target.value }))}
-              />
+              <input value={formState.turnaround} onChange={(event) => setFormState((prev) => ({ ...prev, turnaround: event.target.value }))} />
             </label>
             <label>
               Response time
-              <input
-                value={formState.responseTime}
-                onChange={(event) => setFormState((prev) => ({ ...prev, responseTime: event.target.value }))}
-              />
+              <input value={formState.responseTime} onChange={(event) => setFormState((prev) => ({ ...prev, responseTime: event.target.value }))} />
             </label>
-            <label className="wide">
+            <label>
               Specialties
               <input value={formState.specialties.join(', ')} onChange={(event) => handleSpecialtiesChange(event.target.value)} />
             </label>
-            <label className="wide">
-              Bio
-              <textarea
-                value={formState.bio}
-                onChange={(event) => setFormState((prev) => ({ ...prev, bio: event.target.value }))}
-                rows={4}
-              />
+            <label>
+              Remote friendly
+              <input type="checkbox" checked={formState.remoteFriendly} onChange={(event) => setFormState((prev) => ({ ...prev, remoteFriendly: event.target.checked }))} />
+            </label>
+            <label>
+              Verified
+              <input type="checkbox" checked={formState.verified} onChange={(event) => setFormState((prev) => ({ ...prev, verified: event.target.checked }))} />
             </label>
             {!selectedId ? (
-              <label className="wide">
+              <label>
                 Temporary password
-                <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" minLength={12} />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Min 12 characters"
+                  minLength={12}
+                  required
+                />
               </label>
             ) : null}
+            <label className="span">
+              Bio
+              <textarea value={formState.bio} onChange={(event) => setFormState((prev) => ({ ...prev, bio: event.target.value }))} rows={4} />
+            </label>
           </div>
-          <button type="submit" disabled={status === 'saving'}>
-            {status === 'saving' ? 'Saving…' : 'Save changes'}
-          </button>
+          <div className="actions">
+            <button type="submit" disabled={status !== 'idle'}>
+              {selectedId ? 'Save changes' : 'Create account'}
+            </button>
+            {selectedId ? (
+              <button type="button" className="secondary" onClick={resetForm}>
+                Cancel
+              </button>
+            ) : null}
+          </div>
         </form>
       </section>
       <style jsx>{`
         .admin-section {
           display: grid;
-          gap: 2.5rem;
-          color: #e2e8f0;
+          gap: 2rem;
         }
 
         .section-header {
@@ -347,78 +326,71 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
           justify-content: space-between;
         }
 
-        h1 {
-          margin: 0;
-          font-size: 2.2rem;
-        }
-
         .link-button {
           border: none;
-          background: transparent;
+          background: none;
           color: #38bdf8;
-          font-weight: 600;
           cursor: pointer;
+          font-weight: 600;
         }
 
         .error {
           color: #fecaca;
-          background: rgba(248, 113, 113, 0.12);
-          padding: 0.75rem 1rem;
-          border-radius: 12px;
         }
 
         .table-wrapper {
           overflow-x: auto;
           border-radius: 18px;
           border: 1px solid rgba(148, 163, 184, 0.18);
-          background: rgba(15, 23, 42, 0.55);
         }
 
         table {
           width: 100%;
           border-collapse: collapse;
-          color: inherit;
+          background: rgba(15, 23, 42, 0.65);
         }
 
         th,
         td {
-          padding: 0.85rem 1.2rem;
-          border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+          padding: 0.75rem 1rem;
           text-align: left;
         }
 
-        tbody tr[data-active='true'] {
-          background: rgba(37, 99, 235, 0.18);
+        thead {
+          background: rgba(30, 41, 59, 0.65);
         }
 
-        td span {
-          display: block;
-          font-size: 0.85rem;
-          color: rgba(148, 163, 184, 0.9);
+        tbody tr:nth-child(odd) {
+          background: rgba(30, 41, 59, 0.3);
         }
 
-        td button {
-          margin-right: 0.5rem;
+        button {
           border: none;
-          border-radius: 8px;
-          padding: 0.35rem 0.75rem;
-          background: rgba(59, 130, 246, 0.16);
-          color: #93c5fd;
+          border-radius: 12px;
+          padding: 0.6rem 1.1rem;
+          font-weight: 600;
+          background: linear-gradient(135deg, #2563eb, #1d4ed8);
+          color: #f8fafc;
           cursor: pointer;
+          margin-right: 0.5rem;
         }
 
-        td button.danger {
-          background: rgba(248, 113, 113, 0.18);
-          color: #fecaca;
+        button.danger {
+          background: rgba(239, 68, 68, 0.85);
+        }
+
+        button.secondary {
+          background: rgba(148, 163, 184, 0.15);
+          color: rgba(226, 232, 240, 0.85);
         }
 
         .editor {
-          background: rgba(15, 23, 42, 0.6);
-          border: 1px solid rgba(148, 163, 184, 0.18);
+          padding: 1.75rem;
           border-radius: 18px;
-          padding: 2rem;
+          background: rgba(15, 23, 42, 0.65);
+          border: 1px solid rgba(148, 163, 184, 0.18);
           display: grid;
-          gap: 1.5rem;
+          gap: 1.25rem;
         }
 
         .grid {
@@ -431,44 +403,33 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
           display: grid;
           gap: 0.35rem;
           font-size: 0.9rem;
-          color: rgba(148, 163, 184, 0.9);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: rgba(148, 163, 184, 0.88);
         }
 
         input,
         textarea {
           border-radius: 12px;
-          border: 1px solid rgba(148, 163, 184, 0.2);
-          background: rgba(15, 23, 42, 0.5);
-          padding: 0.75rem 1rem;
+          border: 1px solid rgba(148, 163, 184, 0.3);
+          background: rgba(15, 23, 42, 0.6);
+          padding: 0.85rem 1rem;
           color: #f8fafc;
         }
 
-        textarea {
-          resize: vertical;
-        }
-
-        .checkbox {
-          align-items: center;
-          grid-template-columns: auto 1fr;
-        }
-
-        .checkbox input {
+        input[type='checkbox'] {
           width: auto;
-          margin-right: 0.5rem;
+          height: auto;
         }
 
-        .wide {
+        .span {
           grid-column: 1 / -1;
         }
 
-        .editor button {
-          width: fit-content;
-          padding: 0.75rem 1.5rem;
-          border-radius: 12px;
-          border: none;
-          background: linear-gradient(135deg, #2563eb, #1d4ed8);
-          color: #f8fafc;
-          font-weight: 600;
+        .actions {
+          display: flex;
+          gap: 0.75rem;
+          flex-wrap: wrap;
         }
       `}</style>
     </AdminLayout>
@@ -476,13 +437,6 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
 }
 
 export const getServerSideProps: GetServerSideProps<AdminConveyancersProps> = async ({ req }) => {
-  const adminHost = process.env.ADMIN_PORTAL_HOST?.toLowerCase()
-  const hostHeader = req.headers.host ?? ''
-  const hostname = hostHeader.split(':')[0].toLowerCase()
-  if (adminHost && hostname !== adminHost) {
-    return { notFound: true }
-  }
-
   const user = getSessionFromRequest(req)
   if (!user || user.role !== 'admin') {
     return {

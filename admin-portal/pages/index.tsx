@@ -1,9 +1,9 @@
 import Head from 'next/head'
 import type { GetServerSideProps } from 'next'
 
-import AdminLayout from '../../components/AdminLayout'
-import type { SessionUser } from '../../lib/session'
-import { getSessionFromRequest } from '../../lib/session'
+import AdminLayout from '../components/AdminLayout'
+import type { SessionUser } from '../../frontend/lib/session'
+import { getSessionFromRequest } from '../../frontend/lib/session'
 
 type Summary = {
   conveyancers: number
@@ -142,14 +142,7 @@ const AdminDashboard = ({ user, summary }: AdminDashboardProps): JSX.Element => 
   )
 }
 
-export const getServerSideProps: GetServerSideProps<AdminDashboardProps> = async ({ req }) => {
-  const adminHost = process.env.ADMIN_PORTAL_HOST?.toLowerCase()
-  const hostHeader = req.headers.host ?? ''
-  const hostname = hostHeader.split(':')[0].toLowerCase()
-  if (adminHost && hostname !== adminHost) {
-    return { notFound: true }
-  }
-
+export const getServerSideProps: GetServerSideProps<AdminDashboardProps> = async ({ req, res }) => {
   const user = getSessionFromRequest(req)
   if (!user || user.role !== 'admin') {
     return {
@@ -161,11 +154,13 @@ export const getServerSideProps: GetServerSideProps<AdminDashboardProps> = async
   }
 
   const protocol = (req.headers['x-forwarded-proto'] as string) ?? 'http'
-  const response = await fetch(`${protocol}://${hostHeader}/api/admin/summary`, {
+  const hostHeader = req.headers.host ?? 'localhost:5300'
+  const response = await fetch(`${protocol}://${hostHeader}/api/summary`, {
     headers: { cookie: req.headers.cookie ?? '' },
   })
   const summary = response.ok ? ((await response.json()) as Summary) : null
 
+  res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate')
   return { props: { user, summary } }
 }
 
