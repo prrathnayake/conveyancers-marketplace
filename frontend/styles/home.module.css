@@ -8,11 +8,11 @@
 }
 
 .hero {
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(59, 130, 246, 0.06));
-  border: 1px solid rgba(37, 99, 235, 0.08);
+  background: linear-gradient(135deg, var(--surface-brand-strong), var(--surface-brand-soft)), var(--surface-card);
+  border: 1px solid var(--surface-neutral-strong);
   border-radius: 32px;
   padding: 3.5rem clamp(1.5rem, 3vw, 3.5rem);
-  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-card-strong);
   display: grid;
   gap: 1.5rem;
 }
@@ -21,8 +21,8 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  background: rgba(37, 99, 235, 0.12);
-  color: #1d4ed8;
+  background: var(--surface-brand-soft);
+  color: var(--brand);
   padding: 0.4rem 0.85rem;
   border-radius: 9999px;
   font-weight: 600;
@@ -33,13 +33,13 @@
   margin: 0;
   font-size: clamp(2.5rem, 5vw, 3.5rem);
   line-height: 1.1;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .heroSubtitle {
   font-size: 1.1rem;
   max-width: 42rem;
-  color: #1e293b;
+  color: var(--text-secondary);
   margin: 0;
 }
 
@@ -51,32 +51,32 @@
 }
 
 .personaOption {
-  background: #ffffff;
-  border: 1px solid rgba(148, 163, 184, 0.5);
+  background: var(--surface-card);
+  border: 1px solid var(--surface-neutral-strong);
   border-radius: 999px;
   padding: 0.6rem 1.4rem;
   font-size: 0.95rem;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--text-primary);
   transition: all 0.2s ease;
 }
 
 .personaOption:hover,
 .personaOption:focus-visible {
-  border-color: rgba(37, 99, 235, 0.7);
+  border-color: var(--brand);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+  box-shadow: 0 0 0 3px var(--surface-brand-soft);
 }
 
 .personaOptionActive {
-  background: #1d4ed8;
-  color: #ffffff;
+  background: var(--brand);
+  color: var(--text-inverse);
   border-color: transparent;
 }
 
 .personaHeadline {
   font-size: 1.5rem;
-  color: #0f172a;
+  color: var(--text-primary);
   margin: 1rem 0 0;
 }
 
@@ -91,7 +91,7 @@
 .personaBenefit {
   position: relative;
   padding-left: 1.75rem;
-  color: #1f2937;
+  color: var(--text-secondary);
   line-height: 1.5;
 }
 
@@ -100,7 +100,7 @@
   position: absolute;
   left: 0;
   top: 0;
-  color: #1d4ed8;
+  color: var(--brand);
   font-weight: 700;
 }
 
@@ -118,9 +118,9 @@
 
 .heroSecondary {
   border-radius: 999px;
-  background: rgba(148, 163, 184, 0.15);
-  color: #1d4ed8;
-  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: var(--surface-neutral-soft);
+  color: var(--brand);
+  border: 1px solid var(--surface-neutral-strong);
 }
 
 .heroSecondary:hover,
@@ -134,7 +134,7 @@
 
 .heroLink {
   border-radius: 999px;
-  color: #1d4ed8;
+  color: var(--brand);
   padding: 0.3rem 0;
 }
 
@@ -147,16 +147,16 @@
 }
 
 .stat {
-  background: #ffffff;
+  background: var(--surface-card);
   border-radius: 20px;
   padding: 1.5rem;
-  border: 1px solid rgba(148, 163, 184, 0.3);
+  border: 1px solid var(--surface-neutral-strong);
 }
 
 .statLabel {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #64748b;
+  color: var(--text-secondary);
   margin: 0;
 }
 
@@ -164,12 +164,12 @@
   margin: 0.4rem 0;
   font-size: 1.9rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .statDetail {
   margin: 0;
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 0.95rem;
   line-height: 1.5;
 }
@@ -185,7 +185,7 @@
 
 .sectionHeading {
   font-size: clamp(2rem, 4vw, 2.75rem);
-  color: #0f172a;
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -196,34 +196,34 @@
 }
 
 .featureCard {
-  background: #ffffff;
+  background: var(--surface-card);
   border-radius: 20px;
   padding: 1.75rem;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.05);
+  border: 1px solid var(--surface-neutral-strong);
+  box-shadow: var(--shadow-card);
 }
 
 .featureCard h3 {
   margin: 0 0 0.75rem;
   font-size: 1.25rem;
-  color: #1d4ed8;
+  color: var(--brand);
 }
 
 .featureCard p {
   margin: 0;
-  color: #475569;
+  color: var(--text-secondary);
   line-height: 1.55;
 }
 
 .workflow {
-  background: #ffffff;
+  background: var(--surface-card);
   border-radius: 32px;
   padding: clamp(2rem, 4vw, 3rem);
-  border: 1px solid rgba(37, 99, 235, 0.1);
+  border: 1px solid var(--surface-brand-soft);
 }
 
 .workflowCopy p {
-  color: #475569;
+  color: var(--text-secondary);
   line-height: 1.6;
   margin: 0 0 1.5rem;
 }
@@ -243,25 +243,25 @@
   align-items: start;
   padding: 1.25rem 1.5rem;
   border-radius: 24px;
-  background: rgba(37, 99, 235, 0.04);
+  background: var(--surface-brand-soft);
 }
 
 .workflowStep {
   font-weight: 700;
   font-size: 0.95rem;
-  color: #1d4ed8;
+  color: var(--brand);
   letter-spacing: 0.12em;
 }
 
 .workflowSteps h3 {
   margin: 0 0 0.4rem;
   font-size: 1.2rem;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .workflowSteps p {
   margin: 0;
-  color: #475569;
+  color: var(--text-secondary);
   line-height: 1.55;
 }
 
@@ -277,10 +277,10 @@
 }
 
 .testimonialGrid figure {
-  background: #ffffff;
+  background: var(--surface-card);
   border-radius: 24px;
   padding: 2rem;
-  border: 1px solid rgba(148, 163, 184, 0.3);
+  border: 1px solid var(--surface-neutral-strong);
   text-align: left;
   display: flex;
   flex-direction: column;
@@ -291,7 +291,7 @@
   margin: 0;
   font-size: 1.05rem;
   line-height: 1.6;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .testimonialGrid figcaption {
@@ -299,12 +299,12 @@
   flex-direction: column;
   gap: 0.25rem;
   font-size: 0.95rem;
-  color: #475569;
+  color: var(--text-secondary);
 }
 
 .testimonialGrid figcaption span:first-of-type {
   font-weight: 600;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .resourcesSection {
@@ -321,22 +321,22 @@
 }
 
 .resourceCard {
-  background: #ffffff;
+  background: var(--surface-card);
   padding: 1.75rem;
   border-radius: 20px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.05);
+  border: 1px solid var(--surface-neutral-strong);
+  box-shadow: var(--shadow-card);
 }
 
 .resourceCard h3 {
   margin: 0 0 0.6rem;
-  color: #0f172a;
+  color: var(--text-primary);
   font-size: 1.2rem;
 }
 
 .resourceCard p {
   margin: 0 0 1rem;
-  color: #475569;
+  color: var(--text-secondary);
   line-height: 1.55;
 }
 
@@ -345,11 +345,11 @@
   gap: 2rem;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   align-items: start;
-  background: #ffffff;
+  background: var(--surface-card);
   padding: clamp(2.75rem, 4vw, 3.5rem);
   border-radius: 28px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+  border: 1px solid var(--surface-neutral-strong);
+  box-shadow: var(--shadow-card-strong);
 }
 
 .faq dl {
@@ -360,20 +360,20 @@
 
 .faq dt {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .faq dd {
   margin: 0.35rem 0 0;
-  color: #334155;
+  color: var(--text-secondary);
   line-height: 1.6;
 }
 
 .ctaSection {
-  background: linear-gradient(120deg, rgba(29, 78, 216, 0.92), rgba(37, 99, 235, 0.85));
+  background: linear-gradient(120deg, var(--brand), var(--accent));
   border-radius: 32px;
   padding: clamp(2.5rem, 5vw, 3.5rem);
-  color: #ffffff;
+  color: var(--text-inverse);
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   align-items: center;
 }
@@ -392,9 +392,9 @@
 }
 
 .ctaButtons .cta-secondary {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--text-inverse);
+  border-color: rgba(255, 255, 255, 0.4);
   border-radius: 999px;
 }
 
