@@ -10,10 +10,12 @@
 #include <initializer_list>
 #include <iostream>
 #include <iomanip>
+#include <map>
 #include <mutex>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <cstdio>
 #include <ctime>
@@ -146,6 +148,59 @@ inline void EmitLog(std::string_view service, std::string_view category, const s
 
 }  // namespace detail
 
+class MetricsRegistry {
+ public:
+  static MetricsRegistry &Instance() {
+    static MetricsRegistry instance;
+    return instance;
+  }
+
+  void RecordRequest(std::string_view service, std::string_view method, int status) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto &service_bucket = request_totals_[std::string(service)];
+    service_bucket[{std::string(method), status}] += 1;
+  }
+
+  void RecordAuthFailure(std::string_view service, std::string_view category) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auth_failures_[std::string(service)][std::string(category)] += 1;
+  }
+
+  std::string Render(std::string_view service) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto service_key = std::string(service);
+    std::ostringstream oss;
+    oss << "# HELP service_request_total Total HTTP requests handled by the service" << '\n';
+    oss << "# TYPE service_request_total counter" << '\n';
+    if (auto it = request_totals_.find(service_key); it != request_totals_.end()) {
+      for (const auto &entry : it->second) {
+        const auto &method = std::get<0>(entry.first);
+        const auto status = std::get<1>(entry.first);
+        oss << "service_request_total{service=\"" << service_key << "\",method=\"" << method
+            << "\",status=\"" << status << "\"} " << entry.second << '\n';
+      }
+    }
+    oss << "# HELP service_auth_failures_total Authentication and authorization failures" << '\n';
+    oss << "# TYPE service_auth_failures_total counter" << '\n';
+    if (auto it = auth_failures_.find(service_key); it != auth_failures_.end()) {
+      for (const auto &entry : it->second) {
+        oss << "service_auth_failures_total{service=\"" << service_key << "\",category=\""
+            << entry.first << "\"} " << entry.second << '\n';
+      }
+    }
+    return oss.str();
+  }
+
+ private:
+  using RequestKey = std::tuple<std::string, int>;
+
+  MetricsRegistry() = default;
+
+  std::mutex mutex_;
+  std::map<std::string, std::map<RequestKey, long long>> request_totals_;
+  std::map<std::string, std::map<std::string, long long>> auth_failures_;
+};
+
 inline void LogEvent(std::string_view service, std::string_view category, const std::string &message,
                      std::string_view context = {}) {
   detail::EmitLog(service, category, message, context);
@@ -175,6 +230,7 @@ inline bool Authorize(const httplib::Request &req, httplib::Response &res,
     oss << "Denied " << req.method << ' ' << req.path << " from " << req.remote_addr
         << " missing or invalid API key";
     LogEvent(service_name, "security", oss.str(), RequestId(req));
+    MetricsRegistry::Instance().RecordAuthFailure(service_name, "api_key");
     return false;
   }
   return true;
@@ -190,6 +246,7 @@ inline bool RequireRole(const httplib::Request &req, httplib::Response &res,
     std::ostringstream oss;
     oss << "Missing role for action " << action;
     LogEvent(service_name, "authorization", oss.str(), RequestId(req));
+    MetricsRegistry::Instance().RecordAuthFailure(service_name, "missing_role");
     return false;
   }
   if (std::find(allowed_roles.begin(), allowed_roles.end(), role) == allowed_roles.end()) {
@@ -198,6 +255,7 @@ inline bool RequireRole(const httplib::Request &req, httplib::Response &res,
     std::ostringstream oss;
     oss << "Role " << role << " blocked for action " << action;
     LogEvent(service_name, "authorization", oss.str(), RequestId(req));
+    MetricsRegistry::Instance().RecordAuthFailure(service_name, "role_blocked");
     return false;
   }
   return true;
@@ -208,6 +266,7 @@ inline void ConfigureServer(httplib::Server &server, std::string_view service_na
     std::ostringstream oss;
     oss << req.method << ' ' << req.path << " -> " << res.status;
     LogEvent(service_name, "http", oss.str(), RequestId(req));
+    MetricsRegistry::Instance().RecordRequest(service_name, req.method, res.status);
   });
 
   server.set_exception_handler([service_name](const auto &req, auto &res, std::exception_ptr ep) {
@@ -233,6 +292,19 @@ inline void AttachStandardHandlers(httplib::Server &server, std::string_view ser
     std::ostringstream oss;
     oss << "Error handler invoked for " << req.method << ' ' << req.path << " -> " << res.status;
     LogEvent(service_name, "error", oss.str(), RequestId(req));
+  });
+}
+
+inline void ExposeMetrics(httplib::Server &server, std::string_view service_name) {
+  server.Get("/metrics", [service_name](const httplib::Request &req, httplib::Response &res) {
+    if (!Authorize(req, res, service_name)) {
+      return;
+    }
+    if (!RequireRole(req, res, {"admin"}, service_name, "view_metrics")) {
+      return;
+    }
+    res.set_content(MetricsRegistry::Instance().Render(service_name),
+                    "text/plain; version=0.0.4; charset=utf-8");
   });
 }
 

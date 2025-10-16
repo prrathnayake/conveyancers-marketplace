@@ -46,6 +46,7 @@ std::string ForwardQueryString(const httplib::Params &params) {
 int main() {
   httplib::Server svr;
   security::AttachStandardHandlers(svr, "gateway");
+  security::ExposeMetrics(svr, "gateway");
   svr.Get("/healthz", [](const httplib::Request &, httplib::Response &res) {
     res.set_content("{\"ok\":true}", "application/json");
   });

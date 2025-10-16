@@ -627,6 +627,7 @@ int main() {
   httplib::Server server;
 
   security::AttachStandardHandlers(server, "payments");
+  security::ExposeMetrics(server, "payments");
 
   server.Get("/healthz", [](const httplib::Request &, httplib::Response &res) {
     res.set_content("{\"ok\":true}", "application/json");

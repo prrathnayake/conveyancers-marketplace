@@ -431,6 +431,58 @@ class IdentityStore {
     return events;
   }
 
+  json ListComplianceAlerts() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    json alerts = json::array();
+    const auto threshold = FormatDateOnly(std::chrono::system_clock::now() + std::chrono::hours(24 * 30));
+    for (const auto &[profile_id, profile] : profiles_) {
+      json base{{"profile_id", profile_id},
+                {"account_id", profile.account_id},
+                {"name", profile.name},
+                {"state", profile.state},
+                {"email", profile.email}};
+      if (!profile.compliance.kyc_verified) {
+        json alert = base;
+        alert["type"] = "kyc_pending";
+        alert["severity"] = "high";
+        alerts.push_back(std::move(alert));
+      }
+      if (profile.compliance.kyc_verified && !profile.compliance.licence_verified) {
+        json alert = base;
+        alert["type"] = "licence_unverified";
+        alert["severity"] = "high";
+        alerts.push_back(std::move(alert));
+      }
+      if (!profile.compliance.insurance_expiry.empty() &&
+          profile.compliance.insurance_expiry <= threshold) {
+        json alert = base;
+        alert["type"] = "insurance_expiring";
+        alert["severity"] = "medium";
+        alert["insurance_expiry"] = profile.compliance.insurance_expiry;
+        alerts.push_back(std::move(alert));
+      }
+    }
+    return alerts;
+  }
+
+  json PurgeAuditLog(int retention_days) {
+    if (retention_days < 1) {
+      retention_days = 1;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto cutoff_point = std::chrono::system_clock::now() - std::chrono::hours(24 * retention_days);
+    const auto cutoff_iso = FormatIso8601(cutoff_point);
+    const auto before = audit_log_.size();
+    audit_log_.erase(std::remove_if(audit_log_.begin(), audit_log_.end(),
+                                    [&](const AuditEvent &event) { return event.created_at < cutoff_iso; }),
+                     audit_log_.end());
+    const auto removed = before - audit_log_.size();
+    return json{{"retention_days", retention_days},
+                {"removed", removed},
+                {"remaining", audit_log_.size()},
+                {"cutoff", cutoff_iso}};
+  }
+
  private:
   static std::string ToLower(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
@@ -490,19 +542,28 @@ class IdentityStore {
     return false;
   }
 
-  static std::string NowIso8601() {
-    const auto now = std::chrono::system_clock::now();
-    const auto time = std::chrono::system_clock::to_time_t(now);
+  static std::string FormatDate(std::chrono::system_clock::time_point point, const char *format) {
+    const auto time = std::chrono::system_clock::to_time_t(point);
     std::tm tm;
 #ifdef _WIN32
     gmtime_s(&tm, &time);
 #else
     gmtime_r(&time, &tm);
 #endif
-    std::ostringstream oss;
-    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
-    return oss.str();
+    char buffer[32];
+    std::strftime(buffer, sizeof(buffer), format, &tm);
+    return buffer;
   }
+
+  static std::string FormatIso8601(std::chrono::system_clock::time_point point) {
+    return FormatDate(point, "%Y-%m-%dT%H:%M:%SZ");
+  }
+
+  static std::string FormatDateOnly(std::chrono::system_clock::time_point point) {
+    return FormatDate(point, "%Y-%m-%d");
+  }
+
+  static std::string NowIso8601() { return FormatIso8601(std::chrono::system_clock::now()); }
 
   void RecordAudit(const std::string &actor_account_id, const std::string &action,
                    const std::string &entity, const json &metadata) {
@@ -594,6 +655,7 @@ int main() {
   httplib::Server server;
 
   security::AttachStandardHandlers(server, "identity");
+  security::ExposeMetrics(server, "identity");
 
   server.Get("/healthz", [](const httplib::Request &, httplib::Response &res) {
     res.set_content("{\"ok\":true}", "application/json");
@@ -879,6 +941,34 @@ int main() {
       return;
     }
     res.set_content(Store().ListAuditEvents().dump(), "application/json");
+  });
+
+  server.Get("/admin/compliance/alerts", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "identity")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"admin"}, "identity", "compliance_alerts")) {
+      return;
+    }
+    res.set_content(Store().ListComplianceAlerts().dump(), "application/json");
+  });
+
+  server.Post("/admin/audit/purge", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "identity")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"admin"}, "identity", "purge_audit")) {
+      return;
+    }
+    json payload = json::object();
+    if (!req.body.empty()) {
+      payload = ParseJson(req, res);
+      if (res.status == 400 && !res.body.empty()) {
+        return;
+      }
+    }
+    const auto retention_days = payload.value("retention_days", 365);
+    res.set_content(Store().PurgeAuditLog(retention_days).dump(), "application/json");
   });
 
   constexpr auto kBindAddress = "0.0.0.0";
