@@ -50,28 +50,32 @@ const AdminAuditLog = ({ user }: AuditLogPageProps): JSX.Element => {
         <title>Audit activity</title>
       </Head>
       <section className="admin-section">
-        <header className="section-header">
+        <header className="admin-section__header">
           <div>
-            <h1>Audit trail</h1>
-            <p>Investigate administrative activity with immutable entries.</p>
+            <h1 className="admin-section__title">Audit trail</h1>
+            <p className="admin-section__description">Investigate administrative activity with immutable entries.</p>
           </div>
-          <span className="badge">{user.email}</span>
+          <span className="admin-badge">{user.email}</span>
         </header>
 
-        {error ? <p className="error">{error}</p> : null}
+        {error ? (
+          <p className="admin-error" role="alert">
+            {error}
+          </p>
+        ) : null}
 
         {loading ? (
           <p>Loading activity…</p>
         ) : entries.length === 0 ? (
           <p>No audit entries recorded.</p>
         ) : (
-          <ul className="audit-list">
+          <ul className="admin-audit-list">
             {entries.map((entry) => (
-              <li key={entry.id}>
+              <li key={entry.id} className="admin-audit-item">
                 <div>
                   <strong>{entry.action}</strong> on <span>{entry.entity}</span>
                 </div>
-                <div className="meta">
+                <div className="admin-audit-meta">
                   <span>{entry.actorEmail ?? 'system'}</span>
                   <time dateTime={entry.createdAt}>{new Date(entry.createdAt).toLocaleString()}</time>
                 </div>
@@ -81,59 +85,6 @@ const AdminAuditLog = ({ user }: AuditLogPageProps): JSX.Element => {
           </ul>
         )}
       </section>
-      <style jsx>{`
-        .admin-section {
-          display: grid;
-          gap: 2rem;
-        }
-
-        .section-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
-
-        .badge {
-          padding: 0.35rem 0.75rem;
-          border-radius: 999px;
-          background: rgba(96, 165, 250, 0.2);
-          border: 1px solid rgba(96, 165, 250, 0.35);
-        }
-
-        .audit-list {
-          list-style: none;
-          margin: 0;
-          padding: 0;
-          display: grid;
-          gap: 1.25rem;
-        }
-
-        li {
-          padding: 1.5rem;
-          border-radius: 18px;
-          background: rgba(15, 23, 42, 0.65);
-          border: 1px solid rgba(148, 163, 184, 0.18);
-        }
-
-        li span {
-          color: #38bdf8;
-        }
-
-        .meta {
-          display: flex;
-          gap: 1rem;
-          font-size: 0.9rem;
-          color: rgba(148, 163, 184, 0.88);
-        }
-
-        .meta time {
-          font-variant-numeric: tabular-nums;
-        }
-
-        .error {
-          color: #fecaca;
-        }
-      `}</style>
     </AdminLayout>
   )
 }

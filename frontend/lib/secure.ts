@@ -14,7 +14,10 @@ type BufferPayload = {
 
 const decodeKey = (): Buffer => {
   const secret = process.env.CHAT_ENCRYPTION_KEY
-  const buffer = secret ? Buffer.from(secret, 'base64') : Buffer.from('0123456789abcdef0123456789abcdef')
+  if (!secret) {
+    throw new Error('CHAT_ENCRYPTION_KEY must be configured before encrypting chat payloads')
+  }
+  const buffer = Buffer.from(secret, 'base64')
   if (buffer.length !== 32) {
     throw new Error('CHAT_ENCRYPTION_KEY must be a 32-byte value encoded with base64')
   }

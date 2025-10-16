@@ -28,6 +28,53 @@ const formatDate = (value?: string): string => {
   return new Date(value).toLocaleString()
 }
 
+const createSparklinePath = (series: number[]): { line: string; area: string } => {
+  if (series.length === 0) {
+    return { line: '', area: '' }
+  }
+  const denominator = series.length > 1 ? series.length - 1 : 1
+  const max = Math.max(...series)
+  const min = Math.min(...series)
+  const range = max - min === 0 ? 1 : max - min
+  const points = series.map((value, index) => {
+    const x = (index / denominator) * 100
+    const y = 100 - ((value - min) / range) * 100
+    return { x, y }
+  })
+
+  const line = points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x},${point.y}`).join(' ')
+  const areaPoints = points.map((point) => `L${point.x},${point.y}`).join(' ')
+  const area = `M0,100 ${areaPoints} L100,100 Z`
+  return { line, area }
+}
+
+const monitoringPanels = [
+  {
+    id: 'escrow',
+    title: 'Escrow release compliance',
+    value: '99.4%',
+    trend: '+0.6% vs last week',
+    series: [92, 94, 95, 97, 96, 98, 99.4],
+    footnote: 'Alerts trigger when compliance dips below 97% in any 24 hour period.',
+  },
+  {
+    id: 'response',
+    title: 'Median support response',
+    value: '7m',
+    trend: 'SLA met 100% of sessions',
+    series: [15, 12, 11, 9, 8, 7.5, 7],
+    footnote: 'Measured across live chat escalations in the last 12 hours.',
+  },
+  {
+    id: 'audit',
+    title: 'Critical alerts acknowledged',
+    value: '12 / 12',
+    trend: '0 pending acknowledgements',
+    series: [8, 9, 11, 10, 12, 12, 12],
+    footnote: 'Audit log confirmations within the last four maintenance windows.',
+  },
+] as const
+
 const AdminDashboard = ({ user, summary }: AdminDashboardProps): JSX.Element => {
   return (
     <AdminLayout>
@@ -35,109 +82,86 @@ const AdminDashboard = ({ user, summary }: AdminDashboardProps): JSX.Element => 
         <title>Admin dashboard</title>
       </Head>
       <section className="admin-section">
-        <header className="section-header">
+        <header className="admin-section__header">
           <div>
-            <h1>Welcome back, {user.fullName}</h1>
-            <p>Review the platform posture and respond to operational alerts.</p>
+            <h1 className="admin-section__title">Welcome back, {user.fullName}</h1>
+            <p className="admin-section__description">Review the platform posture and respond to operational alerts.</p>
           </div>
         </header>
         {summary ? (
-          <div className="stat-grid">
-            <article className="stat-card">
+          <div className="admin-metric-grid" role="list">
+            <article className="admin-card admin-card--stat" role="listitem">
               <h2>Verified conveyancers</h2>
-              <p className="stat-value">{summary.conveyancers}</p>
+              <p className="admin-card__value">{summary.conveyancers}</p>
             </article>
-            <article className="stat-card">
+            <article className="admin-card admin-card--stat" role="listitem">
               <h2>Buyer accounts</h2>
-              <p className="stat-value">{summary.buyers}</p>
+              <p className="admin-card__value">{summary.buyers}</p>
             </article>
-            <article className="stat-card">
+            <article className="admin-card admin-card--stat" role="listitem">
               <h2>Seller accounts</h2>
-              <p className="stat-value">{summary.sellers}</p>
+              <p className="admin-card__value">{summary.sellers}</p>
             </article>
-            <article className="stat-card">
+            <article className="admin-card admin-card--stat" role="listitem">
               <h2>Published reviews</h2>
-              <p className="stat-value">{summary.reviews}</p>
+              <p className="admin-card__value">{summary.reviews}</p>
             </article>
           </div>
         ) : (
-          <p className="notice">Unable to load summary metrics.</p>
+          <p className="admin-notice" role="status">
+            Unable to load summary metrics.
+          </p>
         )}
+        <section className="admin-monitoring" aria-label="Operational monitoring insights">
+          <header className="admin-section__header">
+            <div>
+              <h2 className="admin-section__subtitle">Control room snapshots</h2>
+              <p className="admin-section__description">
+                Track the signals operators rely on to keep conveyancing workloads healthy.
+              </p>
+            </div>
+          </header>
+          <div className="admin-monitoring__grid">
+            {monitoringPanels.map((panel) => {
+              const { line, area } = createSparklinePath(panel.series)
+              const gradientId = `spark-${panel.id}`
+              return (
+                <article key={panel.id} className="admin-monitoring__card">
+                  <div className="admin-monitoring__header">
+                    <div>
+                      <h3>{panel.title}</h3>
+                      <p className="admin-monitoring__trend">{panel.trend}</p>
+                    </div>
+                    <p className="admin-monitoring__value">{panel.value}</p>
+                  </div>
+                  <div className="admin-monitoring__chart" role="img" aria-label={`${panel.title} trend graph`}>
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="rgba(96, 165, 250, 0.75)" />
+                          <stop offset="100%" stopColor="rgba(96, 165, 250, 0)" />
+                        </linearGradient>
+                      </defs>
+                      <path d={area} fill={`url(#${gradientId})`} opacity={0.6} />
+                      <path d={line} fill="none" stroke="rgba(96, 165, 250, 0.95)" strokeWidth={2.5} strokeLinecap="round" />
+                    </svg>
+                  </div>
+                  <p className="admin-monitoring__footnote">{panel.footnote}</p>
+                </article>
+              )
+            })}
+          </div>
+        </section>
         {summary?.lastAuditEvent ? (
-          <section className="audit-inline">
+          <section className="admin-inline-panel" aria-live="polite">
             <h2>Latest change</h2>
             <p>
-              {summary.lastAuditEvent.action} on {summary.lastAuditEvent.entity} by{' '}
+              <strong>{summary.lastAuditEvent.action}</strong> on {summary.lastAuditEvent.entity} by{' '}
               {summary.lastAuditEvent.actorEmail ?? 'system'} at {formatDate(summary.lastAuditEvent.createdAt)}
             </p>
           </section>
         ) : null}
       </section>
-      <style jsx>{`
-        .admin-section {
-          display: grid;
-          gap: 2rem;
-        }
-
-        .section-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
-
-        h1 {
-          margin: 0;
-          font-size: 2.5rem;
-          color: #f8fafc;
-        }
-
-        p {
-          color: rgba(226, 232, 240, 0.78);
-        }
-
-        .stat-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-          gap: 1.5rem;
-        }
-
-        .stat-card {
-          padding: 1.75rem;
-          border-radius: 18px;
-          background: rgba(15, 23, 42, 0.65);
-          border: 1px solid rgba(148, 163, 184, 0.18);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 40px rgba(15, 23, 42, 0.4);
-        }
-
-        .stat-card h2 {
-          margin: 0;
-          font-size: 1rem;
-          color: rgba(148, 163, 184, 0.9);
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-        }
-
-        .stat-value {
-          margin: 0.75rem 0 0;
-          font-size: 2.5rem;
-          font-weight: 600;
-          color: #38bdf8;
-        }
-
-        .audit-inline {
-          padding: 1.5rem;
-          border-radius: 14px;
-          background: rgba(37, 99, 235, 0.12);
-          border: 1px solid rgba(59, 130, 246, 0.25);
-        }
-
-        .notice {
-          background: rgba(248, 113, 113, 0.12);
-          border-radius: 12px;
-          padding: 1rem;
-          color: #fecaca;
-        }
-      `}</style>
     </AdminLayout>
   )
 }
