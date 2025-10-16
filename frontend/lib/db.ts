@@ -112,6 +112,17 @@ db.exec(`
     value TEXT NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS service_catalogue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    audience TEXT DEFAULT '',
+    preview_markdown TEXT DEFAULT '',
+    features TEXT DEFAULT '[]',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `)
 
 const ensureColumn = (table: string, column: string, ddl: string): void => {
@@ -128,5 +139,8 @@ ensureColumn('conveyancer_profiles', 'turnaround', "turnaround TEXT DEFAULT ''")
 ensureColumn('conveyancer_profiles', 'response_time', "response_time TEXT DEFAULT ''")
 ensureColumn('conveyancer_profiles', 'specialties', "specialties TEXT DEFAULT '[]'")
 ensureColumn('conveyancer_profiles', 'verified', 'verified INTEGER DEFAULT 0')
+ensureColumn('service_catalogue', 'audience', "audience TEXT DEFAULT ''")
+ensureColumn('service_catalogue', 'preview_markdown', "preview_markdown TEXT DEFAULT ''")
+ensureColumn('service_catalogue', 'features', "features TEXT DEFAULT '[]'")
 
 export default db
