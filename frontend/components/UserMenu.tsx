@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { useTheme } from '../context/ThemeContext'
 
 const roleLabels: Record<string, string> = {
   buyer: 'Buyer',
@@ -14,7 +13,6 @@ const adminPortalUrl = process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL
 
 const UserMenu = (): JSX.Element => {
   const { user, logout } = useAuth()
-  const { theme, toggleTheme } = useTheme()
   const [open, setOpen] = useState(false)
 
   if (!user) {
@@ -26,9 +24,6 @@ const UserMenu = (): JSX.Element => {
         <Link href="/signup" className="cta-primary">
           Create account
         </Link>
-        <button type="button" className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme">
-          {theme === 'dark' ? '☀️' : '🌙'}
-        </button>
       </div>
     )
   }
@@ -49,9 +44,6 @@ const UserMenu = (): JSX.Element => {
         </span>
       </button>
       <div className="user-dropdown" role="menu">
-        <button type="button" className="dropdown-item" onClick={toggleTheme} role="menuitem">
-          Toggle {theme === 'dark' ? 'light' : 'dark'} mode
-        </button>
         <Link href="/account" className="dropdown-item" role="menuitem">
           Account settings
         </Link>

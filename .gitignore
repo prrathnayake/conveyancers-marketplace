@@ -4,3 +4,5 @@ infra/tls/dev.crt
 .env
 infra/.env
 frontend/data/*.db*
+node_modules
+**/node_modules
