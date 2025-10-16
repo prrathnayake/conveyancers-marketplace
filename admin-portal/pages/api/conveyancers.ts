@@ -1,10 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import bcrypt from 'bcryptjs'
 
-import { recordAuditEvent } from '../../../lib/audit'
-import db from '../../../lib/db'
-import { notifyAdminChange } from '../../../lib/notifications'
-import { requireRole } from '../../../lib/session'
+import { recordAuditEvent } from '../../../frontend/lib/audit'
+import db from '../../../frontend/lib/db'
+import { notifyAdminChange } from '../../../frontend/lib/notifications'
+import { requireRole } from '../../../frontend/lib/session'
 
 type ConveyancerRecord = {
   id: number
@@ -194,7 +194,7 @@ const handler = async (req: NextApiRequest, res: NextApiResponse) => {
   try {
     if (req.method === 'GET') {
       const conveyancers = listConveyancers()
-      res.status(200).json({ conveyancers })
+      res.status(200).json(conveyancers)
       return
     }
 

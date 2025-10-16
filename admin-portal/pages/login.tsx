@@ -3,7 +3,7 @@ import type { GetServerSideProps } from 'next'
 import { useRouter } from 'next/router'
 import { FormEvent, useState } from 'react'
 
-import { getSessionFromRequest } from '../../lib/session'
+import { getSessionFromRequest } from '../../frontend/lib/session'
 
 const AdminLoginPage = (): JSX.Element => {
   const router = useRouter()
@@ -131,13 +131,6 @@ const AdminLoginPage = (): JSX.Element => {
 }
 
 export const getServerSideProps: GetServerSideProps = async ({ req }) => {
-  const adminHost = process.env.ADMIN_PORTAL_HOST?.toLowerCase()
-  const hostHeader = req.headers.host ?? ''
-  const hostname = hostHeader.split(':')[0].toLowerCase()
-  if (adminHost && hostname !== adminHost) {
-    return { notFound: true }
-  }
-
   const user = getSessionFromRequest(req)
   if (user && user.role === 'admin') {
     return {

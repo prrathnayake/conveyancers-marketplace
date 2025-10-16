@@ -1,9 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 
-import { recordAuditEvent } from '../../../lib/audit'
-import db from '../../../lib/db'
-import { notifyAdminChange } from '../../../lib/notifications'
-import { requireRole } from '../../../lib/session'
+import { recordAuditEvent } from '../../../frontend/lib/audit'
+import db from '../../../frontend/lib/db'
+import { notifyAdminChange } from '../../../frontend/lib/notifications'
+import { requireRole } from '../../../frontend/lib/session'
 
 type ReviewRecord = {
   id: number
@@ -49,7 +49,7 @@ const createReview = (payload: any) => {
 
   const info = db
     .prepare(
-      'INSERT INTO conveyancer_reviews (conveyancer_id, reviewer_name, rating, comment) VALUES (?, ?, ?, ?)' 
+      'INSERT INTO conveyancer_reviews (conveyancer_id, reviewer_name, rating, comment) VALUES (?, ?, ?, ?)'
     )
     .run(conveyancerId, reviewerName.trim(), rating, comment.trim())
   return Number(info.lastInsertRowid)
@@ -70,7 +70,7 @@ const handler = async (req: NextApiRequest, res: NextApiResponse) => {
       const { conveyancerId } = req.query
       const numericId = typeof conveyancerId === 'string' ? Number(conveyancerId) : undefined
       const reviews = listReviews(Number.isFinite(numericId) ? numericId : undefined)
-      res.status(200).json({ reviews })
+      res.status(200).json(reviews)
       return
     }
 

@@ -3,10 +3,10 @@ import { useRouter } from 'next/router'
 import type { FC, ReactNode } from 'react'
 
 const navItems = [
-  { href: '/admin-portal', label: 'Dashboard' },
-  { href: '/admin-portal/conveyancers', label: 'Conveyancers' },
-  { href: '/admin-portal/reviews', label: 'Reviews' },
-  { href: '/admin-portal/audit-log', label: 'Audit log' },
+  { href: '/', label: 'Dashboard' },
+  { href: '/conveyancers', label: 'Conveyancers' },
+  { href: '/reviews', label: 'Reviews' },
+  { href: '/audit-log', label: 'Audit log' },
 ]
 
 type AdminLayoutProps = {
@@ -33,6 +33,9 @@ const AdminLayout: FC<AdminLayoutProps> = ({ children }) => {
             )
           })}
         </nav>
+        <a className="admin-nav__item admin-nav__item--muted" href={process.env.NEXT_PUBLIC_MAIN_APP_URL ?? 'http://localhost:5173'}>
+          ← Back to marketplace
+        </a>
       </aside>
       <main className="admin-content">{children}</main>
       <style jsx>{`
@@ -50,7 +53,7 @@ const AdminLayout: FC<AdminLayoutProps> = ({ children }) => {
           border-right: 1px solid rgba(148, 163, 184, 0.14);
           display: flex;
           flex-direction: column;
-          gap: 2.5rem;
+          gap: 2rem;
           background: rgba(15, 23, 42, 0.7);
           backdrop-filter: blur(12px);
         }
@@ -104,6 +107,12 @@ const AdminLayout: FC<AdminLayoutProps> = ({ children }) => {
           box-shadow: 0 12px 24px rgba(37, 99, 235, 0.3);
         }
 
+        .admin-nav__item--muted {
+          margin-top: auto;
+          font-size: 0.9rem;
+          opacity: 0.7;
+        }
+
         .admin-content {
           padding: 3rem;
           background: linear-gradient(160deg, rgba(15, 23, 42, 0.88), rgba(15, 23, 42, 0.94));
@@ -122,6 +131,9 @@ const AdminLayout: FC<AdminLayoutProps> = ({ children }) => {
           .admin-nav {
             display: flex;
             gap: 0.5rem;
+          }
+          .admin-nav__item--muted {
+            margin-top: 0;
           }
         }
       `}</style>

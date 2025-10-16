@@ -2,9 +2,9 @@ import Head from 'next/head'
 import type { GetServerSideProps } from 'next'
 import { FormEvent, useEffect, useState } from 'react'
 
-import AdminLayout from '../../components/AdminLayout'
-import type { SessionUser } from '../../lib/session'
-import { getSessionFromRequest } from '../../lib/session'
+import AdminLayout from '../components/AdminLayout'
+import type { SessionUser } from '../../frontend/lib/session'
+import { getSessionFromRequest } from '../../frontend/lib/session'
 
 type Review = {
   id: number
@@ -28,12 +28,12 @@ const AdminReviews = ({ user }: AdminReviewsProps): JSX.Element => {
   const loadRecords = async () => {
     setStatus('loading')
     try {
-      const response = await fetch('/api/admin/reviews')
+      const response = await fetch('/api/reviews')
       if (!response.ok) {
         throw new Error('load_failed')
       }
-      const payload = (await response.json()) as { reviews: Review[] }
-      setRecords(payload.reviews)
+      const payload = (await response.json()) as Review[]
+      setRecords(payload)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unexpected error')
     } finally {
@@ -52,7 +52,7 @@ const AdminReviews = ({ user }: AdminReviewsProps): JSX.Element => {
     setStatus('loading')
     setError(null)
     try {
-      const response = await fetch(`/api/admin/reviews?id=${id}`, { method: 'DELETE' })
+      const response = await fetch(`/api/reviews?id=${id}`, { method: 'DELETE' })
       if (!response.ok) {
         throw new Error('delete_failed')
       }
@@ -69,7 +69,7 @@ const AdminReviews = ({ user }: AdminReviewsProps): JSX.Element => {
     setStatus('saving')
     setError(null)
     try {
-      const response = await fetch('/api/admin/reviews', {
+      const response = await fetch('/api/reviews', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -204,63 +204,63 @@ const AdminReviews = ({ user }: AdminReviewsProps): JSX.Element => {
           overflow-x: auto;
           border-radius: 18px;
           border: 1px solid rgba(148, 163, 184, 0.18);
-          background: rgba(15, 23, 42, 0.55);
         }
 
         table {
           width: 100%;
           border-collapse: collapse;
+          background: rgba(15, 23, 42, 0.65);
         }
 
         th,
         td {
           padding: 0.75rem 1rem;
-          border-bottom: 1px solid rgba(148, 163, 184, 0.12);
           text-align: left;
         }
 
-        button.danger {
+        thead {
+          background: rgba(30, 41, 59, 0.65);
+        }
+
+        tbody tr:nth-child(odd) {
+          background: rgba(30, 41, 59, 0.3);
+        }
+
+        button {
           border: none;
-          border-radius: 10px;
-          padding: 0.4rem 0.9rem;
-          background: rgba(248, 113, 113, 0.18);
-          color: #fecaca;
+          border-radius: 12px;
+          padding: 0.6rem 1.1rem;
+          font-weight: 600;
+          background: rgba(239, 68, 68, 0.85);
+          color: #f8fafc;
           cursor: pointer;
         }
 
         .editor {
           display: grid;
           gap: 1rem;
-          background: rgba(15, 23, 42, 0.6);
+          background: rgba(15, 23, 42, 0.65);
           border-radius: 18px;
-          padding: 1.75rem;
           border: 1px solid rgba(148, 163, 184, 0.18);
+          padding: 1.75rem;
         }
 
         label {
           display: grid;
           gap: 0.35rem;
           font-size: 0.9rem;
-          color: rgba(148, 163, 184, 0.9);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: rgba(148, 163, 184, 0.88);
         }
 
         input,
         textarea {
           border-radius: 12px;
-          border: 1px solid rgba(148, 163, 184, 0.2);
-          background: rgba(15, 23, 42, 0.5);
-          padding: 0.75rem 1rem;
+          border: 1px solid rgba(148, 163, 184, 0.3);
+          background: rgba(15, 23, 42, 0.6);
+          padding: 0.85rem 1rem;
           color: #f8fafc;
-        }
-
-        button[type='submit'] {
-          width: fit-content;
-          padding: 0.75rem 1.5rem;
-          border-radius: 12px;
-          border: none;
-          background: linear-gradient(135deg, #2563eb, #1d4ed8);
-          color: #f8fafc;
-          font-weight: 600;
         }
       `}</style>
     </AdminLayout>
@@ -268,13 +268,6 @@ const AdminReviews = ({ user }: AdminReviewsProps): JSX.Element => {
 }
 
 export const getServerSideProps: GetServerSideProps<AdminReviewsProps> = async ({ req }) => {
-  const adminHost = process.env.ADMIN_PORTAL_HOST?.toLowerCase()
-  const hostHeader = req.headers.host ?? ''
-  const hostname = hostHeader.split(':')[0].toLowerCase()
-  if (adminHost && hostname !== adminHost) {
-    return { notFound: true }
-  }
-
   const user = getSessionFromRequest(req)
   if (!user || user.role !== 'admin') {
     return {
