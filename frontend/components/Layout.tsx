@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import type { FC, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
+import ThemeToggle from './ThemeToggle'
 import UserMenu from './UserMenu'
 
 type PrimaryNavItem = {
@@ -62,6 +63,26 @@ const Layout: FC<LayoutProps> = ({ children }) => {
   }, [router.pathname])
 
   const [banner, setBanner] = useState<string>('')
+  const [isPageLoading, setIsPageLoading] = useState(false)
+
+  useEffect(() => {
+    const handleStart = () => {
+      setIsPageLoading(true)
+    }
+    const handleStop = () => {
+      setIsPageLoading(false)
+    }
+
+    router.events.on('routeChangeStart', handleStart)
+    router.events.on('routeChangeComplete', handleStop)
+    router.events.on('routeChangeError', handleStop)
+
+    return () => {
+      router.events.off('routeChangeStart', handleStart)
+      router.events.off('routeChangeComplete', handleStop)
+      router.events.off('routeChangeError', handleStop)
+    }
+  }, [router])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -104,7 +125,10 @@ const Layout: FC<LayoutProps> = ({ children }) => {
               )
             })}
           </nav>
-          <UserMenu />
+          <div className="site-header__actions">
+            <ThemeToggle />
+            <UserMenu />
+          </div>
         </div>
         <nav aria-label="Context" className="site-subnav">
           {subNav.map((item) => {
@@ -128,7 +152,17 @@ const Layout: FC<LayoutProps> = ({ children }) => {
           <strong>Notice:</strong> {banner}
         </div>
       ) : null}
-      <div className="site-content">{children}</div>
+      {isPageLoading ? (
+        <div className="page-loading-overlay" role="status" aria-live="polite">
+          <div className="page-loading-overlay__content">
+            <div className="page-loading-spinner" aria-hidden="true" />
+            <span className="page-loading-text">Loading</span>
+          </div>
+        </div>
+      ) : null}
+      <main className="site-content" aria-busy={isPageLoading} data-loading={isPageLoading}>
+        {children}
+      </main>
     </div>
   )
 }
