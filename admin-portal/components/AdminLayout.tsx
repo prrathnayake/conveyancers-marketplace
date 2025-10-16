@@ -9,6 +9,7 @@ const navItems = [
   { href: '/reviews', label: 'Reviews' },
   { href: '/enquiries', label: 'Enquiries' },
   { href: '/catalogue', label: 'Service catalogue' },
+  { href: '/safety', label: 'Safety & ML' },
   { href: '/audit-log', label: 'Audit log' },
   { href: '/system-logs', label: 'System logs' },
 ]

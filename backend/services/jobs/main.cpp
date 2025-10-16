@@ -1,9 +1,16 @@
 #include <algorithm>
 #include <chrono>
+#include <ctime>
+#include <iomanip>
 #include <iostream>
+#include <map>
 #include <mutex>
+#include <numeric>
 #include <optional>
 #include <random>
+#include <regex>
+#include <set>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -15,6 +22,134 @@
 using json = nlohmann::json;
 
 namespace {
+
+const std::regex kEmailPattern(R"(([A-Z0-9._%+-]+)@([A-Z0-9.-]+\.[A-Z]{2,}))", std::regex::icase);
+const std::regex kPhonePattern(R"((\+?61|0)[0-9\s-]{8,})", std::regex::icase);
+const std::regex kOffPlatformPattern(R"((whatsapp|signal|telegram|zoom|meet\s?link|call\s+me|email\s+me))",
+                                     std::regex::icase);
+
+std::string NowIso8601() {
+  const auto now = std::chrono::system_clock::now();
+  const auto time = std::chrono::system_clock::to_time_t(now);
+  std::tm tm;
+#if defined(_WIN32)
+  gmtime_s(&tm, &time);
+#else
+  gmtime_r(&time, &tm);
+#endif
+  char buffer[32];
+  std::strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &tm);
+  return buffer;
+}
+
+std::string MaskEmail(const std::string &value) {
+  if (value.empty()) {
+    return value;
+  }
+  std::smatch match;
+  if (!std::regex_search(value, match, kEmailPattern)) {
+    return "••••";
+  }
+  const auto local = match[1].str();
+  const auto domain = match[2].str();
+  std::string prefix = local.substr(0, std::min<size_t>(2, local.size()));
+  return prefix + "•••@" + domain;
+}
+
+std::string MaskPhone(const std::string &value) {
+  if (value.empty()) {
+    return value;
+  }
+  std::string digits;
+  digits.reserve(value.size());
+  for (const auto ch : value) {
+    if (std::isdigit(static_cast<unsigned char>(ch))) {
+      digits.push_back(ch);
+    }
+  }
+  if (digits.size() < 4) {
+    return "••••";
+  }
+  return std::string(digits.size() - 3, '•') + digits.substr(digits.size() - 3);
+}
+
+bool ContainsContactCoordinates(const std::string &text) {
+  return std::regex_search(text, kEmailPattern) || std::regex_search(text, kPhonePattern);
+}
+
+bool ContainsOffPlatformHint(const std::string &text) {
+  return std::regex_search(text, kOffPlatformPattern);
+}
+
+std::string ComposeJoinUrl(const std::string &call_id) {
+  return "https://calls.conveysafe.example/join/" + call_id;
+}
+
+std::string ComposeRecordingUrl(const std::string &call_id) {
+  return "https://calls.conveysafe.example/recordings/" + call_id + ".mp4";
+}
+
+std::string GenerateId(const std::string &prefix) {
+  static std::mt19937 rng{std::random_device{}()};
+  static std::uniform_int_distribution<int> dist(10000, 99999);
+  return prefix + std::to_string(dist(rng));
+}
+
+std::time_t ToUtcTimestamp(std::tm *tm) {
+#if defined(_WIN32)
+  return _mkgmtime(tm);
+#else
+  return timegm(tm);
+#endif
+}
+
+std::string AddDaysToDate(const std::string &date, int days) {
+  std::tm tm = {};
+  std::istringstream iss(date);
+  iss >> std::get_time(&tm, "%Y-%m-%d");
+  if (iss.fail()) {
+    return date;
+  }
+  auto timestamp = ToUtcTimestamp(&tm);
+  if (timestamp == -1) {
+    return date;
+  }
+  timestamp += static_cast<long long>(days) * 24 * 60 * 60;
+  std::tm result;
+#if defined(_WIN32)
+  gmtime_s(&result, &timestamp);
+#else
+  gmtime_r(&timestamp, &result);
+#endif
+  char buffer[16];
+  std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", &result);
+  return buffer;
+}
+
+ContactPolicy GenerateContactPolicy(const std::string &job_id, const std::string &conveyancer_id,
+                                    const std::string &buyer_email_override = std::string{},
+                                    const std::string &buyer_phone_override = std::string{},
+                                    const std::string &seller_email_override = std::string{},
+                                    const std::string &seller_phone_override = std::string{}) {
+  ContactPolicy policy;
+  policy.buyer_email = buyer_email_override.empty() ? "buyer-" + job_id + "@clients.conveysafe"
+                                                    : buyer_email_override;
+  policy.buyer_phone = buyer_phone_override.empty() ? "+611300" + job_id.substr(std::min<size_t>(job_id.size(), 4))
+                                                    : buyer_phone_override;
+  policy.seller_email = seller_email_override.empty() ? "seller-" + job_id + "@clients.conveysafe"
+                                                      : seller_email_override;
+  policy.seller_phone = seller_phone_override.empty() ? "+611300" + job_id.substr(std::min<size_t>(job_id.size(), 4))
+                                                      : seller_phone_override;
+  policy.conveyancer_email = conveyancer_id + "@pro.conveysafe";
+  policy.conveyancer_phone = "+612800" + conveyancer_id.substr(std::min<size_t>(conveyancer_id.size(), 4));
+  policy.buyer_email_masked = MaskEmail(policy.buyer_email);
+  policy.buyer_phone_masked = MaskPhone(policy.buyer_phone);
+  policy.seller_email_masked = MaskEmail(policy.seller_email);
+  policy.seller_phone_masked = MaskPhone(policy.seller_phone);
+  policy.conveyancer_email_masked = MaskEmail(policy.conveyancer_email);
+  policy.conveyancer_phone_masked = MaskPhone(policy.conveyancer_phone);
+  return policy;
+}
 
 struct Milestone {
   std::string id;
@@ -52,6 +187,127 @@ struct Dispute {
   std::vector<std::string> evidence_urls;
 };
 
+struct CallSession {
+  std::string id;
+  std::string type;
+  std::string status;
+  std::string created_at;
+  std::string created_by;
+  std::vector<std::string> participants;
+  std::string join_url;
+  std::string access_token;
+};
+
+struct CompletionCertificate {
+  std::string id;
+  std::string job_id;
+  std::string summary;
+  std::string issued_at;
+  std::string issued_by;
+  std::string download_url;
+  std::string verification_code;
+  bool verified = false;
+};
+
+struct ContactPolicy {
+  bool unlocked = false;
+  std::optional<std::string> unlocked_at;
+  std::string unlocked_by_role;
+  std::string buyer_email;
+  std::string buyer_phone;
+  std::string seller_email;
+  std::string seller_phone;
+  std::string conveyancer_email;
+  std::string conveyancer_phone;
+  std::string buyer_email_masked;
+  std::string buyer_phone_masked;
+  std::string seller_email_masked;
+  std::string seller_phone_masked;
+  std::string conveyancer_email_masked;
+  std::string conveyancer_phone_masked;
+};
+
+struct TemplateTask {
+  std::string id;
+  std::string title;
+  std::string default_assignee;
+  int due_in_days = 0;
+  bool escrow_required = false;
+};
+
+struct TemplateDefinition {
+  std::string id;
+  std::string name;
+  std::string jurisdiction;
+  std::string description;
+  std::vector<TemplateTask> tasks;
+};
+
+class TemplateLibrary {
+ public:
+  TemplateLibrary() {
+    TemplateDefinition purchase;
+    purchase.id = "tpl_residential_purchase";
+    purchase.name = "Residential purchase essentials";
+    purchase.jurisdiction = "NSW";
+    purchase.description = "Standard conveyancing workflow with finance, searches, and settlement prep.";
+    purchase.tasks = {{"tt_1", "Engagement agreement", "conveyancer", 1, false},
+                      {"tt_2", "Order council and strata searches", "conveyancer", 3, true},
+                      {"tt_3", "Prepare settlement pack", "conveyancer", 10, true}};
+    templates_.emplace(purchase.id, purchase);
+
+    TemplateDefinition sale;
+    sale.id = "tpl_residential_sale";
+    sale.name = "Residential sale checklist";
+    sale.jurisdiction = "VIC";
+    sale.description = "Tasks covering vendor statement, discharge of mortgage, and settlement handover.";
+    sale.tasks = {{"tt_4", "Issue Section 32 vendor statement", "conveyancer", 2, false},
+                  {"tt_5", "Coordinate discharge authority", "conveyancer", 5, true},
+                  {"tt_6", "Final settlement statement", "finance", 12, true}};
+    templates_.emplace(sale.id, sale);
+  }
+
+  std::vector<TemplateDefinition> List() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<TemplateDefinition> results;
+    for (const auto &entry : templates_) {
+      results.push_back(entry.second);
+    }
+    std::sort(results.begin(), results.end(), [](const auto &a, const auto &b) { return a.name < b.name; });
+    return results;
+  }
+
+  std::optional<TemplateDefinition> Get(const std::string &id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (auto it = templates_.find(id); it != templates_.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  }
+
+  TemplateDefinition Create(const std::string &name, const std::string &jurisdiction,
+                            const std::string &description, const std::vector<TemplateTask> &tasks) {
+    TemplateDefinition definition;
+    definition.id = GenerateId("tpl_");
+    definition.name = name;
+    definition.jurisdiction = jurisdiction;
+    definition.description = description;
+    definition.tasks = tasks;
+    std::lock_guard<std::mutex> lock(mutex_);
+    templates_[definition.id] = definition;
+    return definition;
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  std::map<std::string, TemplateDefinition> templates_;
+};
+
+TemplateLibrary &Templates() {
+  static TemplateLibrary library;
+  return library;
+}
+
 struct Job {
   std::string id;
   std::string title;
@@ -69,6 +325,14 @@ struct Job {
   std::vector<Dispute> disputes;
   std::string risk_level = "low";
   std::string compliance_notes;
+  ContactPolicy contact_policy;
+  std::vector<CallSession> calls;
+  std::vector<std::string> compliance_flags;
+  std::optional<CompletionCertificate> certificate;
+  std::string buyer_ip;
+  std::string seller_ip;
+  std::string quote_issued_at;
+  std::string last_activity_at;
 };
 
 class JobStore {
@@ -119,6 +383,11 @@ class JobStore {
     job.opened_at = NowIso8601();
     job.milestones = milestones;
     job.compliance_notes = "Escrow monitoring enabled";
+    job.quote_issued_at = job.opened_at;
+    job.last_activity_at = job.opened_at;
+    job.contact_policy = GenerateContactPolicy(job.id, conveyancer_id);
+    job.buyer_ip = "203.0.113." + std::to_string((jobs_.size() % 30) + 10);
+    job.seller_ip = "198.51.100." + std::to_string((jobs_.size() % 40) + 5);
     jobs_[job.id] = job;
     return job;
   }
@@ -140,6 +409,7 @@ class JobStore {
     milestone.updated_at = NowIso8601();
     it->second.milestones.push_back(milestone);
     it->second.status = "in_progress";
+    it->second.last_activity_at = milestone.updated_at;
     return milestone;
   }
 
@@ -159,6 +429,7 @@ class JobStore {
         }
         milestone.escrow_funded = escrow_funded;
         milestone.updated_at = NowIso8601();
+        it->second.last_activity_at = milestone.updated_at;
         return true;
       }
     }
@@ -178,6 +449,13 @@ class JobStore {
     message.body = body;
     message.sent_at = NowIso8601();
     it->second.messages.push_back(message);
+    it->second.last_activity_at = message.sent_at;
+    if (ContainsContactCoordinates(body) && !it->second.contact_policy.unlocked) {
+      it->second.compliance_flags.push_back("contact_coordinates:" + message.id);
+    }
+    if (ContainsOffPlatformHint(body)) {
+      it->second.compliance_flags.push_back("off_platform_hint:" + message.id);
+    }
     return message;
   }
 
@@ -197,6 +475,7 @@ class JobStore {
     document.scanned = true;
     document.is_signed = false;
     it->second.documents.push_back(document);
+    it->second.last_activity_at = NowIso8601();
     return document;
   }
 
@@ -213,6 +492,7 @@ class JobStore {
           document.is_signed = signed_flag;
           document.status = signed_flag ? "signed" : "awaiting_signature";
         }
+        it->second.last_activity_at = NowIso8601();
         return true;
       }
     }
@@ -235,6 +515,7 @@ class JobStore {
     it->second.disputes.push_back(dispute);
     it->second.risk_level = "medium";
     it->second.compliance_notes = "Dispute opened; monitoring required";
+    it->second.last_activity_at = dispute.created_at;
     return dispute;
   }
 
@@ -253,6 +534,7 @@ class JobStore {
           it->second.risk_level = "low";
           it->second.compliance_notes = "Dispute resolved";
         }
+        it->second.last_activity_at = NowIso8601();
         return true;
       }
     }
@@ -266,32 +548,209 @@ class JobStore {
       return false;
     }
     it->second.status = "completed";
-    it->second.completed_at = NowIso8601();
+    const auto issued_at = NowIso8601();
+    it->second.completed_at = issued_at;
     it->second.compliance_notes = summary;
+    it->second.last_activity_at = issued_at;
+    CompletionCertificate certificate;
+    certificate.id = GenerateId("cert_");
+    certificate.job_id = job_id;
+    certificate.summary = summary;
+    certificate.issued_at = issued_at;
+    certificate.issued_by = "ConveySafe automation";
+    certificate.download_url = "https://certs.conveysafe.example/" + job_id + "/" + certificate.id + ".pdf";
+    certificate.verification_code = security::DeriveScopedToken("certificate", job_id + certificate.id);
+    certificate.verified = true;
+    it->second.certificate = certificate;
     return true;
   }
 
+  bool UnlockContact(const std::string &job_id, const std::string &actor_role) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = jobs_.find(job_id);
+    if (it == jobs_.end()) {
+      return false;
+    }
+    if (!it->second.contact_policy.unlocked) {
+      it->second.contact_policy.unlocked = true;
+      it->second.contact_policy.unlocked_by_role = actor_role;
+      it->second.contact_policy.unlocked_at = NowIso8601();
+      it->second.compliance_notes = "Contact released post-payment verification";
+    }
+    return true;
+  }
+
+  std::optional<ContactPolicy> GetContactPolicy(const std::string &job_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (auto it = jobs_.find(job_id); it != jobs_.end()) {
+      return it->second.contact_policy;
+    }
+    return std::nullopt;
+  }
+
+  std::optional<CallSession> CreateCallSession(const std::string &job_id, const std::string &type,
+                                               const std::string &created_by,
+                                               const std::vector<std::string> &participants) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = jobs_.find(job_id);
+    if (it == jobs_.end()) {
+      return std::nullopt;
+    }
+    CallSession session;
+    session.id = GenerateId("call_");
+    session.type = type;
+    session.status = "scheduled";
+    session.created_at = NowIso8601();
+    session.created_by = created_by;
+    session.participants = participants;
+    session.join_url = ComposeJoinUrl(session.id);
+    session.access_token = security::DeriveScopedToken("call", session.id);
+    it->second.calls.push_back(session);
+    it->second.last_activity_at = session.created_at;
+    return session;
+  }
+
+  std::vector<CallSession> ListCalls(const std::string &job_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (auto it = jobs_.find(job_id); it != jobs_.end()) {
+      return it->second.calls;
+    }
+    return {};
+  }
+
+  std::optional<CompletionCertificate> GetCertificate(const std::string &job_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (auto it = jobs_.find(job_id); it != jobs_.end()) {
+      return it->second.certificate;
+    }
+    return std::nullopt;
+  }
+
+  bool ApplyTemplate(const std::string &job_id, const TemplateDefinition &definition,
+                     const std::string &start_date) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = jobs_.find(job_id);
+    if (it == jobs_.end()) {
+      return false;
+    }
+    for (const auto &task : definition.tasks) {
+      Milestone milestone;
+      milestone.id = GenerateId("ms_");
+      milestone.title = task.title;
+      milestone.status = "pending";
+      milestone.due_date = AddDaysToDate(start_date, task.due_in_days);
+      milestone.escrow_funded = task.escrow_required;
+      milestone.assigned_to = task.default_assignee.empty() ? it->second.conveyancer_id : task.default_assignee;
+      milestone.updated_at = NowIso8601();
+      it->second.milestones.push_back(milestone);
+    }
+    it->second.last_activity_at = NowIso8601();
+    return true;
+  }
+
+  json AdminContactPolicies() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    json response = json::array();
+    for (const auto &[job_id, job] : jobs_) {
+      json entry = JobSummaryToJson(job);
+      entry["contact_policy"] = ContactPolicyToJson(job, true, true);
+      entry["call_sessions"] = json::array();
+      for (const auto &call : job.calls) {
+        entry["call_sessions"].push_back(CallSessionToJson(call, true));
+      }
+      entry["compliance_flags"] = job.compliance_flags;
+      entry["quote_issued_at"] = job.quote_issued_at;
+      entry["last_activity_at"] = job.last_activity_at;
+      entry["buyer_ip"] = job.buyer_ip;
+      entry["seller_ip"] = job.seller_ip;
+      response.push_back(entry);
+    }
+    return response;
+  }
+
+  json AdminInsights() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    json signals = json::array();
+    int active_jobs = 0;
+    std::map<std::pair<std::string, std::string>, int> ip_pairs;
+    for (const auto &[_, job] : jobs_) {
+      if (job.status != "completed") {
+        active_jobs += 1;
+      }
+      ip_pairs[{job.buyer_ip, job.seller_ip}] += 1;
+      if (!job.compliance_flags.empty()) {
+        signals.push_back(json{{"type", "contact_signal"},
+                               {"job_id", job.id},
+                               {"severity", job.contact_policy.unlocked ? "info" : "warning"},
+                               {"evidence", job.compliance_flags},
+                               {"detail", "Messages indicate attempted contact exchange."}});
+      }
+      if (job.contact_policy.unlocked && job.status != "completed" && job.messages.size() < 3) {
+        signals.push_back(json{{"type", "payment_without_activity"},
+                               {"job_id", job.id},
+                               {"detail", "Payment initiated but conversation stalled."}});
+      }
+    }
+
+    for (const auto &[pair, count] : ip_pairs) {
+      if (count > 1) {
+        signals.push_back(json{{"type", "ip_correlation"},
+                               {"buyer_ip", pair.first},
+                               {"seller_ip", pair.second},
+                               {"occurrences", count},
+                               {"detail", "Repeated buyer/seller IP pairing detected."}});
+      }
+    }
+
+    const int total_jobs = static_cast<int>(jobs_.size());
+    if (total_jobs > 0 && active_jobs < std::max(1, total_jobs / 2)) {
+      signals.push_back(json{{"type", "active_jobs_drop"},
+                             {"detail", "Active pipeline dropped below historical average."},
+                             {"active_jobs", active_jobs},
+                             {"total_jobs", total_jobs}});
+    }
+
+    json message_metadata = json::array();
+    for (const auto &[_, job] : jobs_) {
+      const auto avg_length = job.messages.empty()
+                                  ? 0.0
+                                  : std::accumulate(job.messages.begin(), job.messages.end(), 0.0,
+                                                    [](double acc, const Message &msg) {
+                                                      return acc + static_cast<double>(msg.body.size());
+                                                    }) /
+                                        job.messages.size();
+      message_metadata.push_back(json{{"job_id", job.id},
+                                      {"message_count", job.messages.size()},
+                                      {"average_length", avg_length},
+                                      {"last_activity_at", job.last_activity_at}});
+    }
+
+    json payment_activity = json::array();
+    for (const auto &[_, job] : jobs_) {
+      payment_activity.push_back(json{{"job_id", job.id},
+                                      {"contact_unlocked", job.contact_policy.unlocked},
+                                      {"completed_at", job.completed_at.value_or("")},
+                                      {"quote_issued_at", job.quote_issued_at}});
+    }
+
+    json retention = json{{"completed_jobs", std::count_if(jobs_.begin(), jobs_.end(), [](const auto &entry) {
+                            return entry.second.status == "completed";
+                          })}};
+
+    json ip_correlation = json::array();
+    for (const auto &[pair, count] : ip_pairs) {
+      ip_correlation.push_back(json{{"buyer_ip", pair.first}, {"seller_ip", pair.second}, {"count", count}});
+    }
+
+    return json{{"generated_at", NowIso8601()},
+                {"signals", signals},
+                {"training_inputs", json{{"message_metadata", message_metadata},
+                                           {"payment_activity", payment_activity},
+                                           {"user_retention_metrics", retention},
+                                           {"ip_correlation", ip_correlation}}}};
+  }
+
  private:
-  static std::string GenerateId(const std::string &prefix) {
-    static std::mt19937 rng{std::random_device{}()};
-    static std::uniform_int_distribution<int> dist(10000, 99999);
-    return prefix + std::to_string(dist(rng));
-  }
-
-  static std::string NowIso8601() {
-    const auto now = std::chrono::system_clock::now();
-    const auto time = std::chrono::system_clock::to_time_t(now);
-    std::tm tm;
-#if defined(_WIN32)
-    gmtime_s(&tm, &time);
-#else
-    gmtime_r(&time, &tm);
-#endif
-    char buffer[32];
-    std::strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &tm);
-    return buffer;
-  }
-
   void Seed() {
     Milestone deposit{"ms_1", "Deposit paid", "completed", "2024-02-05", true,
                       "Sydney Settlements", NowIso8601()};
@@ -332,6 +791,26 @@ class JobStore {
                        true,
                        false}};
     job1.compliance_notes = "KYC complete for both parties";
+    job1.contact_policy = GenerateContactPolicy(job1.id, job1.conveyancer_id,
+                                                "emily.carter@propertymail.example", "+61400987654",
+                                                "liam.nguyen@sellers.example", "+61418882211");
+    job1.contact_policy.unlocked = true;
+    job1.contact_policy.unlocked_by_role = "finance_admin";
+    job1.contact_policy.unlocked_at = std::string{"2024-02-12T00:30:00Z"};
+    job1.quote_issued_at = "2024-01-25T22:00:00Z";
+    job1.last_activity_at = "2024-02-20T14:10:00+11:00";
+    job1.buyer_ip = "203.0.113.18";
+    job1.seller_ip = "198.51.100.22";
+    job1.compliance_flags = {"contact_coordinates:msg_1"};
+    CallSession review_call{"call_5001",
+                            "video",
+                            "recorded",
+                            "2024-02-14T03:00:00Z",
+                            "Sydney Settlements",
+                            {"Emily Carter", "Sydney Settlements"},
+                            ComposeJoinUrl("call_5001"),
+                            security::DeriveScopedToken("call", "call_5001")};
+    job1.calls.push_back(review_call);
 
     Job job2 = job1;
     job2.id = "job_2002";
@@ -349,9 +828,53 @@ class JobStore {
                        false,
                        true,
                        false}};
+    job2.contact_policy = GenerateContactPolicy(job2.id, job2.conveyancer_id,
+                                                "oliver.bennett@buyers.example", "+61415555510",
+                                                "developer@vendor.example", "+61295550123");
+    job2.contact_policy.unlocked = false;
+    job2.contact_policy.unlocked_by_role = "";
+    job2.quote_issued_at = "2023-12-18T09:00:00Z";
+    job2.last_activity_at = "2024-01-10T01:00:00Z";
+    job2.buyer_ip = "203.0.113.34";
+    job2.seller_ip = "198.51.100.40";
+    job2.calls.clear();
+    job2.compliance_flags.clear();
+
+    Job job3 = job1;
+    job3.id = "job_2003";
+    job3.title = "Refinance settlement";
+    job3.state = "NSW";
+    job3.status = "completed";
+    job3.conveyancer_id = "pro_1001";
+    job3.buyer_name = "Sophie Walker";
+    job3.seller_name = "National Bank";
+    job3.opened_at = "2023-11-20T04:00:00Z";
+    job3.quote_issued_at = "2023-11-19T22:00:00Z";
+    job3.completed_at = std::string{"2024-01-15T02:10:00Z"};
+    job3.last_activity_at = *job3.completed_at;
+    job3.compliance_notes = "Settlement complete, certificate issued";
+    job3.contact_policy = GenerateContactPolicy(job3.id, job3.conveyancer_id,
+                                                "sophie.walker@clientmail.example", "+61400011222",
+                                                "portfolio.team@nationalbank.example", "+61280008888");
+    job3.contact_policy.unlocked = true;
+    job3.contact_policy.unlocked_by_role = "finance_admin";
+    job3.contact_policy.unlocked_at = std::string{"2023-12-01T01:00:00Z"};
+    job3.buyer_ip = "203.0.113.50";
+    job3.seller_ip = "198.51.100.51";
+    job3.calls.clear();
+    job3.compliance_flags = {"off_platform_hint:msg_1"};
+    job3.certificate = CompletionCertificate{"cert_seed_1",
+                                              job3.id,
+                                              "Refinance settled with all funds reconciled",
+                                              *job3.completed_at,
+                                              "ConveySafe automation",
+                                              "https://certs.conveysafe.example/job_2003/cert_seed_1.pdf",
+                                              security::DeriveScopedToken("certificate", job3.id + "cert_seed_1"),
+                                              true};
 
     jobs_[job1.id] = job1;
     jobs_[job2.id] = job2;
+    jobs_[job3.id] = job3;
   }
 
   mutable std::mutex mutex_;
@@ -399,6 +922,70 @@ json DisputeToJson(const Dispute &dispute) {
               {"evidence_urls", dispute.evidence_urls}};
 }
 
+json CallSessionToJson(const CallSession &session, bool include_token = false) {
+  json payload{{"id", session.id},
+               {"type", session.type},
+               {"status", session.status},
+               {"created_at", session.created_at},
+               {"created_by", session.created_by},
+               {"participants", session.participants},
+               {"join_url", session.join_url}};
+  if (include_token) {
+    payload["access_token"] = session.access_token;
+  }
+  return payload;
+}
+
+json CertificateToJson(const CompletionCertificate &certificate) {
+  return json{{"id", certificate.id},
+              {"job_id", certificate.job_id},
+              {"summary", certificate.summary},
+              {"issued_at", certificate.issued_at},
+              {"issued_by", certificate.issued_by},
+              {"download_url", certificate.download_url},
+              {"verification_code", certificate.verification_code},
+              {"verified", certificate.verified}};
+}
+
+json ContactPolicyToJson(const Job &job, bool reveal_full, bool include_internal) {
+  const auto &policy = job.contact_policy;
+  json masked{{"buyer", json{{"email", policy.buyer_email_masked}, {"phone", policy.buyer_phone_masked}}},
+              {"seller", json{{"email", policy.seller_email_masked}, {"phone", policy.seller_phone_masked}}},
+              {"conveyancer",
+               json{{"email", policy.conveyancer_email_masked}, {"phone", policy.conveyancer_phone_masked}}}};
+  json payload{{"unlocked", policy.unlocked},
+               {"requires_payment", !policy.unlocked},
+               {"masked", masked}};
+  if (reveal_full) {
+    payload["full"] = json{{"buyer", json{{"email", policy.buyer_email}, {"phone", policy.buyer_phone}}},
+                            {"seller", json{{"email", policy.seller_email}, {"phone", policy.seller_phone}}},
+                            {"conveyancer",
+                             json{{"email", policy.conveyancer_email}, {"phone", policy.conveyancer_phone}}}};
+  }
+  if (include_internal) {
+    payload["unlock_token"] = security::DeriveScopedToken("contact", job.id);
+    payload["unlocked_at"] = policy.unlocked_at.value_or("");
+    payload["unlocked_by_role"] = policy.unlocked_by_role;
+  }
+  return payload;
+}
+
+json TemplateToJson(const TemplateDefinition &definition) {
+  json tasks = json::array();
+  for (const auto &task : definition.tasks) {
+    tasks.push_back(json{{"id", task.id},
+                        {"title", task.title},
+                        {"default_assignee", task.default_assignee},
+                        {"due_in_days", task.due_in_days},
+                        {"escrow_required", task.escrow_required}});
+  }
+  return json{{"id", definition.id},
+              {"name", definition.name},
+              {"jurisdiction", definition.jurisdiction},
+              {"description", definition.description},
+              {"tasks", tasks}};
+}
+
 int CountCompleted(const Job &job) {
   return static_cast<int>(std::count_if(job.milestones.begin(), job.milestones.end(), [](const Milestone &m) {
     return m.status == "completed";
@@ -419,11 +1006,14 @@ json JobSummaryToJson(const Job &job) {
                {"milestones_completed", CountCompleted(job)},
                {"milestones_total", job.milestones.size()},
                {"risk_level", job.risk_level},
-               {"compliance_notes", job.compliance_notes}};
+               {"compliance_notes", job.compliance_notes},
+               {"contact_unlocked", job.contact_policy.unlocked},
+               {"quote_issued_at", job.quote_issued_at},
+               {"last_activity_at", job.last_activity_at}};
   return summary;
 }
 
-json JobDetailToJson(const Job &job) {
+json JobDetailToJson(const Job &job, bool reveal_contact, bool include_internal) {
   json payload = JobSummaryToJson(job);
   payload["milestones"] = json::array();
   for (const auto &milestone : job.milestones) {
@@ -440,6 +1030,14 @@ json JobDetailToJson(const Job &job) {
   payload["disputes"] = json::array();
   for (const auto &dispute : job.disputes) {
     payload["disputes"].push_back(DisputeToJson(dispute));
+  }
+  payload["contact_policy"] = ContactPolicyToJson(job, reveal_contact, include_internal);
+  payload["calls"] = json::array();
+  for (const auto &call : job.calls) {
+    payload["calls"].push_back(CallSessionToJson(call, include_internal));
+  }
+  if (job.certificate.has_value()) {
+    payload["completion_certificate"] = CertificateToJson(*job.certificate);
   }
   return payload;
 }
@@ -540,8 +1138,11 @@ int main() {
       res.set_content(R"({"error":"job_creation_failed"})", "application/json");
       return;
     }
+    const auto role = req.get_header_value("X-Actor-Role");
+    const bool include_internal = role == "admin" || role == "finance_admin";
+    const bool reveal_contact = include_internal || job->contact_policy.unlocked;
     res.status = 201;
-    res.set_content(JobDetailToJson(*job).dump(), "application/json");
+    res.set_content(JobDetailToJson(*job, reveal_contact, include_internal).dump(), "application/json");
   });
 
   server.Get(R"(/jobs/([\w_-]+))", [](const httplib::Request &req, httplib::Response &res) {
@@ -554,7 +1155,10 @@ int main() {
     }
     const auto job_id = req.matches[1];
     if (auto job = Store().Get(job_id)) {
-      res.set_content(JobDetailToJson(*job).dump(), "application/json");
+      const auto role = req.get_header_value("X-Actor-Role");
+      const bool include_internal = role == "admin" || role == "finance_admin";
+      const bool reveal_contact = include_internal || job->contact_policy.unlocked;
+      res.set_content(JobDetailToJson(*job, reveal_contact, include_internal).dump(), "application/json");
       return;
     }
     res.status = 404;
@@ -857,6 +1461,255 @@ int main() {
                 res.status = 404;
                 res.set_content(R"({"error":"dispute_not_found"})", "application/json");
               });
+
+  server.Get(R"(/jobs/([\w_-]+)/contact)", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "jobs")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "finance_admin", "admin"},
+                               "jobs", "view_contact")) {
+      return;
+    }
+    const auto job_id = req.matches[1];
+    if (auto job = Store().Get(job_id)) {
+      const auto role = req.get_header_value("X-Actor-Role");
+      const bool include_internal = role == "admin" || role == "finance_admin";
+      const bool reveal_contact = include_internal || job->contact_policy.unlocked;
+      res.set_content(ContactPolicyToJson(*job, reveal_contact, include_internal).dump(), "application/json");
+      return;
+    }
+    res.status = 404;
+    res.set_content(R"({"error":"job_not_found"})", "application/json");
+  });
+
+  server.Post(R"(/jobs/([\w_-]+)/contact/unlock)", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "jobs")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"finance_admin", "admin"}, "jobs", "unlock_contact")) {
+      return;
+    }
+    const auto job_id = req.matches[1];
+    auto payload = ParseJson(req, res);
+    if (res.status == 400 && !res.body.empty()) {
+      return;
+    }
+    if (!RequireFields(payload, res, {"token"})) {
+      return;
+    }
+    const auto token = payload["token"].get<std::string>();
+    if (!security::VerifyScopedToken("contact", job_id, token)) {
+      res.status = 403;
+      res.set_content(R"({"error":"invalid_token"})", "application/json");
+      return;
+    }
+    const auto role = req.get_header_value("X-Actor-Role");
+    if (!Store().UnlockContact(job_id, role.empty() ? "finance_admin" : role)) {
+      res.status = 404;
+      res.set_content(R"({"error":"job_not_found"})", "application/json");
+      return;
+    }
+    if (auto job = Store().Get(job_id)) {
+      res.set_content(ContactPolicyToJson(*job, true, true).dump(), "application/json");
+      return;
+    }
+    res.status = 404;
+    res.set_content(R"({"error":"job_not_found"})", "application/json");
+  });
+
+  server.Post(R"(/jobs/([\w_-]+)/calls)", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "jobs")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs", "schedule_call")) {
+      return;
+    }
+    const auto job_id = req.matches[1];
+    auto payload = ParseJson(req, res);
+    if (res.status == 400 && !res.body.empty()) {
+      return;
+    }
+    if (!RequireFields(payload, res, {"type", "created_by"})) {
+      return;
+    }
+    const auto type = payload["type"].get<std::string>();
+    if (type != "voice" && type != "video") {
+      res.status = 400;
+      res.set_content(R"({"error":"invalid_call_type"})", "application/json");
+      return;
+    }
+    std::vector<std::string> participants;
+    if (payload.contains("participants") && payload["participants"].is_array()) {
+      for (const auto &value : payload["participants"]) {
+        if (value.is_string()) {
+          participants.push_back(value.get<std::string>());
+        }
+      }
+    }
+    const auto created_by = payload["created_by"].get<std::string>();
+    if (auto session = Store().CreateCallSession(job_id, type, created_by, participants)) {
+      const auto role = req.get_header_value("X-Actor-Role");
+      const bool include_internal = role == "admin";
+      res.status = 201;
+      res.set_content(CallSessionToJson(*session, include_internal).dump(), "application/json");
+      return;
+    }
+    res.status = 404;
+    res.set_content(R"({"error":"job_not_found"})", "application/json");
+  });
+
+  server.Get(R"(/jobs/([\w_-]+)/calls)", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "jobs")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs", "list_calls")) {
+      return;
+    }
+    const auto job_id = req.matches[1];
+    const auto role = req.get_header_value("X-Actor-Role");
+    const bool include_internal = role == "admin";
+    json response = json::array();
+    for (const auto &session : Store().ListCalls(job_id)) {
+      response.push_back(CallSessionToJson(session, include_internal));
+    }
+    res.set_content(response.dump(), "application/json");
+  });
+
+  server.Get(R"(/jobs/([\w_-]+)/completion-certificate)",
+             [](const httplib::Request &req, httplib::Response &res) {
+               if (!security::Authorize(req, res, "jobs")) {
+                 return;
+               }
+               if (!security::RequireRole(req, res,
+                                          {"buyer", "seller", "conveyancer", "finance_admin", "admin"}, "jobs",
+                                          "view_certificate")) {
+                 return;
+               }
+               const auto job_id = req.matches[1];
+               if (auto certificate = Store().GetCertificate(job_id)) {
+                 res.set_content(CertificateToJson(*certificate).dump(), "application/json");
+                 return;
+               }
+               res.status = 404;
+               res.set_content(R"({"error":"certificate_not_ready"})", "application/json");
+             });
+
+  server.Get("/jobs/templates", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "jobs")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"conveyancer", "admin", "finance_admin"}, "jobs", "list_templates")) {
+      return;
+    }
+    json response = json::array();
+    for (const auto &definition : Templates().List()) {
+      response.push_back(TemplateToJson(definition));
+    }
+    res.set_content(response.dump(), "application/json");
+  });
+
+  server.Post("/jobs/templates", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "jobs")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"admin"}, "jobs", "create_template")) {
+      return;
+    }
+    auto payload = ParseJson(req, res);
+    if (res.status == 400 && !res.body.empty()) {
+      return;
+    }
+    if (!RequireFields(payload, res, {"name", "jurisdiction", "description", "tasks"})) {
+      return;
+    }
+    if (!payload["tasks"].is_array() || payload["tasks"].empty()) {
+      res.status = 400;
+      res.set_content(R"({"error":"invalid_tasks"})", "application/json");
+      return;
+    }
+    std::vector<TemplateTask> tasks;
+    for (const auto &entry : payload["tasks"]) {
+      TemplateTask task;
+      task.id = entry.value("id", GenerateId("tt_"));
+      task.title = entry.value("title", std::string{"Checklist item"});
+      task.default_assignee = entry.value("default_assignee", std::string{});
+      task.due_in_days = entry.value("due_in_days", 0);
+      task.escrow_required = entry.value("escrow_required", false);
+      tasks.push_back(task);
+    }
+    auto created = Templates().Create(payload["name"].get<std::string>(),
+                                      payload["jurisdiction"].get<std::string>(),
+                                      payload["description"].get<std::string>(), tasks);
+    res.status = 201;
+    res.set_content(TemplateToJson(created).dump(), "application/json");
+  });
+
+  server.Post(R"(/jobs/([\w_-]+)/templates/apply)", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "jobs")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"conveyancer", "admin"}, "jobs", "apply_template")) {
+      return;
+    }
+    const auto job_id = req.matches[1];
+    auto payload = ParseJson(req, res);
+    if (res.status == 400 && !res.body.empty()) {
+      return;
+    }
+    if (!RequireFields(payload, res, {"template_id"})) {
+      return;
+    }
+    const auto template_id = payload["template_id"].get<std::string>();
+    auto definition = Templates().Get(template_id);
+    if (!definition) {
+      res.status = 404;
+      res.set_content(R"({"error":"template_not_found"})", "application/json");
+      return;
+    }
+    std::string start_date;
+    if (payload.contains("start_date") && payload["start_date"].is_string()) {
+      start_date = payload["start_date"].get<std::string>();
+    } else if (auto job = Store().Get(job_id)) {
+      start_date = job->opened_at.substr(0, 10);
+    }
+    if (start_date.empty()) {
+      start_date = NowIso8601().substr(0, 10);
+    }
+    if (!Store().ApplyTemplate(job_id, *definition, start_date)) {
+      res.status = 404;
+      res.set_content(R"({"error":"job_not_found"})", "application/json");
+      return;
+    }
+    if (auto job = Store().Get(job_id)) {
+      const auto role = req.get_header_value("X-Actor-Role");
+      const bool include_internal = role == "admin";
+      const bool reveal_contact = include_internal || job->contact_policy.unlocked;
+      res.set_content(JobDetailToJson(*job, reveal_contact, include_internal).dump(), "application/json");
+      return;
+    }
+    res.status = 404;
+    res.set_content(R"({"error":"job_not_found"})", "application/json");
+  });
+
+  server.Get("/admin/contact-policies", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "jobs")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"admin"}, "jobs", "admin_contact_policies")) {
+      return;
+    }
+    res.set_content(Store().AdminContactPolicies().dump(), "application/json");
+  });
+
+  server.Get("/admin/ml/insights", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "jobs")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"admin"}, "jobs", "admin_ml_insights")) {
+      return;
+    }
+    res.set_content(Store().AdminInsights().dump(), "application/json");
+  });
 
   constexpr auto kBindAddress = "0.0.0.0";
   constexpr int kPort = 9002;

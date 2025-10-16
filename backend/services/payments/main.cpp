@@ -773,6 +773,7 @@ int main() {
     auto record = GlobalLedger().CreateHold(*job_id, *milestone_id, *currency, *amount_cents, reference,
                                             conveyancer_account_id);
     json response = PaymentToJson(record);
+    response["contact_unlock_token"] = security::DeriveScopedToken("contact", record.job_id);
     if (!conveyancer_account_id.empty()) {
       response["loyalty"] = GlobalLoyalty().DescribeMember(conveyancer_account_id);
     }
