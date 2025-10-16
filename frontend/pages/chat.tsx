@@ -1,6 +1,6 @@
 import Head from 'next/head'
 import type { GetServerSideProps } from 'next'
-import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react'
+import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionUser } from '../lib/session'
 import { getSessionFromRequest } from '../lib/session'
 
@@ -22,13 +22,24 @@ type Message = {
   attachments: Array<{ id: number; filename: string; mimeType: string }>
 }
 
+type MessageResponse = {
+  messages: Message[]
+  hasMore: boolean
+  nextCursor: number | null
+}
+
 const ChatPage = ({ user }: ChatProps): JSX.Element => {
   const [partners, setPartners] = useState<Partner[]>([])
   const [selected, setSelected] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [hasMore, setHasMore] = useState(false)
+  const [cursor, setCursor] = useState<number | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [input, setInput] = useState('')
   const [status, setStatus] = useState<'idle' | 'sending'>('idle')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const threadRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -47,22 +58,65 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
     return () => controller.abort()
   }, [])
 
+  const scrollToBottom = useCallback(() => {
+    const container = threadRef.current
+    if (container) {
+      container.scrollTop = container.scrollHeight
+    }
+  }, [])
+
+  const loadConversation = useCallback(
+    async ({ signal, silent }: { signal?: AbortSignal; silent?: boolean } = {}) => {
+      if (!selected) {
+        return null
+      }
+      if (!silent) {
+        setIsLoading(true)
+      }
+      try {
+        const params = new URLSearchParams({ partnerId: selected.toString(), limit: '20' })
+        const response = await fetch(`/api/chat/messages?${params.toString()}`, { signal })
+        if (!response.ok) {
+          throw new Error('failed_to_fetch_messages')
+        }
+        const payload = (await response.json()) as MessageResponse
+        setMessages(payload.messages)
+        setHasMore(payload.hasMore)
+        setCursor(payload.nextCursor ?? null)
+        if (!silent) {
+          setIsLoading(false)
+        }
+        setTimeout(() => {
+          if (!signal || !signal.aborted) {
+            scrollToBottom()
+          }
+        }, 0)
+        return payload
+      } catch (error) {
+        if (signal?.aborted) {
+          return null
+        }
+        console.error(error)
+        if (!silent) {
+          setIsLoading(false)
+        }
+        return null
+      }
+    },
+    [scrollToBottom, selected]
+  )
+
   useEffect(() => {
     if (!selected) {
+      setMessages([])
+      setHasMore(false)
+      setCursor(null)
       return
     }
     const controller = new AbortController()
-    const fetchMessages = async () => {
-      const response = await fetch(`/api/chat/messages?partnerId=${selected}`, { signal: controller.signal })
-      if (!response.ok) {
-        return
-      }
-      const payload = (await response.json()) as { messages: Message[] }
-      setMessages(payload.messages)
-    }
-    void fetchMessages()
+    void loadConversation({ signal: controller.signal })
     return () => controller.abort()
-  }, [selected])
+  }, [loadConversation, selected])
 
   const handleSend = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -80,9 +134,7 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
         throw new Error('failed_to_send')
       }
       setInput('')
-      const refresh = await fetch(`/api/chat/messages?partnerId=${selected}`)
-      const payload = (await refresh.json()) as { messages: Message[] }
-      setMessages(payload.messages)
+      await loadConversation({ silent: true })
     } catch (error) {
       console.error(error)
     } finally {
@@ -102,11 +154,43 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
       method: 'POST',
       body: formData,
     })
-    const refresh = await fetch(`/api/chat/messages?partnerId=${selected}`)
-    const payload = (await refresh.json()) as { messages: Message[] }
-    setMessages(payload.messages)
+    await loadConversation({ silent: true })
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
+    }
+  }
+
+  const handleLoadOlder = async () => {
+    if (!selected || !hasMore || isLoadingMore || !cursor) {
+      return
+    }
+    const container = threadRef.current
+    const previousHeight = container?.scrollHeight ?? 0
+    setIsLoadingMore(true)
+    try {
+      const params = new URLSearchParams({
+        partnerId: selected.toString(),
+        limit: '20',
+        before: cursor.toString(),
+      })
+      const response = await fetch(`/api/chat/messages?${params.toString()}`)
+      if (!response.ok) {
+        throw new Error('failed_to_load_more')
+      }
+      const payload = (await response.json()) as MessageResponse
+      setMessages((prev) => [...payload.messages, ...prev])
+      setHasMore(payload.hasMore)
+      setCursor(payload.nextCursor ?? null)
+      setTimeout(() => {
+        if (container) {
+          const newHeight = container.scrollHeight
+          container.scrollTop = newHeight - previousHeight
+        }
+      }, 0)
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setIsLoadingMore(false)
     }
   }
 
@@ -157,7 +241,29 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
                     />
                   </div>
                 </header>
-                <div className="chat-thread">
+                <div className="chat-thread" ref={threadRef}>
+                  {hasMore ? (
+                    <div className="chat-thread__loader">
+                      <button
+                        type="button"
+                        onClick={handleLoadOlder}
+                        className="cta-secondary"
+                        disabled={isLoadingMore}
+                      >
+                        {isLoadingMore ? 'Loading history…' : 'Load earlier messages'}
+                      </button>
+                    </div>
+                  ) : null}
+                  {isLoading ? (
+                    <div className="chat-thread__status" role="status">
+                      Loading conversation…
+                    </div>
+                  ) : null}
+                  {!isLoading && messages.length === 0 ? (
+                    <div className="chat-thread__status" role="status">
+                      No messages yet. Start the conversation with a secure note.
+                    </div>
+                  ) : null}
                   {messages.map((message) => (
                     <article
                       key={message.id}
