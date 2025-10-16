@@ -24,8 +24,12 @@ bash infra/tls/dev_certs.sh
 # 3) build & run
 docker compose -f infra/docker-compose.yml up -d --build
 
-# 4) seed database
-docker compose exec postgres psql -U app -d convey -f /docker-entrypoint-initdb.d/2_seed.sql
+# 4) seed database (developer UI)
+# 4a) copy frontend env and configure tokens/connection
+cp frontend/.env.example frontend/.env.local
+# 4b) run the Next.js dev server locally
+(cd frontend && npm install && npm run dev)
+# 4c) visit http://localhost:5173/admin/seed and trigger the seed
 
 # 5) open
 # Frontend: https://localhost
