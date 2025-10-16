@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "../../common/security.h"
 #include "../../third_party/httplib.h"
 #include "../../third_party/json.hpp"
 
@@ -73,11 +74,20 @@ json ProfileToJson(const Profile &profile) {
 int main() {
   httplib::Server server;
 
+  security::AttachStandardHandlers(server, "identity");
+
   server.Get("/healthz", [](const httplib::Request &, httplib::Response &res) {
     res.set_content("{\"ok\":true}", "application/json");
   });
 
   server.Get("/profiles/search", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "identity")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "identity",
+                               "search_profiles")) {
+      return;
+    }
     std::optional<std::string> query;
     std::optional<std::string> state;
     bool verified_only = false;

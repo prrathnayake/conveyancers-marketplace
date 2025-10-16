@@ -5,6 +5,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "../../common/security.h"
 #include "../../third_party/httplib.h"
 #include "../../third_party/json.hpp"
 
@@ -169,11 +170,20 @@ void WriteJson(httplib::Response &res, const json &payload, int status = 200) {
 int main() {
   httplib::Server server;
 
+  security::AttachStandardHandlers(server, "payments");
+
   server.Get("/healthz", [](const httplib::Request &, httplib::Response &res) {
     res.set_content("{\"ok\":true}", "application/json");
   });
 
   server.Post("/payments/hold", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "payments")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"conveyancer", "buyer", "finance_admin"}, "payments",
+                               "create_hold")) {
+      return;
+    }
     auto payload = ParseJson(req);
     if (!payload.has_value()) {
       WriteJson(res, json{{"error", "invalid_json"}}, 400);
@@ -205,6 +215,13 @@ int main() {
   });
 
   server.Get(R"(/payments/hold/([\w_-]+))", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "payments")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"conveyancer", "buyer", "seller", "finance_admin"},
+                               "payments", "get_hold")) {
+      return;
+    }
     const auto payment_id = req.matches[1];
     if (auto record = GlobalLedger().Get(payment_id)) {
       WriteJson(res, PaymentToJson(*record));
@@ -214,6 +231,13 @@ int main() {
   });
 
   server.Post(R"(/payments/hold/([\w_-]+)/release)", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "payments")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"conveyancer", "finance_admin"}, "payments",
+                               "release_hold")) {
+      return;
+    }
     const auto payment_id = req.matches[1];
     auto payload = ParseJson(req);
     if (!payload.has_value()) {
@@ -235,6 +259,13 @@ int main() {
   });
 
   server.Post(R"(/payments/hold/([\w_-]+)/refund)", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "payments")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"conveyancer", "finance_admin"}, "payments",
+                               "refund_hold")) {
+      return;
+    }
     const auto payment_id = req.matches[1];
     auto payload = ParseJson(req);
     if (!payload.has_value()) {
