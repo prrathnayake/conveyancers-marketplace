@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "../../common/security.h"
 #include "../../third_party/httplib.h"
 #include "../../third_party/json.hpp"
 
@@ -225,11 +226,20 @@ std::vector<const Job *> FilterJobs(const httplib::Request &req) {
 int main() {
   httplib::Server server;
 
+  security::AttachStandardHandlers(server, "jobs");
+
   server.Get("/healthz", [](const httplib::Request &, httplib::Response &res) {
     res.set_content("{\"ok\":true}", "application/json");
   });
 
   server.Get("/jobs", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "jobs")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs",
+                               "list_jobs")) {
+      return;
+    }
     json response = json::array();
     for (const auto *job : FilterJobs(req)) {
       response.push_back(JobSummaryToJson(*job));
@@ -238,6 +248,13 @@ int main() {
   });
 
   server.Get(R"(/jobs/([\w_-]+))", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "jobs")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs",
+                               "job_detail")) {
+      return;
+    }
     const auto job_id = req.matches[1];
     if (const auto *job = FindJobById(job_id)) {
       res.set_content(JobDetailToJson(*job).dump(), "application/json");
@@ -248,6 +265,13 @@ int main() {
   });
 
   server.Get(R"(/jobs/([\w_-]+)/milestones)", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "jobs")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs",
+                               "job_milestones")) {
+      return;
+    }
     const auto job_id = req.matches[1];
     if (const auto *job = FindJobById(job_id)) {
       json response = json::array();
@@ -262,6 +286,13 @@ int main() {
   });
 
   server.Get(R"(/jobs/([\w_-]+)/chat)", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "jobs")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs",
+                               "job_chat")) {
+      return;
+    }
     const auto job_id = req.matches[1];
     if (const auto *job = FindJobById(job_id)) {
       json response = json::array();
@@ -276,6 +307,13 @@ int main() {
   });
 
   server.Get(R"(/jobs/([\w_-]+)/documents)", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "jobs")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs",
+                               "job_documents")) {
+      return;
+    }
     const auto job_id = req.matches[1];
     if (const auto *job = FindJobById(job_id)) {
       json response = json::array();

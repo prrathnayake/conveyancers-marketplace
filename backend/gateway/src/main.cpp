@@ -3,6 +3,7 @@
 #include <sstream>
 #include <string>
 
+#include "../common/security.h"
 #include "httplib.h"
 
 namespace {
@@ -44,18 +45,41 @@ std::string ForwardQueryString(const httplib::Params &params) {
 
 int main() {
   httplib::Server svr;
+  security::AttachStandardHandlers(svr, "gateway");
   svr.Get("/healthz", [](const httplib::Request &, httplib::Response &res) {
     res.set_content("{\"ok\":true}", "application/json");
   });
   // Minimal facade endpoints
-  svr.Post("/api/auth/login", [](const httplib::Request &, httplib::Response &res) {
+  svr.Post("/api/auth/login", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "gateway")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "gateway",
+                               "login")) {
+      return;
+    }
     res.set_content("{\"token\":\"dev\"}", "application/json");
   });
   svr.Get("/api/profiles/search", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "gateway")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "gateway",
+                               "search_profiles")) {
+      return;
+    }
     httplib::Client client(IdentityHost(), IdentityPort());
     client.set_connection_timeout(1, 0);    // 1 second
     client.set_read_timeout(1, 0);          // 1 second
     client.set_write_timeout(1, 0);         // 1 second
+
+    const auto request_id = security::RequestId(req);
+    httplib::Headers headers = {{"X-API-Key", security::ExpectedApiKey()},
+                                {"X-Request-Id", request_id}};
+    if (const auto role = req.get_header_value("X-Actor-Role"); !role.empty()) {
+      headers.emplace("X-Actor-Role", role);
+    }
+    client.set_default_headers(headers);
 
     std::string path = "/profiles/search";
     if (!req.params.empty()) {

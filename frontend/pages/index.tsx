@@ -119,6 +119,24 @@ const resources = [
   },
 ]
 
+const faqs = [
+  {
+    question: 'How is access to sensitive data controlled?',
+    answer:
+      'Role-based access control enforces the least-privilege principle across buyer, seller, conveyancer, and admin personas. Every API call requires signed headers and is logged for audit readiness.',
+  },
+  {
+    question: 'Can we trace settlement activity end-to-end?',
+    answer:
+      'Yes. Each milestone, payment change, and document event is tagged with request identifiers that correlate with backend audit logs so issues can be replayed safely.',
+  },
+  {
+    question: 'What happens if a downstream service fails?',
+    answer:
+      'Automatic exception handling returns structured errors to the client while preserving observability context. Operators receive actionable signals without exposing stack traces.',
+  },
+]
+
 const Home: FC = (): ReactElement => {
   const [persona, setPersona] = useState<PersonaKey>('buyer')
 
@@ -175,7 +193,7 @@ const Home: FC = (): ReactElement => {
           </dl>
         </section>
 
-        <section className="features" aria-label="Platform features">
+        <section className="features" id="features" aria-label="Platform features">
           <h2>Everything teams need to settle securely</h2>
           <div className="feature-grid">
             {features.map((feature) => (
@@ -242,6 +260,21 @@ const Home: FC = (): ReactElement => {
               </li>
             ))}
           </ul>
+        </section>
+
+        <section className="faq" id="faq" aria-label="Security and workflow FAQs">
+          <div>
+            <h2>Frequently asked questions</h2>
+            <p>Everything you need to know about security logging, access controls, and settlement visibility.</p>
+          </div>
+          <dl>
+            {faqs.map((item) => (
+              <div key={item.question}>
+                <dt>{item.question}</dt>
+                <dd>{item.answer}</dd>
+              </div>
+            ))}
+          </dl>
         </section>
 
         <section className="cta" aria-label="Call to action">
@@ -618,6 +651,39 @@ const Home: FC = (): ReactElement => {
           margin: 0 0 1rem;
           color: #475569;
           line-height: 1.55;
+        }
+
+        .faq {
+          display: grid;
+          gap: 2rem;
+          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+          align-items: start;
+          background: white;
+          padding: clamp(2.75rem, 4vw, 3.5rem);
+          border-radius: 28px;
+          border: 1px solid rgba(148, 163, 184, 0.2);
+          box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+        }
+
+        .faq h2 {
+          margin: 0 0 0.75rem;
+        }
+
+        .faq dl {
+          margin: 0;
+          display: grid;
+          gap: 1.5rem;
+        }
+
+        .faq dt {
+          font-weight: 700;
+          color: #0f172a;
+        }
+
+        .faq dd {
+          margin: 0.35rem 0 0;
+          color: #334155;
+          line-height: 1.6;
         }
 
         .cta {
