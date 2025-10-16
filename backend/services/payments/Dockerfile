@@ -1,5 +1,5 @@
 FROM alpine:3.19 as build
-RUN apk add --no-cache g++ cmake
+RUN apk add --no-cache build-base cmake ninja
 WORKDIR /app
 COPY . /app
 RUN cmake -S . -B build && cmake --build build -j
