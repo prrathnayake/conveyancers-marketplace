@@ -40,7 +40,7 @@ struct Document {
   std::string signed_url;
   bool requires_signature;
   bool scanned = false;
-  bool signed = false;
+  bool is_signed = false;
 };
 
 struct Dispute {
@@ -195,12 +195,13 @@ class JobStore {
     document.requires_signature = requires_signature;
     document.signed_url = "https://files.example.com/" + job_id + "/" + document.id + "?ct=" + content_type;
     document.scanned = true;
+    document.is_signed = false;
     it->second.documents.push_back(document);
     return document;
   }
 
   bool MarkDocumentSigned(const std::string &job_id, const std::string &document_id,
-                          bool signed) {
+                          bool signed_flag) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = jobs_.find(job_id);
     if (it == jobs_.end()) {
@@ -209,8 +210,8 @@ class JobStore {
     for (auto &document : it->second.documents) {
       if (document.id == document_id) {
         if (document.requires_signature) {
-          document.signed = signed;
-          document.status = signed ? "signed" : "awaiting_signature";
+          document.is_signed = signed_flag;
+          document.status = signed_flag ? "signed" : "awaiting_signature";
         }
         return true;
       }
@@ -386,7 +387,7 @@ json DocumentToJson(const Document &document) {
               {"signed_url", document.signed_url},
               {"requires_signature", document.requires_signature},
               {"scanned", document.scanned},
-              {"signed", document.signed}};
+              {"signed", document.is_signed}};
 }
 
 json DisputeToJson(const Dispute &dispute) {
@@ -471,6 +472,7 @@ int main() {
   httplib::Server server;
 
   security::AttachStandardHandlers(server, "jobs");
+  security::ExposeMetrics(server, "jobs");
 
   server.Get("/healthz", [](const httplib::Request &, httplib::Response &res) {
     res.set_content("{\"ok\":true}", "application/json");
