@@ -1,0 +1,118 @@
+import type { NextApiRequest, NextApiResponse } from 'next'
+import type { GetServerSidePropsContext } from 'next'
+import jwt, { type JwtPayload } from 'jsonwebtoken'
+import cookie, { type SerializeOptions } from 'cookie'
+import db from './db'
+
+type JwtSession = {
+  sub: number
+  role: 'buyer' | 'seller' | 'conveyancer' | 'admin'
+}
+
+export type SessionUser = {
+  id: number
+  email: string
+  role: JwtSession['role']
+  fullName: string
+}
+
+const COOKIE_NAME = 'session_token'
+const MAX_AGE_SECONDS = 60 * 60 * 12
+
+const jwtSecret = (): string => {
+  return process.env.JWT_SECRET ?? 'dev-jwt-secret-change-me'
+}
+
+const serializeCookie = (value: string, options: SerializeOptions = {}): string => {
+  return cookie.serialize(COOKIE_NAME, value, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    ...options,
+  })
+}
+
+export const createSessionCookie = (session: JwtSession): string => {
+  const token = jwt.sign(session, jwtSecret(), { expiresIn: MAX_AGE_SECONDS })
+  return serializeCookie(token, { maxAge: MAX_AGE_SECONDS })
+}
+
+export const destroySessionCookie = (): string => serializeCookie('', { maxAge: 0 })
+
+const decodeSession = (token: string): JwtSession | null => {
+  try {
+    const payload = jwt.verify(token, jwtSecret())
+    if (typeof payload === 'string') {
+      return null
+    }
+    const candidate = payload as JwtPayload & Partial<JwtSession>
+    if (typeof candidate.sub !== 'string' && typeof candidate.sub !== 'number') {
+      return null
+    }
+    const validRoles: JwtSession['role'][] = ['buyer', 'seller', 'conveyancer', 'admin']
+    if (!candidate.role || !validRoles.includes(candidate.role)) {
+      return null
+    }
+    return {
+      sub: Number(candidate.sub),
+      role: candidate.role,
+    }
+  } catch {
+    return null
+  }
+}
+
+const mapUser = (row: any): SessionUser | null => {
+  if (!row) return null
+  return {
+    id: row.id as number,
+    email: row.email as string,
+    role: row.role as SessionUser['role'],
+    fullName: row.full_name as string,
+  }
+}
+
+export const getUserById = (id: number): SessionUser | null => {
+  const stmt = db.prepare('SELECT id, email, role, full_name FROM users WHERE id = ?')
+  return mapUser(stmt.get(id))
+}
+
+export const getSessionFromRequest = (req: NextApiRequest | GetServerSidePropsContext['req']): SessionUser | null => {
+  const cookiesHeader = req.headers.cookie
+  if (!cookiesHeader) {
+    return null
+  }
+  const cookies = cookie.parse(cookiesHeader)
+  const token = cookies[COOKIE_NAME]
+  if (!token) {
+    return null
+  }
+  const session = decodeSession(token)
+  if (!session) {
+    return null
+  }
+  return getUserById(session.sub)
+}
+
+export const requireRole = (
+  req: NextApiRequest,
+  res: NextApiResponse,
+  roles: SessionUser['role'][]
+): SessionUser | null => {
+  const user = getSessionFromRequest(req)
+  if (!user || !roles.includes(user.role)) {
+    res.status(403).json({ error: 'forbidden' })
+    return null
+  }
+  return user
+}
+
+export const requireAuth = (req: NextApiRequest, res: NextApiResponse): SessionUser | null => {
+  const user = getSessionFromRequest(req)
+  if (!user) {
+    res.status(401).json({ error: 'unauthorized' })
+    return null
+  }
+  return user
+}

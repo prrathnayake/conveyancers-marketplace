@@ -1,5 +1,7 @@
 import Head from 'next/head'
+import type { GetServerSideProps } from 'next'
 import { useState } from 'react'
+import { getSessionFromRequest } from '../../lib/session'
 
 const SeedPage = (): JSX.Element => {
   const [token, setToken] = useState('')
@@ -147,6 +149,19 @@ const SeedPage = (): JSX.Element => {
       `}</style>
     </>
   )
+}
+
+export const getServerSideProps: GetServerSideProps = async ({ req }) => {
+  const user = getSessionFromRequest(req)
+  if (!user || user.role !== 'admin') {
+    return {
+      redirect: {
+        destination: '/login',
+        permanent: false,
+      },
+    }
+  }
+  return { props: {} }
 }
 
 export default SeedPage
