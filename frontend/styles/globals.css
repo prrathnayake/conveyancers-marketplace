@@ -535,6 +535,22 @@ button {
   overflow-y: auto;
 }
 
+.chat-thread__loader {
+  display: flex;
+  justify-content: center;
+}
+
+.chat-thread__loader .cta-secondary {
+  width: fit-content;
+}
+
+.chat-thread__status {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  padding: 0.25rem 0.5rem;
+}
+
 .chat-message {
   padding: 1rem 1.25rem;
   border-radius: 16px;
