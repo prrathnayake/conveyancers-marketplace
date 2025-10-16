@@ -37,6 +37,16 @@ struct ComplianceStatus {
   std::string licence_number;
   std::string insurance_provider;
   std::string insurance_expiry;
+  std::string last_verified_at;
+};
+
+struct LicenceRegistryEntry {
+  std::string licence_number;
+  std::string holder_name;
+  std::string state;
+  std::string insurance_provider;
+  std::string insurance_expiry;
+  bool active = true;
 };
 
 struct Profile {
@@ -84,18 +94,42 @@ struct AuditEvent {
 
 class IdentityStore {
  public:
-  IdentityStore() {
+ IdentityStore() {
+    const auto ninety_days = FormatDateOnly(std::chrono::system_clock::now() + std::chrono::hours(24 * 90));
+    const auto one_eighty_days =
+        FormatDateOnly(std::chrono::system_clock::now() + std::chrono::hours(24 * 180));
+    const auto one_year = FormatDateOnly(std::chrono::system_clock::now() + std::chrono::hours(24 * 365));
+
+    licence_registry_.emplace("VIC-SET-8821",
+                              LicenceRegistryEntry{"VIC-SET-8821", "Cora Conveyancer", "VIC",
+                                                    "Guardian PI Underwriting", one_year, true});
+    licence_registry_.emplace("NSW-CNV-4410",
+                              LicenceRegistryEntry{"NSW-CNV-4410", "Sydney Settlements", "NSW",
+                                                    "Harbour Mutual Insurance", one_eighty_days, true});
+    licence_registry_.emplace("QLD-SOL-9902",
+                              LicenceRegistryEntry{"QLD-SOL-9902", "QLD Property Law", "QLD",
+                                                    "LegalSure Australia", ninety_days, true});
+    licence_registry_.emplace("ACT-SOL-2211",
+                              LicenceRegistryEntry{"ACT-SOL-2211", "Capital Conveyancing", "ACT",
+                                                    "Southern Cross Insurers", one_year, false});
+    licence_registry_.emplace("NT-SOL-8891",
+                              LicenceRegistryEntry{"NT-SOL-8891", "Northern Territory Solicitors", "NT",
+                                                    "TopEnd Liability Mutual", one_year, true});
+
     // Seed a handful of conveyancers so search is immediately useful.
     RegisterSeedAccount("pro_1001", "cora@settlehub.example", "Cora Conveyancer", "conveyancer",
-                        "VIC", "Richmond", true);
+                        "VIC", "Richmond", true, "VIC-SET-8821", "Guardian PI Underwriting", one_year);
     RegisterSeedAccount("pro_1002", "info@sydneysettlements.example", "Sydney Settlements",
-                        "conveyancer", "NSW", "Parramatta", true);
+                        "conveyancer", "NSW", "Parramatta", true, "NSW-CNV-4410",
+                        "Harbour Mutual Insurance", one_eighty_days);
     RegisterSeedAccount("pro_1003", "hello@qldlaw.example", "QLD Property Law", "conveyancer",
-                        "QLD", "Brisbane", false);
+                        "QLD", "Brisbane", false, "QLD-SOL-9902", "LegalSure Australia", ninety_days);
     RegisterSeedAccount("pro_1004", "team@capitalconveyancing.example", "Capital Conveyancing",
-                        "conveyancer", "ACT", "Canberra", true);
+                        "conveyancer", "ACT", "Canberra", true, "ACT-SOL-2211",
+                        "Southern Cross Insurers", one_year);
     RegisterSeedAccount("pro_1005", "support@ntsolicitors.example",
-                        "Northern Territory Solicitors", "conveyancer", "NT", "Darwin", true);
+                        "Northern Territory Solicitors", "conveyancer", "NT", "Darwin", true,
+                        "NT-SOL-8891", "TopEnd Liability Mutual", one_year);
   }
 
   std::string RegisterAccount(const std::string &email, const std::string &password,
@@ -279,16 +313,16 @@ class IdentityStore {
       return false;
     }
     auto &profile = it->second;
-    profile.compliance.licence_number = licence_number;
-    profile.compliance.insurance_provider = insurance_provider;
-    profile.compliance.insurance_expiry = insurance_expiry;
-    profile.compliance.licence_verified = licence_verified;
-    profile.verified = licence_verified && profile.compliance.kyc_verified;
+    json audit_metadata;
+    const bool verified = ApplyLicenceVerification(profile, licence_number, insurance_provider,
+                                                   insurance_expiry, licence_verified, &audit_metadata);
+    audit_metadata["profile_id"] = profile_id;
 
-    RecordAudit(profile.account_id, "licence_verification", "profile",
-                json{{"profile_id", profile_id},
-                     {"licence_verified", licence_verified},
-                     {"insurance_expiry", insurance_expiry}});
+    if (!verified) {
+      profile.compliance.last_verified_at.clear();
+    }
+
+    RecordAudit(profile.account_id, "licence_verification", "profile", audit_metadata);
     return true;
   }
 
@@ -404,8 +438,35 @@ class IdentityStore {
                        {"licence_verified", profile.compliance.licence_verified},
                        {"licence_number", profile.compliance.licence_number},
                        {"insurance_provider", profile.compliance.insurance_provider},
-                       {"insurance_expiry", profile.compliance.insurance_expiry}}}};
+                       {"insurance_expiry", profile.compliance.insurance_expiry},
+                       {"last_verified_at", profile.compliance.last_verified_at}}},
+                 {"verification_brand", "ConveySafe"}};
+    payload["compliance_badges"] = json::array();
+    for (const auto &badge : BuildComplianceBadges(profile)) {
+      payload["compliance_badges"].push_back(badge);
+    }
     return payload;
+  }
+
+  std::vector<std::string> BuildComplianceBadges(const Profile &profile) const {
+    std::vector<std::string> badges;
+    if (profile.compliance.licence_verified) {
+      badges.push_back("ConveySafe licence verified");
+    } else if (profile.compliance.kyc_verified) {
+      badges.push_back("KYC clearance pending licence");
+    }
+    if (profile.compliance.kyc_verified) {
+      badges.push_back("ConveySafe identity confirmed");
+    }
+    if (!profile.compliance.insurance_expiry.empty()) {
+      const auto today = FormatDateOnly(std::chrono::system_clock::now());
+      if (profile.compliance.insurance_expiry >= today) {
+        badges.push_back("Professional indemnity current");
+      } else {
+        badges.push_back("Insurance renewal required");
+      }
+    }
+    return badges;
   }
 
   json BuildReviewJson(const Review &review) const {
@@ -453,13 +514,29 @@ class IdentityStore {
         alert["severity"] = "high";
         alerts.push_back(std::move(alert));
       }
-      if (!profile.compliance.insurance_expiry.empty() &&
-          profile.compliance.insurance_expiry <= threshold) {
-        json alert = base;
-        alert["type"] = "insurance_expiring";
-        alert["severity"] = "medium";
-        alert["insurance_expiry"] = profile.compliance.insurance_expiry;
-        alerts.push_back(std::move(alert));
+      if (!profile.compliance.insurance_expiry.empty()) {
+        if (!LooksLikeIsoDate(profile.compliance.insurance_expiry)) {
+          json alert = base;
+          alert["type"] = "insurance_date_invalid";
+          alert["severity"] = "high";
+          alert["insurance_expiry"] = profile.compliance.insurance_expiry;
+          alerts.push_back(std::move(alert));
+        } else if (profile.compliance.insurance_expiry <= threshold) {
+          json alert = base;
+          alert["type"] = "insurance_expiring";
+          alert["severity"] = "medium";
+          alert["insurance_expiry"] = profile.compliance.insurance_expiry;
+          alerts.push_back(std::move(alert));
+        }
+      }
+      if (profile.compliance.licence_verified) {
+        auto registry_it = licence_registry_.find(profile.compliance.licence_number);
+        if (registry_it != licence_registry_.end() && !registry_it->second.active) {
+          json alert = base;
+          alert["type"] = "licence_inactive";
+          alert["severity"] = "high";
+          alerts.push_back(std::move(alert));
+        }
       }
     }
     return alerts;
@@ -565,6 +642,22 @@ class IdentityStore {
 
   static std::string NowIso8601() { return FormatIso8601(std::chrono::system_clock::now()); }
 
+  static bool LooksLikeIsoDate(const std::string &value) {
+    if (value.size() != 10) {
+      return false;
+    }
+    for (size_t i = 0; i < value.size(); ++i) {
+      if (i == 4 || i == 7) {
+        if (value[i] != '-') {
+          return false;
+        }
+      } else if (!std::isdigit(static_cast<unsigned char>(value[i]))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   void RecordAudit(const std::string &actor_account_id, const std::string &action,
                    const std::string &entity, const json &metadata) {
     AuditEvent event;
@@ -577,10 +670,68 @@ class IdentityStore {
     audit_log_.push_back(event);
   }
 
+  bool ApplyLicenceVerification(Profile &profile, const std::string &licence_number,
+                                const std::string &insurance_provider,
+                                const std::string &insurance_expiry, bool manual_approved,
+                                json *audit_metadata) {
+    const auto today = FormatDateOnly(std::chrono::system_clock::now());
+    const LicenceRegistryEntry *registry_entry = nullptr;
+    if (auto it = licence_registry_.find(licence_number); it != licence_registry_.end()) {
+      registry_entry = &it->second;
+    }
+
+    std::string provider = insurance_provider;
+    std::string expiry = insurance_expiry;
+    if (registry_entry) {
+      if (provider.empty()) {
+        provider = registry_entry->insurance_provider;
+      }
+      if (expiry.empty()) {
+        expiry = registry_entry->insurance_expiry;
+      }
+    }
+
+    profile.compliance.licence_number = licence_number;
+    profile.compliance.insurance_provider = provider;
+    profile.compliance.insurance_expiry = expiry;
+
+    const bool registry_present = registry_entry != nullptr;
+    const bool registry_active = registry_entry && registry_entry->active;
+    const bool state_match = registry_entry && CaseInsensitiveEquals(registry_entry->state, profile.state);
+    const bool holder_match = registry_entry && CaseInsensitiveEquals(registry_entry->holder_name, profile.name);
+    const bool insurance_format_valid = !expiry.empty() && LooksLikeIsoDate(expiry);
+    const bool insurance_current = insurance_format_valid && expiry >= today;
+    const bool provider_match = registry_entry && !provider.empty() &&
+                                CaseInsensitiveEquals(registry_entry->insurance_provider, provider);
+
+    const bool final_verified = manual_approved && registry_present && registry_active && state_match &&
+                                holder_match && insurance_current;
+
+    profile.compliance.licence_verified = final_verified;
+    profile.compliance.last_verified_at = final_verified ? NowIso8601() : std::string{};
+    profile.verified = final_verified && profile.compliance.kyc_verified;
+
+    if (audit_metadata) {
+      *audit_metadata = json{{"licence_number", licence_number},
+                             {"registry_present", registry_present},
+                             {"registry_active", registry_active},
+                             {"state_match", state_match},
+                             {"holder_match", holder_match},
+                             {"insurance_format_valid", insurance_format_valid},
+                             {"insurance_current", insurance_current},
+                             {"provider_match", provider_match},
+                             {"manual_override", manual_approved},
+                             {"verification_brand", "ConveySafe Assurance"},
+                             {"status", final_verified ? "verified" : "rejected"}};
+    }
+    return final_verified;
+  }
+
   void RegisterSeedAccount(const std::string &profile_id, const std::string &email,
                            const std::string &name, const std::string &role,
-                           const std::string &state, const std::string &suburb,
-                           bool verified) {
+                           const std::string &state, const std::string &suburb, bool verified,
+                           const std::string &licence_number, const std::string &insurance_provider,
+                           const std::string &insurance_expiry) {
     Account account;
     account.id = GenerateId("acct_");
     account.email = email;
@@ -598,10 +749,13 @@ class IdentityStore {
     profile.state = state;
     profile.suburb = suburb;
     profile.biography = "Specialists in complex property settlements.";
-    profile.verified = verified;
     profile.compliance.kyc_verified = verified;
-    profile.compliance.licence_verified = verified;
-    profile.compliance.licence_number = verified ? "LIC-" + profile_id : "";
+    profile.verified = false;
+    if (!licence_number.empty()) {
+      ApplyLicenceVerification(profile, licence_number, insurance_provider, insurance_expiry, verified,
+                               nullptr);
+    }
+    profile.verified = profile.compliance.licence_verified && profile.compliance.kyc_verified;
     profile.services = {"Residential", "Commercial", "Off-the-plan"};
     profile.specialties = {"Title searches", "Contract reviews"};
 
@@ -619,6 +773,7 @@ class IdentityStore {
   std::unordered_map<std::string, std::vector<Review>> reviews_;
   std::unordered_map<std::string, PendingTwoFactor> pending_two_factor_;
   std::unordered_set<std::string> active_sessions_;
+  std::unordered_map<std::string, LicenceRegistryEntry> licence_registry_;
   std::vector<AuditEvent> audit_log_;
 };
 

@@ -10,27 +10,27 @@ const personaCopy = {
     label: 'I’m buying',
     headline: 'Remove the stress from settlement',
     benefits: [
-      'Track every milestone, deposit, and insurance check from one dashboard.',
-      'Know exactly who to call with real-time messaging and smart nudges.',
-      'Escrow protects your funds until each condition is ticked off.',
+      'Track every milestone, deposit, and ConveySafe badge from one dashboard.',
+      'Know exactly who to call with real-time messaging, policy reminders, and locked-in audit trails.',
+      'Escrow protects your funds until each ConveySafe milestone is satisfied.',
     ],
   },
   seller: {
     label: 'I’m selling',
     headline: 'Close faster with proactive support',
     benefits: [
-      'Automated reminders keep your buyer, lender, and conveyancer aligned.',
-      'Digitally collect, sign, and lodge documents without chasing email threads.',
-      'Performance insights surface experts who specialise in complex titles.',
+      'Automated reminders keep your buyer, lender, and conveyancer aligned inside the compliance guardrails.',
+      'Digitally collect, sign, and lodge documents with ConveySafe evidence logging.',
+      'Performance insights surface experts who specialise in complex titles with verified insurance.',
     ],
   },
   conveyancer: {
     label: 'I’m a conveyancer',
     headline: 'Grow a reputation for trusted settlements',
     benefits: [
-      'Verified profile boosts your discoverability across every Australian state.',
-      'Built-in client onboarding and IDV hand-offs save hours each week.',
-      'Milestone-based billing drops straight into your existing trust workflow.',
+      'ConveySafe verification boosts your discoverability and showcases compliant licensing.',
+      'Built-in client onboarding, IDV hand-offs, and loyalty pricing reduce admin overhead.',
+      'Milestone-based billing flows into escrow with instant audit-grade statements.',
     ],
   },
 } as const
@@ -38,22 +38,22 @@ const personaCopy = {
 type PersonaKey = keyof typeof personaCopy
 
 const stats = [
-  { label: 'Verified experts', value: '280+', detail: 'licenced conveyancers and solicitors onboarded' },
+  { label: 'ConveySafe badges issued', value: '1.9k', detail: 'licence and PI insurance checks verified on-platform' },
   { label: 'Milestones tracked', value: '12.4k', detail: 'escrow events completed without dispute' },
-  { label: 'Avg. response time', value: '1h 52m', detail: 'service-level backed messaging SLA' },
+  { label: 'Audit events captured', value: '86k', detail: 'messages and documents stored with legal-grade evidence' },
   { label: 'Client satisfaction', value: '4.9/5', detail: 'post-settlement CSAT across all states' },
 ]
 
 const features = [
   {
-    title: 'Escrow controls that just work',
+    title: 'ConveySafe compliance lock-in',
     description:
-      'Hold, release, or refund milestone payments with an auditable trail that keeps buyers, sellers, and conveyancers aligned.',
+      'Licence registries, PI insurance evidence, and badge issuance keep every practitioner verifiably compliant and on-platform.',
   },
   {
-    title: 'Identity and licence confidence',
+    title: 'Escrow controls with loyalty pricing',
     description:
-      'ARNECC compliant checks, PI insurance reminders, and continuous licence monitoring mean you only work with verified pros.',
+      'Milestone holds release through ConveySafe SecurePay with automated fee reductions for high performing conveyancers.',
   },
   {
     title: 'Document room with smart workflows',
@@ -61,9 +61,9 @@ const features = [
       'Secure uploads, virus scanning, and templated task lists make it simple to collaborate with brokers, strata, and councils.',
   },
   {
-    title: 'Real-time collaboration',
+    title: 'Real-time collaboration & evidence',
     description:
-      'Live chat, timeline views, and automated nudges keep the transaction moving. Integrates with email, Teams, and Slack.',
+      'Live chat keeps contact details private, flags off-platform attempts, and maintains a defensible audit trail for every settlement.',
   },
 ]
 
@@ -151,12 +151,12 @@ const Home: FC = (): ReactElement => {
       </Head>
       <main className={styles.page}>
         <section className={styles.hero} aria-labelledby="hero-heading">
-          <div className={styles.badge}>AU verified network</div>
+          <div className={styles.badge}>ConveySafe assurance network</div>
           <h1 id="hero-heading" className={styles.heroTitle}>
             Settle property deals with clarity and control
           </h1>
           <p className={styles.heroSubtitle}>
-            Discover licenced conveyancers, orchestrate every milestone, and keep funds protected until both sides are satisfied.
+            Discover licenced conveyancers, orchestrate every milestone, and keep funds protected within the ConveySafe compliance perimeter.
           </p>
           <div className={styles.personaToggle} role="tablist" aria-label="Select your scenario">
             {(Object.keys(personaCopy) as PersonaKey[]).map((key) => (

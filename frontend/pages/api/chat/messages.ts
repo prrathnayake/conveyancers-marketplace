@@ -4,6 +4,32 @@ import { requireAuth } from '../../../lib/session'
 import { encryptText, decryptText } from '../../../lib/secure'
 import { ensureParticipant, getOrCreateConversation } from '../../../lib/conversations'
 
+const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
+const phonePattern = /(?:(?:\+?61|0)[\s-]?)?(?:\(?0?[2-9]\)?[\s-]?)?[0-9]{3}[\s-]?[0-9]{3}[\s-]?[0-9]{3,4}/
+const offPlatformKeywords = /(call\s+me|text\s+me|email\s+me|whatsapp|signal|telegram|zoom\s+call|offline\s+payment)/i
+
+const detectPolicyWarning = (message: string): { flagType: string; reason: string } | null => {
+  if (emailPattern.test(message)) {
+    return {
+      flagType: 'contact_email',
+      reason: 'Detected an email address. Keep communication inside ConveySafe chat for compliance.',
+    }
+  }
+  if (phonePattern.test(message)) {
+    return {
+      flagType: 'contact_phone',
+      reason: 'Detected phone details. Settlement evidence only remains intact inside ConveySafe chat.',
+    }
+  }
+  if (offPlatformKeywords.test(message)) {
+    return {
+      flagType: 'contact_phrase',
+      reason: 'Detected a request to move off-platform. Use ConveySafe tools to stay protected.',
+    }
+  }
+  return null
+}
+
 type StoredMessage = {
   id: number
   sender_id: number
@@ -122,12 +148,22 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
       return
     }
 
-    const encrypted = encryptText(body.trim())
+    const trimmedBody = body.trim()
+    const encrypted = encryptText(trimmedBody)
     const insert = db.prepare(
       'INSERT INTO messages (conversation_id, sender_id, iv, auth_tag, ciphertext) VALUES (?, ?, ?, ?, ?)'
     )
     const info = insert.run(conversation.id, user.id, encrypted.iv, encrypted.authTag, encrypted.ciphertext)
-    res.status(201).json({ messageId: Number(info.lastInsertRowid) })
+    const warning = detectPolicyWarning(trimmedBody)
+    if (warning) {
+      db.prepare(
+        'INSERT INTO message_policy_flags (message_id, reason, flag_type) VALUES (?, ?, ?)'
+      ).run(Number(info.lastInsertRowid), warning.reason, warning.flagType)
+    }
+    res.status(201).json({
+      messageId: Number(info.lastInsertRowid),
+      policyWarning: warning?.reason,
+    })
     return
   }
 

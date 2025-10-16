@@ -65,7 +65,7 @@ const ConveyancerProfilePage = ({ user, initialProfile }: ConveyancerProfileProp
         <section className="card" aria-labelledby="profile-heading">
           <h1 id="profile-heading">Public profile</h1>
           <p className="lead">
-            Keep your conveyancing credentials current so buyers and sellers can verify your expertise instantly.
+            Keep your ConveySafe compliance profile current so buyers and sellers can verify your expertise instantly.
           </p>
           <div className="form-grid">
             <label htmlFor="firmName" className="field-label">
@@ -143,7 +143,7 @@ const ConveyancerProfilePage = ({ user, initialProfile }: ConveyancerProfileProp
             </label>
             <label className="field-label field-label--toggle">
               <input id="verified" name="verified" type="checkbox" checked={profile.verified} onChange={handleToggle} />
-              Verified listing
+              ConveySafe verified listing
             </label>
             <button type="button" className="cta-primary" onClick={handleSave} disabled={status === 'saving'}>
               {status === 'saving' ? 'Saving…' : 'Publish profile'}
@@ -152,7 +152,7 @@ const ConveyancerProfilePage = ({ user, initialProfile }: ConveyancerProfileProp
             {status === 'error' ? <p className="status status--error">Unable to update profile.</p> : null}
           </div>
           <aside className="note">
-            Signed in as {user.fullName}. Profile updates are logged with immutable audit events for regulator compliance.
+            Signed in as {user.fullName}. Profile updates are logged with immutable ConveySafe audit events for regulator compliance.
           </aside>
         </section>
       </main>

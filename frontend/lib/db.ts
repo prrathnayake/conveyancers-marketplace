@@ -107,6 +107,15 @@ db.exec(`
     FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS message_policy_flags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    flag_type TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS platform_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,

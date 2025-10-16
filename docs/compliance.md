@@ -3,3 +3,4 @@
 - NSW: Licensed conveyancers must have **professional indemnity** under the approved policy and keep **trust accounts** only at approved ADIs with annual audits.
 - Best practice: Use **regulated PSP escrow**; do **not** operate your own trust account unless you become the regulated licensee. This starter integrates via providers.
 - Retention: Keep identity evidence for required periods; implement `retention_policy_days` toggles in config.
+- ConveySafe automation: licence numbers and PI expiry dates are compared against an embedded registry, and failed matches revoke badges while raising `/admin/compliance/alerts` events.

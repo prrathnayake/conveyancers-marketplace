@@ -32,12 +32,13 @@ This repository brings together a full-stack reference implementation spanning a
 - Tailwind CSS design system with DaisyUI components.
 - WebSocket-powered chat for real-time matter updates.
 - Admin console with data seeding helpers and feature toggles.
+- ConveySafe policy banners that detect off-platform contact attempts to preserve the evidentiary trail.
 
 ### Backend (Modern C++)
 - **Gateway service** that exposes a REST façade for the frontend and delegates to gRPC services.
-- **Identity service** for authentication, profile management, licence verification, and KYC webhook handling.
+- **Identity service** for authentication, profile management, KYC webhook handling, and ConveySafe licence/insurance verification with digital badges.
 - **Jobs service** for job listings, milestone tracking, chat, document exchange (via signed URLs + AV scans), and dispute resolution.
-- **Payments service** that orchestrates escrow holds, releases, refunds, and third-party PSP webhooks with idempotency safeguards.
+- **Payments service** that orchestrates escrow holds, releases, refunds, third-party PSP webhooks with idempotency safeguards, and ConveySafe loyalty pricing for trusted conveyancers.
 - Shared protobuf contracts, request validation, and centralised logging/audit middleware.
 
 ### Infrastructure (Docker Compose)
@@ -245,6 +246,7 @@ See [`docs/DEPLOY.md`](docs/DEPLOY.md) for production hardening guidance (autosc
 
 - [`docs/DEPLOY.md`](docs/DEPLOY.md) – Deployment strategies, production hardening checklist.
 - [`docs/compliance.md`](docs/compliance.md) – Australian regulatory references and process notes.
+- [`docs/conveysafe.md`](docs/conveysafe.md) – Trust, compliance, and lock-in narrative for the ConveySafe assurance layer.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) – Contribution guidelines for internal and external collaborators.
 - [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) – Expected behaviour in community channels.
 - [`SECURITY.md`](SECURITY.md) – Vulnerability disclosure process.
