@@ -20,7 +20,11 @@ const COOKIE_NAME = 'session_token'
 const MAX_AGE_SECONDS = 60 * 60 * 12
 
 const jwtSecret = (): string => {
-  return process.env.JWT_SECRET ?? 'dev-jwt-secret-change-me'
+  const secret = process.env.JWT_SECRET
+  if (!secret || secret.length === 0) {
+    throw new Error('JWT_SECRET environment variable is not configured')
+  }
+  return secret
 }
 
 const serializeCookie = (value: string, options: SerializeOptions = {}): string => {
