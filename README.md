@@ -159,6 +159,10 @@ npm run dev           # Runs the dashboard on http://localhost:5300
 
 > The first administrator account is provisioned from `ADMIN_SEED_EMAIL` and `ADMIN_SEED_PASSWORD{,_HASH}` in your environment. Set the same `JWT_SECRET` for both the public site and the admin portal so that sessions are shared.
 
+Backend services emit structured JSON log lines to the repository-level `logs/` directory (override with the `LOG_DIRECTORY`
+environment variable). The “System logs” view inside the admin portal surfaces the most recent entries per service so operators
+can review workflow interactions without shell access.
+
 ### Backend (C++ services)
 
 ```bash

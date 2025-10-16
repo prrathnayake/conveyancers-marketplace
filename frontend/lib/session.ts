@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import type { GetServerSidePropsContext } from 'next'
 import jwt, { type JwtPayload } from 'jsonwebtoken'
-import cookie, { type SerializeOptions } from 'cookie'
+import * as cookie from 'cookie'
+import type { SerializeOptions } from 'cookie'
 import db from './db'
 
 type JwtSession = {

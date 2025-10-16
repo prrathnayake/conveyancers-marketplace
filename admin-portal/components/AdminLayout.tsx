@@ -7,6 +7,7 @@ const navItems = [
   { href: '/conveyancers', label: 'Conveyancers' },
   { href: '/reviews', label: 'Reviews' },
   { href: '/audit-log', label: 'Audit log' },
+  { href: '/system-logs', label: 'System logs' },
 ]
 
 type AdminLayoutProps = {

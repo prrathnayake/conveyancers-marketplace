@@ -28,7 +28,7 @@ const formatDate = (value?: string): string => {
   return new Date(value).toLocaleString()
 }
 
-const createSparklinePath = (series: number[]): { line: string; area: string } => {
+const createSparklinePath = (series: readonly number[]): { line: string; area: string } => {
   if (series.length === 0) {
     return { line: '', area: '' }
   }
