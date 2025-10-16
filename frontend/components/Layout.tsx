@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import type { FC, ReactNode } from 'react'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import UserMenu from './UserMenu'
 
 type PrimaryNavItem = {
   href: string
@@ -70,6 +71,28 @@ const Layout: FC<LayoutProps> = ({ children }) => {
     return workflowNav
   }, [router.pathname])
 
+  const [banner, setBanner] = useState<string>('')
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const loadBanner = async () => {
+      try {
+        const response = await fetch('/api/admin/settings', { signal: controller.signal })
+        if (!response.ok) {
+          return
+        }
+        const payload = (await response.json()) as { settings?: Record<string, string> }
+        setBanner(payload.settings?.statusBanner ?? '')
+      } catch (error) {
+        if (!(error instanceof DOMException)) {
+          console.error('Failed to load settings', error)
+        }
+      }
+    }
+    void loadBanner()
+    return () => controller.abort()
+  }, [])
+
   return (
     <div className="app-shell">
       <header className="site-header" role="banner">
@@ -91,9 +114,7 @@ const Layout: FC<LayoutProps> = ({ children }) => {
               )
             })}
           </nav>
-          <div className="site-header__meta">
-            <span className="site-header__badge">Secure logging enabled</span>
-          </div>
+          <UserMenu />
         </div>
         <nav aria-label="Context" className="site-subnav">
           {subNav.map((item) => {
@@ -112,6 +133,11 @@ const Layout: FC<LayoutProps> = ({ children }) => {
           })}
         </nav>
       </header>
+      {banner ? (
+        <div role="alert" className="status-banner">
+          <strong>Notice:</strong> {banner}
+        </div>
+      ) : null}
       <div className="site-content">{children}</div>
     </div>
   )
