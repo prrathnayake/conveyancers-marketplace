@@ -1,7 +1,14 @@
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <ctime>
+#include <iomanip>
 #include <iostream>
 #include <mutex>
 #include <optional>
 #include <random>
+#include <regex>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -57,6 +64,21 @@ struct InvoiceRecord {
   int total_cents = 0;
   std::string issued_at;
   std::string due_at;
+};
+
+struct CheckoutReceipt {
+  std::string id;
+  std::string payment_id;
+  std::string job_id;
+  std::string method;
+  std::string currency;
+  std::string reference;
+  int hold_amount_cents = 0;
+  int service_fee_cents = 0;
+  double service_fee_rate = 0.0;
+  int total_cents = 0;
+  std::string processed_at;
+  std::string invoice_id;
 };
 
 std::string PaymentStatusToString(PaymentStatus status) {
@@ -129,6 +151,21 @@ json InvoiceToJson(const InvoiceRecord &invoice) {
               {"total_cents", invoice.total_cents},
               {"issued_at", invoice.issued_at},
               {"due_at", invoice.due_at}};
+}
+
+json CheckoutToJson(const CheckoutReceipt &receipt) {
+  return json{{"id", receipt.id},
+              {"payment_id", receipt.payment_id},
+              {"job_id", receipt.job_id},
+              {"method", receipt.method},
+              {"currency", receipt.currency},
+              {"reference", receipt.reference},
+              {"hold_amount_cents", receipt.hold_amount_cents},
+              {"service_fee_cents", receipt.service_fee_cents},
+              {"service_fee_rate", receipt.service_fee_rate},
+              {"total_cents", receipt.total_cents},
+              {"processed_at", receipt.processed_at},
+              {"invoice_id", receipt.invoice_id}};
 }
 
 class PaymentLedger {
@@ -228,6 +265,72 @@ class PaymentLedger {
     return records;
   }
 
+  std::optional<CheckoutReceipt> Checkout(const std::string &payment_id, const std::string &method,
+                                          double service_fee_rate, const std::string &processed_at,
+                                          const std::optional<std::string> &invoice_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = ledger_.find(payment_id);
+    if (it == ledger_.end()) {
+      return std::nullopt;
+    }
+    if (it->second.status != PaymentStatus::kHeld) {
+      return std::nullopt;
+    }
+
+    CheckoutReceipt receipt;
+    receipt.id = GenerateId("chk_");
+    receipt.payment_id = payment_id;
+    receipt.job_id = it->second.job_id;
+    receipt.method = method;
+    receipt.currency = it->second.currency;
+    receipt.reference = it->second.reference;
+    receipt.hold_amount_cents = it->second.amount_cents;
+    receipt.service_fee_rate = service_fee_rate;
+    receipt.service_fee_cents = static_cast<int>(std::llround(it->second.amount_cents * service_fee_rate));
+    receipt.total_cents = receipt.hold_amount_cents + receipt.service_fee_cents;
+    receipt.processed_at = processed_at;
+    receipt.invoice_id = invoice_id.value_or("");
+
+    it->second.status = PaymentStatus::kReleased;
+    it->second.released_at = processed_at;
+    it->second.refunded_at.reset();
+
+    checkouts_[receipt.id] = receipt;
+    checkout_lookup_[payment_id] = receipt.id;
+    checkout_order_.push_back(receipt.id);
+    return receipt;
+  }
+
+  std::optional<CheckoutReceipt> GetCheckout(const std::string &checkout_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (auto it = checkouts_.find(checkout_id); it != checkouts_.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  }
+
+  std::optional<CheckoutReceipt> GetCheckoutForPayment(const std::string &payment_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (auto it = checkout_lookup_.find(payment_id); it != checkout_lookup_.end()) {
+      if (auto receipt_it = checkouts_.find(it->second); receipt_it != checkouts_.end()) {
+        return receipt_it->second;
+      }
+    }
+    return std::nullopt;
+  }
+
+  std::vector<CheckoutReceipt> ListCheckouts() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<CheckoutReceipt> receipts;
+    receipts.reserve(checkout_order_.size());
+    for (const auto &id : checkout_order_) {
+      if (auto it = checkouts_.find(id); it != checkouts_.end()) {
+        receipts.push_back(it->second);
+      }
+    }
+    return receipts;
+  }
+
  private:
   static std::string GenerateId(const std::string &prefix) {
     static std::mt19937 rng{std::random_device{}()};
@@ -238,6 +341,9 @@ class PaymentLedger {
   mutable std::mutex mutex_;
   std::unordered_map<std::string, PaymentRecord> ledger_;
   std::unordered_map<std::string, TrustPayout> trust_payouts_;
+  std::unordered_map<std::string, CheckoutReceipt> checkouts_;
+  std::unordered_map<std::string, std::string> checkout_lookup_;
+  std::vector<std::string> checkout_order_;
 };
 
 class InvoiceLedger {
@@ -349,6 +455,63 @@ std::optional<int> RequirePositiveInt(const json &payload, const std::string &fi
   return value;
 }
 
+std::optional<double> RequireDoubleInRange(const json &payload, const std::string &field, double min_value,
+                                          double max_value) {
+  if (!payload.contains(field)) {
+    return std::nullopt;
+  }
+  if (!payload[field].is_number_float() && !payload[field].is_number_integer()) {
+    return std::nullopt;
+  }
+  const auto value = payload[field].get<double>();
+  if (value < min_value || value > max_value) {
+    return std::nullopt;
+  }
+  return value;
+}
+
+std::string CurrentIsoTimestamp() {
+  const auto now = std::chrono::system_clock::now();
+  const auto seconds = std::chrono::system_clock::to_time_t(now);
+#ifdef _WIN32
+  std::tm tm;
+  gmtime_s(&tm, &seconds);
+#else
+  std::tm tm;
+  gmtime_r(&seconds, &tm);
+#endif
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+  std::ostringstream oss;
+  oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S") << '.' << std::setfill('0') << std::setw(3) << ms.count()
+      << 'Z';
+  return oss.str();
+}
+
+std::string CurrentIsoDate() {
+  const auto now = std::chrono::system_clock::now();
+  const auto seconds = std::chrono::system_clock::to_time_t(now);
+#ifdef _WIN32
+  std::tm tm;
+  gmtime_s(&tm, &seconds);
+#else
+  std::tm tm;
+  gmtime_r(&seconds, &tm);
+#endif
+  std::ostringstream oss;
+  oss << std::put_time(&tm, "%Y-%m-%d");
+  return oss.str();
+}
+
+bool IsIsoDate(const std::string &value) {
+  static const std::regex kDatePattern(R"(^\d{4}-\d{2}-\d{2}$)");
+  return std::regex_match(value, kDatePattern);
+}
+
+bool IsIsoDateTime(const std::string &value) {
+  static const std::regex kDateTimePattern(R"(^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$)");
+  return std::regex_match(value, kDateTimePattern);
+}
+
 void WriteJson(httplib::Response &res, const json &payload, int status = 200) {
   res.status = status;
   res.set_content(payload.dump(), "application/json");
@@ -359,6 +522,103 @@ InvoiceStatus ParseInvoiceStatus(const std::string &status) {
   if (status == "paid") return InvoiceStatus::kPaid;
   if (status == "voided") return InvoiceStatus::kVoided;
   return InvoiceStatus::kDraft;
+}
+
+json BuildMetricsPayload() {
+  const auto payments = GlobalLedger().List();
+  const auto checkouts = GlobalLedger().ListCheckouts();
+  const auto invoices = GlobalInvoices().List();
+
+  int held_count = 0;
+  int released_count = 0;
+  int refunded_count = 0;
+  long long held_total = 0;
+  long long released_total = 0;
+  long long refunded_total = 0;
+
+  for (const auto &record : payments) {
+    switch (record.status) {
+      case PaymentStatus::kHeld:
+        ++held_count;
+        held_total += record.amount_cents;
+        break;
+      case PaymentStatus::kReleased:
+        ++released_count;
+        released_total += record.amount_cents;
+        break;
+      case PaymentStatus::kRefunded:
+        ++refunded_count;
+        refunded_total += record.amount_cents;
+        break;
+    }
+  }
+
+  long long checkout_total = 0;
+  long long checkout_fee_total = 0;
+  json recent = json::array();
+  for (auto it = checkouts.rbegin(); it != checkouts.rend() && recent.size() < 5; ++it) {
+    recent.push_back(CheckoutToJson(*it));
+  }
+  for (const auto &receipt : checkouts) {
+    checkout_total += receipt.total_cents;
+    checkout_fee_total += receipt.service_fee_cents;
+  }
+
+  const int checkout_average = checkouts.empty() ? 0 : static_cast<int>(checkout_total / checkouts.size());
+
+  int draft = 0;
+  int issued = 0;
+  int paid = 0;
+  int voided = 0;
+  int overdue = 0;
+  long long invoice_total = 0;
+  long long invoice_outstanding = 0;
+  const auto today = CurrentIsoDate();
+  for (const auto &invoice : invoices) {
+    switch (invoice.status) {
+      case InvoiceStatus::kDraft:
+        ++draft;
+        break;
+      case InvoiceStatus::kIssued:
+        ++issued;
+        invoice_outstanding += invoice.total_cents;
+        break;
+      case InvoiceStatus::kPaid:
+        ++paid;
+        break;
+      case InvoiceStatus::kVoided:
+        ++voided;
+        break;
+    }
+    invoice_total += invoice.total_cents;
+    if (!invoice.due_at.empty() && invoice.due_at < today &&
+        invoice.status != InvoiceStatus::kPaid && invoice.status != InvoiceStatus::kVoided) {
+      ++overdue;
+    }
+  }
+
+  return json{{"generated_at", CurrentIsoTimestamp()},
+              {"payments",
+               json{{"total", static_cast<int>(payments.size())},
+                    {"held", json{{"count", held_count}, {"total_cents", held_total}}},
+                    {"released", json{{"count", released_count}, {"total_cents", released_total}}},
+                    {"refunded", json{{"count", refunded_count}, {"total_cents", refunded_total}}},
+                    {"outstanding_cents", held_total}}},
+              {"checkouts",
+               json{{"total", static_cast<int>(checkouts.size())},
+                    {"total_cents", checkout_total},
+                    {"service_fee_cents", checkout_fee_total},
+                    {"average_order_cents", checkout_average},
+                    {"recent", recent}}},
+              {"invoices",
+               json{{"total", static_cast<int>(invoices.size())},
+                    {"draft", draft},
+                    {"issued", issued},
+                    {"paid", paid},
+                    {"voided", voided},
+                    {"overdue", overdue},
+                    {"outstanding_cents", invoice_outstanding},
+                    {"total_cents", invoice_total}}}};
 }
 
 }  // namespace
@@ -541,6 +801,158 @@ int main() {
     WriteJson(res, json{{"error", "payout_not_found"}}, 404);
   });
 
+  server.Post("/payments/checkout", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "payments")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"buyer", "conveyancer", "finance_admin"}, "payments",
+                               "checkout_hold")) {
+      return;
+    }
+    auto payload = ParseJson(req);
+    if (!payload.has_value()) {
+      WriteJson(res, json{{"error", "invalid_json"}}, 400);
+      return;
+    }
+
+    auto payment_id = RequireString(*payload, "payment_id");
+    auto payment_method = RequireString(*payload, "payment_method");
+    if (!payment_id || !payment_method) {
+      WriteJson(res, json{{"error", "missing_required_fields"}}, 400);
+      return;
+    }
+
+    auto hold = GlobalLedger().Get(*payment_id);
+    if (!hold) {
+      WriteJson(res, json{{"error", "payment_not_found"}}, 404);
+      return;
+    }
+    if (hold->status != PaymentStatus::kHeld) {
+      WriteJson(res, json{{"error", "hold_not_available"}}, 409);
+      return;
+    }
+
+    const auto fee_rate_override = RequireDoubleInRange(*payload, "service_fee_rate", 0.0, 0.25);
+    const double service_fee_rate = fee_rate_override.value_or(0.018);
+    std::string processed_at = payload->value("processed_at", std::string{});
+    if (processed_at.empty()) {
+      processed_at = CurrentIsoTimestamp();
+    } else if (!IsIsoDateTime(processed_at)) {
+      WriteJson(res, json{{"error", "invalid_processed_at"}}, 400);
+      return;
+    }
+
+    const bool should_create_invoice = payload->value("generate_invoice", true);
+    std::optional<std::string> invoice_id;
+    json invoice_json;
+
+    if (should_create_invoice) {
+      std::string issued_at = payload->value("issued_at", CurrentIsoDate());
+      std::string due_at = payload->value("due_at", issued_at);
+      if (!IsIsoDate(issued_at) || !IsIsoDate(due_at)) {
+        WriteJson(res, json{{"error", "invalid_invoice_date"}}, 400);
+        return;
+      }
+      if (due_at < issued_at) {
+        WriteJson(res, json{{"error", "due_before_issue"}}, 400);
+        return;
+      }
+
+      const std::string recipient = payload->value("invoice_recipient", hold->job_id + std::string{"-client"});
+      const std::string item_description = payload->value("line_description", std::string{"Conveyancing milestone"});
+      const double base_tax_rate = std::clamp(payload->value("line_tax_rate", 0.0), 0.0, 1.0);
+      const double fee_tax_rate = std::clamp(payload->value("service_fee_tax_rate", 0.0), 0.0, 1.0);
+
+      std::vector<InvoiceLine> invoice_lines;
+      invoice_lines.push_back({item_description, hold->amount_cents, base_tax_rate});
+      const int service_fee_cents = static_cast<int>(std::llround(hold->amount_cents * service_fee_rate));
+      if (service_fee_cents > 0) {
+        invoice_lines.push_back({payload->value("service_fee_description", std::string{"Payment processing fee"}),
+                                service_fee_cents, fee_tax_rate});
+      }
+
+      auto invoice = GlobalInvoices().CreateInvoice(hold->job_id, recipient, issued_at, due_at, invoice_lines);
+      const auto status = ParseInvoiceStatus(payload->value("invoice_status", std::string{"issued"}));
+      if (auto updated = GlobalInvoices().UpdateStatus(invoice.id, status)) {
+        invoice = *updated;
+      }
+      invoice_json = InvoiceToJson(invoice);
+      invoice_id = invoice.id;
+    }
+
+    auto receipt = GlobalLedger().Checkout(*payment_id, *payment_method, service_fee_rate, processed_at, invoice_id);
+    if (!receipt) {
+      WriteJson(res, json{{"error", "hold_not_available"}}, 409);
+      return;
+    }
+
+    json response = CheckoutToJson(*receipt);
+    if (invoice_id.has_value()) {
+      response["invoice"] = invoice_json;
+    }
+    WriteJson(res, response, 201);
+  });
+
+  server.Get("/payments/checkout", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "payments")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"conveyancer", "finance_admin", "admin"}, "payments",
+                               "list_checkouts")) {
+      return;
+    }
+    if (const auto payment_id = req.get_param_value("payment_id"); !payment_id.empty()) {
+      if (auto receipt = GlobalLedger().GetCheckoutForPayment(payment_id)) {
+        WriteJson(res, CheckoutToJson(*receipt));
+        return;
+      }
+      WriteJson(res, json{{"error", "checkout_not_found"}}, 404);
+      return;
+    }
+    json response = json::array();
+    for (const auto &receipt : GlobalLedger().ListCheckouts()) {
+      response.push_back(CheckoutToJson(receipt));
+    }
+    WriteJson(res, response);
+  });
+
+  server.Get(R"(/payments/checkout/([\w_-]+))", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "payments")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"conveyancer", "finance_admin", "admin"}, "payments",
+                               "get_checkout")) {
+      return;
+    }
+    const auto checkout_id = req.matches[1];
+    if (auto receipt = GlobalLedger().GetCheckout(checkout_id)) {
+      WriteJson(res, CheckoutToJson(*receipt));
+      return;
+    }
+    WriteJson(res, json{{"error", "checkout_not_found"}}, 404);
+  });
+
+  server.Get("/payments/metrics", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "payments")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"finance_admin", "admin"}, "payments", "view_metrics")) {
+      return;
+    }
+    WriteJson(res, BuildMetricsPayload());
+  });
+
+  server.Get("/payments/invoices/summary", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "payments")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"finance_admin", "admin"}, "payments", "invoice_summary")) {
+      return;
+    }
+    auto metrics = BuildMetricsPayload();
+    WriteJson(res, metrics["invoices"]);
+  });
+
   server.Post("/payments/invoices", [](const httplib::Request &req, httplib::Response &res) {
     if (!security::Authorize(req, res, "payments")) {
       return;
@@ -562,6 +974,14 @@ int main() {
       WriteJson(res, json{{"error", "missing_required_fields"}}, 400);
       return;
     }
+    if (!IsIsoDate(*issued_at) || !IsIsoDate(*due_at)) {
+      WriteJson(res, json{{"error", "invalid_date"}}, 400);
+      return;
+    }
+    if (*due_at < *issued_at) {
+      WriteJson(res, json{{"error", "due_before_issue"}}, 400);
+      return;
+    }
     if (!payload->contains("lines") || !(*payload)["lines"].is_array()) {
       WriteJson(res, json{{"error", "missing_line_items"}}, 400);
       return;
@@ -574,7 +994,16 @@ int main() {
       InvoiceLine invoice_line;
       invoice_line.description = line.value("description", std::string{"Fee"});
       invoice_line.amount_cents = line.value("amount_cents", 0);
+      if (invoice_line.amount_cents <= 0) {
+        continue;
+      }
       invoice_line.tax_rate = line.value("tax_rate", 0.0);
+      if (invoice_line.tax_rate < 0.0) {
+        invoice_line.tax_rate = 0.0;
+      }
+      if (invoice_line.tax_rate > 1.0) {
+        invoice_line.tax_rate = 1.0;
+      }
       lines.push_back(invoice_line);
     }
     if (lines.empty()) {
