@@ -184,18 +184,22 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
         <title>Manage conveyancers</title>
       </Head>
       <section className="admin-section">
-        <header className="section-header">
+        <header className="admin-section__header">
           <div>
-            <h1>Conveyancer directory</h1>
-            <p>Curate verified experts and keep marketplace metadata accurate.</p>
+            <h1 className="admin-section__title">Conveyancer directory</h1>
+            <p className="admin-section__description">Curate verified experts and keep marketplace metadata accurate.</p>
           </div>
-          <button type="button" onClick={resetForm} className="link-button">
+          <button type="button" onClick={resetForm} className="admin-button admin-button--ghost">
             Create new listing
           </button>
         </header>
-        {error ? <p className="error">{error}</p> : null}
-        <div className="table-wrapper">
-          <table>
+        {error ? (
+          <p className="admin-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <div className="admin-table-wrapper">
+          <table className="admin-table">
             <thead>
               <tr>
                 <th>Name</th>
@@ -215,10 +219,20 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
                   <td>{record.rating.toFixed(1)}</td>
                   <td>{record.reviewCount}</td>
                   <td>
-                    <button type="button" onClick={() => setSelectedId(record.id)} disabled={status === 'loading'}>
+                    <button
+                      type="button"
+                      className="admin-button"
+                      onClick={() => setSelectedId(record.id)}
+                      disabled={status === 'loading'}
+                    >
                       Edit
                     </button>
-                    <button type="button" onClick={() => void handleDelete(record.id)} className="danger" disabled={status === 'loading'}>
+                    <button
+                      type="button"
+                      onClick={() => void handleDelete(record.id)}
+                      className="admin-button admin-button--danger"
+                      disabled={status === 'loading'}
+                    >
                       Delete
                     </button>
                   </td>
@@ -227,12 +241,13 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
             </tbody>
           </table>
         </div>
-        <form className="editor" onSubmit={handleSubmit}>
+        <form className="admin-form" onSubmit={handleSubmit}>
           <h2>{selectedId ? 'Update conveyancer' : 'Create conveyancer'}</h2>
-          <div className="grid">
-            <label>
+          <div className="admin-form__grid">
+            <label className="admin-form__label">
               Email
               <input
+                className="admin-input"
                 type="email"
                 value={formState.email}
                 onChange={(event) => setFormState((prev) => ({ ...prev, email: event.target.value }))}
@@ -240,54 +255,102 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
                 disabled={Boolean(selectedId)}
               />
             </label>
-            <label>
+            <label className="admin-form__label">
               Full name
-              <input value={formState.fullName} onChange={(event) => setFormState((prev) => ({ ...prev, fullName: event.target.value }))} required />
+              <input
+                className="admin-input"
+                value={formState.fullName}
+                onChange={(event) => setFormState((prev) => ({ ...prev, fullName: event.target.value }))}
+                required
+              />
             </label>
-            <label>
+            <label className="admin-form__label">
               Firm
-              <input value={formState.firmName} onChange={(event) => setFormState((prev) => ({ ...prev, firmName: event.target.value }))} />
+              <input
+                className="admin-input"
+                value={formState.firmName}
+                onChange={(event) => setFormState((prev) => ({ ...prev, firmName: event.target.value }))}
+              />
             </label>
-            <label>
+            <label className="admin-form__label">
               Phone
-              <input value={formState.phone} onChange={(event) => setFormState((prev) => ({ ...prev, phone: event.target.value }))} />
+              <input
+                className="admin-input"
+                value={formState.phone}
+                onChange={(event) => setFormState((prev) => ({ ...prev, phone: event.target.value }))}
+              />
             </label>
-            <label>
+            <label className="admin-form__label">
               State
-              <input value={formState.state} onChange={(event) => setFormState((prev) => ({ ...prev, state: event.target.value }))} />
+              <input
+                className="admin-input"
+                value={formState.state}
+                onChange={(event) => setFormState((prev) => ({ ...prev, state: event.target.value }))}
+              />
             </label>
-            <label>
+            <label className="admin-form__label">
               Suburb
-              <input value={formState.suburb} onChange={(event) => setFormState((prev) => ({ ...prev, suburb: event.target.value }))} />
+              <input
+                className="admin-input"
+                value={formState.suburb}
+                onChange={(event) => setFormState((prev) => ({ ...prev, suburb: event.target.value }))}
+              />
             </label>
-            <label>
+            <label className="admin-form__label">
               Website
-              <input value={formState.website} onChange={(event) => setFormState((prev) => ({ ...prev, website: event.target.value }))} />
+              <input
+                className="admin-input"
+                value={formState.website}
+                onChange={(event) => setFormState((prev) => ({ ...prev, website: event.target.value }))}
+              />
             </label>
-            <label>
+            <label className="admin-form__label">
               Turnaround
-              <input value={formState.turnaround} onChange={(event) => setFormState((prev) => ({ ...prev, turnaround: event.target.value }))} />
+              <input
+                className="admin-input"
+                value={formState.turnaround}
+                onChange={(event) => setFormState((prev) => ({ ...prev, turnaround: event.target.value }))}
+              />
             </label>
-            <label>
+            <label className="admin-form__label">
               Response time
-              <input value={formState.responseTime} onChange={(event) => setFormState((prev) => ({ ...prev, responseTime: event.target.value }))} />
+              <input
+                className="admin-input"
+                value={formState.responseTime}
+                onChange={(event) => setFormState((prev) => ({ ...prev, responseTime: event.target.value }))}
+              />
             </label>
-            <label>
+            <label className="admin-form__label">
               Specialties
-              <input value={formState.specialties.join(', ')} onChange={(event) => handleSpecialtiesChange(event.target.value)} />
+              <input
+                className="admin-input"
+                value={formState.specialties.join(', ')}
+                onChange={(event) => handleSpecialtiesChange(event.target.value)}
+              />
             </label>
-            <label>
+            <label className="admin-form__label">
               Remote friendly
-              <input type="checkbox" checked={formState.remoteFriendly} onChange={(event) => setFormState((prev) => ({ ...prev, remoteFriendly: event.target.checked }))} />
+              <input
+                className="admin-checkbox"
+                type="checkbox"
+                checked={formState.remoteFriendly}
+                onChange={(event) => setFormState((prev) => ({ ...prev, remoteFriendly: event.target.checked }))}
+              />
             </label>
-            <label>
+            <label className="admin-form__label">
               Verified
-              <input type="checkbox" checked={formState.verified} onChange={(event) => setFormState((prev) => ({ ...prev, verified: event.target.checked }))} />
+              <input
+                className="admin-checkbox"
+                type="checkbox"
+                checked={formState.verified}
+                onChange={(event) => setFormState((prev) => ({ ...prev, verified: event.target.checked }))}
+              />
             </label>
             {!selectedId ? (
-              <label>
+              <label className="admin-form__label">
                 Temporary password
                 <input
+                  className="admin-input"
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
@@ -297,141 +360,28 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
                 />
               </label>
             ) : null}
-            <label className="span">
+            <label className="admin-form__label admin-form__label--span">
               Bio
-              <textarea value={formState.bio} onChange={(event) => setFormState((prev) => ({ ...prev, bio: event.target.value }))} rows={4} />
+              <textarea
+                className="admin-textarea"
+                value={formState.bio}
+                onChange={(event) => setFormState((prev) => ({ ...prev, bio: event.target.value }))}
+                rows={4}
+              />
             </label>
           </div>
-          <div className="actions">
-            <button type="submit" disabled={status !== 'idle'}>
+          <div className="admin-form__actions">
+            <button type="submit" className="admin-button" disabled={status !== 'idle'}>
               {selectedId ? 'Save changes' : 'Create account'}
             </button>
             {selectedId ? (
-              <button type="button" className="secondary" onClick={resetForm}>
+              <button type="button" className="admin-button admin-button--secondary" onClick={resetForm}>
                 Cancel
               </button>
             ) : null}
           </div>
         </form>
       </section>
-      <style jsx>{`
-        .admin-section {
-          display: grid;
-          gap: 2rem;
-        }
-
-        .section-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
-
-        .link-button {
-          border: none;
-          background: none;
-          color: #38bdf8;
-          cursor: pointer;
-          font-weight: 600;
-        }
-
-        .error {
-          color: #fecaca;
-        }
-
-        .table-wrapper {
-          overflow-x: auto;
-          border-radius: 18px;
-          border: 1px solid rgba(148, 163, 184, 0.18);
-        }
-
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          background: rgba(15, 23, 42, 0.65);
-        }
-
-        th,
-        td {
-          padding: 0.75rem 1rem;
-          text-align: left;
-        }
-
-        thead {
-          background: rgba(30, 41, 59, 0.65);
-        }
-
-        tbody tr:nth-child(odd) {
-          background: rgba(30, 41, 59, 0.3);
-        }
-
-        button {
-          border: none;
-          border-radius: 12px;
-          padding: 0.6rem 1.1rem;
-          font-weight: 600;
-          background: linear-gradient(135deg, #2563eb, #1d4ed8);
-          color: #f8fafc;
-          cursor: pointer;
-          margin-right: 0.5rem;
-        }
-
-        button.danger {
-          background: rgba(239, 68, 68, 0.85);
-        }
-
-        button.secondary {
-          background: rgba(148, 163, 184, 0.15);
-          color: rgba(226, 232, 240, 0.85);
-        }
-
-        .editor {
-          padding: 1.75rem;
-          border-radius: 18px;
-          background: rgba(15, 23, 42, 0.65);
-          border: 1px solid rgba(148, 163, 184, 0.18);
-          display: grid;
-          gap: 1.25rem;
-        }
-
-        .grid {
-          display: grid;
-          gap: 1rem;
-          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        }
-
-        label {
-          display: grid;
-          gap: 0.35rem;
-          font-size: 0.9rem;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          color: rgba(148, 163, 184, 0.88);
-        }
-
-        input,
-        textarea {
-          border-radius: 12px;
-          border: 1px solid rgba(148, 163, 184, 0.3);
-          background: rgba(15, 23, 42, 0.6);
-          padding: 0.85rem 1rem;
-          color: #f8fafc;
-        }
-
-        input[type='checkbox'] {
-          width: auto;
-          height: auto;
-        }
-
-        .span {
-          grid-column: 1 / -1;
-        }
-
-        .actions {
-          display: flex;
-          gap: 0.75rem;
-          flex-wrap: wrap;
-        }
-      `}</style>
     </AdminLayout>
   )
 }

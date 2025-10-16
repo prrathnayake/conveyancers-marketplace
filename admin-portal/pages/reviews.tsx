@@ -97,15 +97,19 @@ const AdminReviews = ({ user }: AdminReviewsProps): JSX.Element => {
         <title>Manage reviews</title>
       </Head>
       <section className="admin-section">
-        <header className="section-header">
+        <header className="admin-section__header">
           <div>
-            <h1>Reviews moderation</h1>
-            <p>Ensure testimonials comply with advertising guidelines.</p>
+            <h1 className="admin-section__title">Reviews moderation</h1>
+            <p className="admin-section__description">Ensure testimonials comply with advertising guidelines.</p>
           </div>
         </header>
-        {error ? <p className="error">{error}</p> : null}
-        <div className="table-wrapper">
-          <table>
+        {error ? (
+          <p className="admin-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <div className="admin-table-wrapper">
+          <table className="admin-table">
             <thead>
               <tr>
                 <th>ID</th>
@@ -127,7 +131,11 @@ const AdminReviews = ({ user }: AdminReviewsProps): JSX.Element => {
                   <td>{review.comment}</td>
                   <td>{new Date(review.created_at).toLocaleString()}</td>
                   <td>
-                    <button type="button" onClick={() => handleDelete(review.id)} className="danger">
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(review.id)}
+                      className="admin-button admin-button--danger"
+                    >
                       Delete
                     </button>
                   </td>
@@ -136,11 +144,12 @@ const AdminReviews = ({ user }: AdminReviewsProps): JSX.Element => {
             </tbody>
           </table>
         </div>
-        <form className="editor" onSubmit={handleSubmit}>
+        <form className="admin-form" onSubmit={handleSubmit}>
           <h2>Publish review</h2>
-          <label>
+          <label className="admin-form__label">
             Conveyancer ID
             <input
+              className="admin-input"
               value={formState.conveyancerId}
               onChange={(event) => setFormState((prev) => ({ ...prev, conveyancerId: event.target.value }))}
               type="number"
@@ -148,17 +157,19 @@ const AdminReviews = ({ user }: AdminReviewsProps): JSX.Element => {
               required
             />
           </label>
-          <label>
+          <label className="admin-form__label">
             Reviewer name
             <input
+              className="admin-input"
               value={formState.reviewerName}
               onChange={(event) => setFormState((prev) => ({ ...prev, reviewerName: event.target.value }))}
               required
             />
           </label>
-          <label>
+          <label className="admin-form__label">
             Rating
             <input
+              className="admin-input"
               value={formState.rating}
               onChange={(event) => setFormState((prev) => ({ ...prev, rating: Number(event.target.value) }))}
               type="number"
@@ -167,102 +178,21 @@ const AdminReviews = ({ user }: AdminReviewsProps): JSX.Element => {
               required
             />
           </label>
-          <label>
+          <label className="admin-form__label admin-form__label--span">
             Comment
             <textarea
+              className="admin-textarea"
               value={formState.comment}
               onChange={(event) => setFormState((prev) => ({ ...prev, comment: event.target.value }))}
               rows={3}
               required
             />
           </label>
-          <button type="submit" disabled={status === 'saving'}>
+          <button type="submit" className="admin-button" disabled={status === 'saving'}>
             {status === 'saving' ? 'Publishing…' : 'Publish review'}
           </button>
         </form>
       </section>
-      <style jsx>{`
-        .admin-section {
-          display: grid;
-          gap: 2rem;
-          color: #e2e8f0;
-        }
-
-        h1 {
-          margin: 0;
-          font-size: 2.2rem;
-        }
-
-        .error {
-          color: #fecaca;
-          background: rgba(248, 113, 113, 0.12);
-          padding: 0.75rem 1rem;
-          border-radius: 12px;
-        }
-
-        .table-wrapper {
-          overflow-x: auto;
-          border-radius: 18px;
-          border: 1px solid rgba(148, 163, 184, 0.18);
-        }
-
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          background: rgba(15, 23, 42, 0.65);
-        }
-
-        th,
-        td {
-          padding: 0.75rem 1rem;
-          text-align: left;
-        }
-
-        thead {
-          background: rgba(30, 41, 59, 0.65);
-        }
-
-        tbody tr:nth-child(odd) {
-          background: rgba(30, 41, 59, 0.3);
-        }
-
-        button {
-          border: none;
-          border-radius: 12px;
-          padding: 0.6rem 1.1rem;
-          font-weight: 600;
-          background: rgba(239, 68, 68, 0.85);
-          color: #f8fafc;
-          cursor: pointer;
-        }
-
-        .editor {
-          display: grid;
-          gap: 1rem;
-          background: rgba(15, 23, 42, 0.65);
-          border-radius: 18px;
-          border: 1px solid rgba(148, 163, 184, 0.18);
-          padding: 1.75rem;
-        }
-
-        label {
-          display: grid;
-          gap: 0.35rem;
-          font-size: 0.9rem;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          color: rgba(148, 163, 184, 0.88);
-        }
-
-        input,
-        textarea {
-          border-radius: 12px;
-          border: 1px solid rgba(148, 163, 184, 0.3);
-          background: rgba(15, 23, 42, 0.6);
-          padding: 0.85rem 1rem;
-          color: #f8fafc;
-        }
-      `}</style>
     </AdminLayout>
   )
 }

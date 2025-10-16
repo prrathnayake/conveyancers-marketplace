@@ -3,6 +3,8 @@ import Link from 'next/link'
 import type { FC, ReactElement } from 'react'
 import { useMemo, useState } from 'react'
 
+import styles from '../styles/home.module.css'
+
 const personaCopy = {
   buyer: {
     label: 'I’m buying',
@@ -147,57 +149,61 @@ const Home: FC = (): ReactElement => {
       <Head>
         <title>Conveyancers Marketplace</title>
       </Head>
-      <main className="page">
-        <section className="hero" aria-labelledby="hero-heading">
-          <div className="badge">AU verified network</div>
-          <h1 id="hero-heading">Settle property deals with clarity and control</h1>
-          <p className="hero-subtitle">
+      <main className={styles.page}>
+        <section className={styles.hero} aria-labelledby="hero-heading">
+          <div className={styles.badge}>AU verified network</div>
+          <h1 id="hero-heading" className={styles.heroTitle}>
+            Settle property deals with clarity and control
+          </h1>
+          <p className={styles.heroSubtitle}>
             Discover licenced conveyancers, orchestrate every milestone, and keep funds protected until both sides are satisfied.
           </p>
-          <div className="persona-toggle" role="tablist" aria-label="Select your scenario">
+          <div className={styles.personaToggle} role="tablist" aria-label="Select your scenario">
             {(Object.keys(personaCopy) as PersonaKey[]).map((key) => (
               <button
                 key={key}
                 type="button"
                 role="tab"
                 aria-selected={persona === key}
-                className={`persona-option ${persona === key ? 'persona-option--active' : ''}`}
+                className={`${styles.personaOption} ${persona === key ? styles.personaOptionActive : ''}`}
                 onClick={() => setPersona(key)}
               >
                 {personaCopy[key].label}
               </button>
             ))}
           </div>
-          <h2 className="persona-headline">{personaDetails.headline}</h2>
-          <ul className="persona-benefits">
+          <h2 className={styles.personaHeadline}>{personaDetails.headline}</h2>
+          <ul className={styles.personaBenefits}>
             {personaDetails.benefits.map((benefit) => (
-              <li key={benefit}>{benefit}</li>
+              <li key={benefit} className={styles.personaBenefit}>
+                {benefit}
+              </li>
             ))}
           </ul>
-          <div className="hero-actions">
-            <Link href="/search" className="cta-primary">
+          <div className={styles.heroActions}>
+            <Link href="/search" className={`cta-primary ${styles.heroPrimary}`}>
               Browse verified conveyancers
             </Link>
-            <a href="#workflow" className="cta-secondary">
+            <a href="#workflow" className={`cta-secondary ${styles.heroSecondary}`}>
               See how the workflow fits together
             </a>
           </div>
-          <dl className="stats" aria-label="Marketplace performance stats">
+          <dl className={styles.stats} aria-label="Marketplace performance stats">
             {stats.map((stat) => (
-              <div key={stat.label} className="stat">
-                <dt>{stat.label}</dt>
-                <dd>{stat.value}</dd>
-                <p>{stat.detail}</p>
+              <div key={stat.label} className={styles.stat}>
+                <dt className={styles.statLabel}>{stat.label}</dt>
+                <dd className={styles.statValue}>{stat.value}</dd>
+                <p className={styles.statDetail}>{stat.detail}</p>
               </div>
             ))}
           </dl>
         </section>
 
-        <section className="features" id="features" aria-label="Platform features">
-          <h2>Everything teams need to settle securely</h2>
-          <div className="feature-grid">
+        <section className={styles.features} id="features" aria-label="Platform features">
+          <h2 className={styles.sectionHeading}>Everything teams need to settle securely</h2>
+          <div className={styles.featureGrid}>
             {features.map((feature) => (
-              <article key={feature.title} className="feature-card">
+              <article key={feature.title} className={styles.featureCard}>
                 <h3>{feature.title}</h3>
                 <p>{feature.description}</p>
               </article>
@@ -205,21 +211,20 @@ const Home: FC = (): ReactElement => {
           </div>
         </section>
 
-        <section className="workflow" id="workflow" aria-label="How the marketplace works">
-          <div className="workflow-copy">
-            <h2>Progress every transaction with confidence</h2>
+        <section className={styles.workflow} id="workflow" aria-label="Settlement workflow">
+          <div className={styles.workflowCopy}>
+            <h2 className={styles.sectionHeading}>See the entire conveyancing journey end-to-end</h2>
             <p>
-              The platform combines automated compliance, milestone-based escrow, and a collaborative workspace designed for
-              Australian conveyancing teams.
+              Conveyancers Marketplace centralises every task, milestone, and approval so property teams stay coordinated from listing to settlement.
             </p>
-            <Link href="/search" className="cta-link">
+            <Link href="/search" className={`cta-link ${styles.heroLink}`}>
               Start by meeting your next conveyancer
             </Link>
           </div>
-          <ol className="workflow-steps">
+          <ol className={styles.workflowSteps}>
             {workflow.map((item) => (
-              <li key={item.title}>
-                <span className="workflow-step">{item.step}</span>
+              <li key={item.step}>
+                <span className={styles.workflowStep}>{item.step}</span>
                 <div>
                   <h3>{item.title}</h3>
                   <p>{item.copy}</p>
@@ -229,9 +234,9 @@ const Home: FC = (): ReactElement => {
           </ol>
         </section>
 
-        <section className="testimonials" aria-label="Customer testimonials">
-          <h2>Loved by conveyancing leaders nationwide</h2>
-          <div className="testimonial-grid">
+        <section className={styles.testimonials} aria-label="Customer testimonials">
+          <h2 className={styles.sectionHeading}>Trusted by conveyancing teams nationwide</h2>
+          <div className={styles.testimonialGrid}>
             {testimonials.map((testimonial) => (
               <figure key={testimonial.name}>
                 <blockquote>{testimonial.quote}</blockquote>
@@ -244,27 +249,27 @@ const Home: FC = (): ReactElement => {
           </div>
         </section>
 
-        <section className="resources" aria-label="Resources and guides">
+        <section className={styles.resourcesSection} aria-label="Resources for conveyancing teams">
           <div>
-            <h2>Deep dives for ambitious teams</h2>
-            <p>Step-by-step playbooks, compliance cheat-sheets, and analytics frameworks ready to download.</p>
+            <h2 className={styles.sectionHeading}>Guides for operational excellence</h2>
+            <p>Keep your team up to speed on compliance, stakeholder communication, and client reporting.</p>
           </div>
-          <ul>
+          <ul className={styles.resourcesList}>
             {resources.map((resource) => (
-              <li key={resource.title}>
+              <li key={resource.title} className={styles.resourceCard}>
                 <h3>{resource.title}</h3>
                 <p>{resource.description}</p>
-                <a href={resource.href} className="cta-link">
-                  Download guide
+                <a className={`cta-link ${styles.heroLink}`} href={resource.href} target="_blank" rel="noreferrer">
+                  Download the resource
                 </a>
               </li>
             ))}
           </ul>
         </section>
 
-        <section className="faq" id="faq" aria-label="Security and workflow FAQs">
+        <section className={styles.faq} id="faq" aria-label="Security and workflow FAQs">
           <div>
-            <h2>Frequently asked questions</h2>
+            <h2 className={styles.sectionHeading}>Frequently asked questions</h2>
             <p>Everything you need to know about security logging, access controls, and settlement visibility.</p>
           </div>
           <dl>
@@ -277,477 +282,23 @@ const Home: FC = (): ReactElement => {
           </dl>
         </section>
 
-        <section className="cta" aria-label="Call to action">
+        <section className={styles.ctaSection} aria-label="Call to action">
           <div>
-            <h2>Ready to modernise your conveyancing workflow?</h2>
+            <h2 className={styles.sectionHeading}>Ready to modernise your conveyancing workflow?</h2>
             <p>
-              Launch a branded client experience with escrow controls, ID verification, and automated reporting in under two
-              weeks.
+              Launch a branded client experience with escrow controls, ID verification, and automated reporting in under two weeks.
             </p>
           </div>
-          <div className="cta-buttons">
-            <Link href="/search" className="cta-primary">
+          <div className={styles.ctaButtons}>
+            <Link href="/search" className={`cta-primary ${styles.heroPrimary}`}>
               Explore conveyancers
             </Link>
-            <a href="mailto:hello@conveymarket.au" className="cta-secondary">
+            <a href="mailto:hello@conveymarket.au" className={`cta-secondary ${styles.heroSecondary}`}>
               Book a product tour
             </a>
           </div>
         </section>
       </main>
-      <style jsx>{`
-        .page {
-          padding: 4rem 1.5rem 5rem;
-          max-width: 1120px;
-          margin: 0 auto;
-          display: flex;
-          flex-direction: column;
-          gap: 4rem;
-        }
-
-        .hero {
-          background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(59, 130, 246, 0.06));
-          border: 1px solid rgba(37, 99, 235, 0.08);
-          border-radius: 32px;
-          padding: 3.5rem clamp(1.5rem, 3vw, 3.5rem);
-          box-shadow: 0 24px 80px rgba(15, 23, 42, 0.08);
-        }
-
-        .badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.5rem;
-          background: rgba(37, 99, 235, 0.12);
-          color: #1d4ed8;
-          padding: 0.4rem 0.85rem;
-          border-radius: 9999px;
-          font-weight: 600;
-          font-size: 0.95rem;
-        }
-
-        h1 {
-          margin: 1.5rem 0 1rem;
-          font-size: clamp(2.5rem, 5vw, 3.5rem);
-          line-height: 1.1;
-          color: #0f172a;
-        }
-
-        .hero-subtitle {
-          font-size: 1.1rem;
-          max-width: 42rem;
-          color: #1e293b;
-        }
-
-        .persona-toggle {
-          margin: 2.5rem 0 1rem;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 0.75rem;
-        }
-
-        .persona-option {
-          background: white;
-          border: 1px solid rgba(148, 163, 184, 0.5);
-          border-radius: 999px;
-          padding: 0.6rem 1.4rem;
-          font-size: 0.95rem;
-          font-weight: 600;
-          color: #0f172a;
-          transition: all 0.2s ease;
-        }
-
-        .persona-option:hover,
-        .persona-option:focus-visible {
-          border-color: rgba(37, 99, 235, 0.7);
-          outline: none;
-          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
-        }
-
-        .persona-option--active {
-          background: #1d4ed8;
-          color: white;
-          border-color: transparent;
-        }
-
-        .persona-headline {
-          font-size: 1.5rem;
-          color: #0f172a;
-          margin-top: 1.5rem;
-        }
-
-        .persona-benefits {
-          margin: 1.5rem 0 2.5rem;
-          padding: 0;
-          list-style: none;
-          display: grid;
-          gap: 0.8rem;
-        }
-
-        .persona-benefits li {
-          position: relative;
-          padding-left: 1.75rem;
-          color: #1f2937;
-          line-height: 1.5;
-        }
-
-        .persona-benefits li::before {
-          content: '✔';
-          position: absolute;
-          left: 0;
-          top: 0;
-          color: #1d4ed8;
-          font-weight: 700;
-        }
-
-        .hero-actions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 1rem;
-          margin-bottom: 2.5rem;
-        }
-
-        .cta-primary,
-        .cta-secondary,
-        .cta-link {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 0.35rem;
-          font-weight: 600;
-          border-radius: 999px;
-          padding: 0.75rem 1.6rem;
-          text-decoration: none;
-          transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .cta-primary {
-          background: #1d4ed8;
-          color: white;
-          box-shadow: 0 18px 40px rgba(29, 78, 216, 0.25);
-        }
-
-        .cta-primary:hover,
-        .cta-primary:focus-visible {
-          transform: translateY(-1px);
-          box-shadow: 0 20px 50px rgba(29, 78, 216, 0.35);
-        }
-
-        .cta-secondary {
-          background: rgba(148, 163, 184, 0.15);
-          color: #1d4ed8;
-          border: 1px solid rgba(148, 163, 184, 0.3);
-        }
-
-        .cta-secondary:hover,
-        .cta-secondary:focus-visible,
-        .cta-link:hover,
-        .cta-link:focus-visible {
-          transform: translateY(-1px);
-          box-shadow: 0 10px 30px rgba(37, 99, 235, 0.18);
-          outline: none;
-        }
-
-        .cta-link {
-          background: transparent;
-          color: #1d4ed8;
-          padding: 0.3rem 0;
-        }
-
-        .stats {
-          margin: 0;
-          padding: 2rem 0 0;
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-          gap: 1.5rem;
-        }
-
-        .stat {
-          background: white;
-          border-radius: 20px;
-          padding: 1.5rem;
-          border: 1px solid rgba(148, 163, 184, 0.3);
-        }
-
-        .stat dt {
-          font-size: 0.9rem;
-          font-weight: 600;
-          color: #64748b;
-        }
-
-        .stat dd {
-          margin: 0.4rem 0;
-          font-size: 1.9rem;
-          font-weight: 700;
-          color: #0f172a;
-        }
-
-        .stat p {
-          margin: 0;
-          color: #475569;
-          font-size: 0.95rem;
-          line-height: 1.5;
-        }
-
-        .features h2,
-        .workflow h2,
-        .testimonials h2,
-        .resources h2,
-        .cta h2 {
-          font-size: clamp(2rem, 4vw, 2.75rem);
-          color: #0f172a;
-          margin-bottom: 1rem;
-        }
-
-        .features .feature-grid {
-          display: grid;
-          gap: 1.5rem;
-          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        }
-
-        .feature-card {
-          background: white;
-          border-radius: 20px;
-          padding: 1.75rem;
-          border: 1px solid rgba(148, 163, 184, 0.35);
-          box-shadow: 0 16px 40px rgba(15, 23, 42, 0.05);
-        }
-
-        .feature-card h3 {
-          margin: 0 0 0.75rem;
-          font-size: 1.25rem;
-          color: #1d4ed8;
-        }
-
-        .feature-card p {
-          margin: 0;
-          color: #475569;
-          line-height: 1.55;
-        }
-
-        .workflow {
-          display: grid;
-          gap: 2rem;
-          background: white;
-          border-radius: 32px;
-          padding: clamp(2rem, 4vw, 3rem);
-          border: 1px solid rgba(37, 99, 235, 0.1);
-        }
-
-        .workflow-copy p {
-          color: #475569;
-          line-height: 1.6;
-          margin-bottom: 1.5rem;
-        }
-
-        .workflow-steps {
-          list-style: none;
-          margin: 0;
-          padding: 0;
-          display: grid;
-          gap: 1.25rem;
-        }
-
-        .workflow-steps li {
-          display: grid;
-          grid-template-columns: auto 1fr;
-          gap: 1.25rem;
-          align-items: start;
-          padding: 1.25rem 1.5rem;
-          border-radius: 24px;
-          background: rgba(37, 99, 235, 0.04);
-        }
-
-        .workflow-step {
-          font-weight: 700;
-          font-size: 0.95rem;
-          color: #1d4ed8;
-          letter-spacing: 0.12em;
-        }
-
-        .workflow-steps h3 {
-          margin: 0 0 0.4rem;
-          font-size: 1.2rem;
-          color: #0f172a;
-        }
-
-        .workflow-steps p {
-          margin: 0;
-          color: #475569;
-          line-height: 1.55;
-        }
-
-        .testimonials {
-          text-align: center;
-        }
-
-        .testimonial-grid {
-          margin-top: 2rem;
-          display: grid;
-          gap: 1.5rem;
-          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-        }
-
-        .testimonial-grid figure {
-          background: white;
-          border-radius: 24px;
-          padding: 2rem;
-          border: 1px solid rgba(148, 163, 184, 0.3);
-          text-align: left;
-          display: flex;
-          flex-direction: column;
-          gap: 1.25rem;
-        }
-
-        blockquote {
-          margin: 0;
-          font-size: 1.05rem;
-          line-height: 1.6;
-          color: #1f2937;
-        }
-
-        figcaption {
-          display: flex;
-          flex-direction: column;
-          gap: 0.25rem;
-          font-size: 0.95rem;
-          color: #475569;
-        }
-
-        figcaption span:first-of-type {
-          font-weight: 600;
-          color: #0f172a;
-        }
-
-        .resources {
-          display: grid;
-          gap: 2rem;
-          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-          align-items: start;
-        }
-
-        .resources ul {
-          list-style: none;
-          margin: 0;
-          padding: 0;
-          display: grid;
-          gap: 1.5rem;
-        }
-
-        .resources li {
-          background: white;
-          padding: 1.75rem;
-          border-radius: 20px;
-          border: 1px solid rgba(148, 163, 184, 0.35);
-          box-shadow: 0 18px 44px rgba(15, 23, 42, 0.05);
-        }
-
-        .resources h3 {
-          margin: 0 0 0.6rem;
-          color: #0f172a;
-          font-size: 1.2rem;
-        }
-
-        .resources p {
-          margin: 0 0 1rem;
-          color: #475569;
-          line-height: 1.55;
-        }
-
-        .faq {
-          display: grid;
-          gap: 2rem;
-          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-          align-items: start;
-          background: white;
-          padding: clamp(2.75rem, 4vw, 3.5rem);
-          border-radius: 28px;
-          border: 1px solid rgba(148, 163, 184, 0.2);
-          box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
-        }
-
-        .faq h2 {
-          margin: 0 0 0.75rem;
-        }
-
-        .faq dl {
-          margin: 0;
-          display: grid;
-          gap: 1.5rem;
-        }
-
-        .faq dt {
-          font-weight: 700;
-          color: #0f172a;
-        }
-
-        .faq dd {
-          margin: 0.35rem 0 0;
-          color: #334155;
-          line-height: 1.6;
-        }
-
-        .cta {
-          background: linear-gradient(120deg, rgba(29, 78, 216, 0.92), rgba(37, 99, 235, 0.85));
-          border-radius: 32px;
-          padding: clamp(2.5rem, 5vw, 3.5rem);
-          color: white;
-          display: grid;
-          gap: 1.5rem;
-          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-          align-items: center;
-        }
-
-        .cta p {
-          margin: 0;
-          font-size: 1.05rem;
-          line-height: 1.6;
-          color: rgba(255, 255, 255, 0.9);
-        }
-
-        .cta-buttons {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 1rem;
-        }
-
-        .cta .cta-secondary {
-          background: rgba(255, 255, 255, 0.12);
-          color: white;
-          border-color: rgba(255, 255, 255, 0.25);
-        }
-
-        @media (max-width: 720px) {
-          .hero {
-            padding: 2.5rem 1.25rem;
-          }
-
-          .hero-actions {
-            flex-direction: column;
-            align-items: stretch;
-          }
-
-          .cta-buttons {
-            width: 100%;
-            flex-direction: column;
-          }
-
-          .cta-primary,
-          .cta-secondary {
-            width: 100%;
-            justify-content: center;
-          }
-        }
-      `}</style>
-      <style jsx global>{`
-        body {
-          background: #f8fafc;
-          color: #0f172a;
-          font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        }
-        a {
-          text-decoration: none;
-        }
-      `}</style>
     </>
   )
 }
