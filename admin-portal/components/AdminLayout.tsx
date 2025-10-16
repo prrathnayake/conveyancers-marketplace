@@ -3,7 +3,8 @@ import { useRouter } from 'next/router'
 import type { FC, ReactNode } from 'react'
 
 const navItems = [
-  { href: '/', label: 'Dashboard' },
+  { href: '/', label: 'Overview' },
+  { href: '/dashboard', label: 'Operations' },
   { href: '/conveyancers', label: 'Conveyancers' },
   { href: '/reviews', label: 'Reviews' },
   { href: '/enquiries', label: 'Enquiries' },
@@ -28,7 +29,7 @@ const AdminLayout: FC<AdminLayoutProps> = ({ children }) => {
         </div>
         <nav aria-label="Admin navigation" className="admin-nav">
           {navItems.map((item) => {
-            const active = router.pathname === item.href
+            const active = item.href === '/' ? router.pathname === '/' : router.pathname.startsWith(item.href)
             return (
               <Link key={item.href} href={item.href} className={`admin-nav__item ${active ? 'admin-nav__item--active' : ''}`}>
                 {item.label}

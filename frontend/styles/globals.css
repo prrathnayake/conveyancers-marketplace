@@ -63,6 +63,7 @@ body {
   background: radial-gradient(circle at top left, rgba(79, 70, 229, 0.08), transparent 60%),
     radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.08), transparent 55%), var(--surface-muted);
   color: var(--text-primary);
+  transition: background 0.45s ease, color 0.45s ease;
 }
 
 [data-theme='dark'] body {
@@ -83,6 +84,7 @@ body {
   backdrop-filter: blur(12px);
   background: var(--surface-elevated);
   border-bottom: 1px solid var(--border);
+  transition: background 0.45s ease, border-color 0.45s ease;
 }
 
 .site-header__bar {
@@ -120,16 +122,20 @@ body {
   width: 100%;
   height: 2px;
   background: transparent;
-  transition: background 0.2s ease;
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: background 0.2s ease, transform 0.2s ease;
 }
 
 .site-nav__item:hover::after,
 .site-nav__item:focus-visible::after {
   background: var(--surface-brand-soft);
+  transform: scaleX(1);
 }
 
 .site-nav__item--active::after {
   background: var(--brand);
+  transform: scaleX(1);
 }
 
 .site-header__meta {
@@ -199,6 +205,18 @@ a {
 
 button {
   font-family: inherit;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.3s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--surface-brand-soft);
 }
 
 .page {
@@ -762,6 +780,17 @@ button {
   font-size: 1.8rem;
   font-weight: 700;
   color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 .features {
