@@ -2,4 +2,5 @@
 infra/tls/dev.key
 infra/tls/dev.crt
 .env
+infra/.env
 frontend/data/*.db*

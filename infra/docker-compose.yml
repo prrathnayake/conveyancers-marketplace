@@ -28,9 +28,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: convey
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: appsecret
+      POSTGRES_DB: ${POSTGRES_DB:-convey}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ../backend/sql/1_schema.sql:/docker-entrypoint-initdb.d/1_schema.sql:ro
@@ -43,8 +43,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: minio12345
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes: [ "miniodata:/data" ]
     ports: ["9000:9000","9001:9001"]
   clamav:
@@ -68,7 +68,7 @@ services:
   grafana:
     image: grafana/grafana:10.4.3
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
     ports: ["3000:3000"]
     depends_on: [prom, loki]
   frontend:
@@ -79,21 +79,22 @@ services:
       NODE_ENV: production
       NEXT_TELEMETRY_DISABLED: '1'
       GATEWAY_ORIGIN: http://gateway:8080
-      PROFILE_FALLBACK_SECRET: 'G9XINT9+N7kCtQmSIPrD/Ox3iMxt/j+RaH8Zph24EQ8='
-      PROFILE_FALLBACK_PAYLOAD: 'IzayN+jhZi9xaJB25LaXX9GNF9DbDTaSv1ONNN7XTDOTFJYL2ywzAdd1FuQNZyPBeN0u7L3pSxyXuRnU0Tq8R+5OXp/BgyAtTyUXHHz9R/1q2I4wXJYX6fmXtcBmq2xArouF7e3vBT65SE1Nv0wmfkOfoYXgz8J9WZtLo7rneE0ehgtQqrXtwI/GbtuavFXcwP37CWfYVgvlk1/TtQo0Fu1zAUdmVr07QgoJCmsYIEG0vz48Sqn/0ljJnriJtILwHZ2oyivmu1YQTcreQAJBMhVBrbqDRLNVxl1b6a6zCgBdtrMRHL3guqZGCE1/1GuMo8QiUESiYpuYwnGVo8pBdBraoY7SO4p3PfTTHi67Z3VpYtnh5GjMbt/LXsKVyq2roYV2J7rTetM/ThKHHU2bKVwEA+dM3WC2/tjxUp/8iG/pWhxnwQywZi21OFOjJ6Ph0kZz88DNHAw+fo9kjV3u4SXh4HvuFVZ8qqCDDq+3+9YjDXGQeqGOveTAXNCbGsdkiYF/RkVpCaXEDI0jkg2fzchTUtqABVnR+0zFS/0R'
+      PROFILE_FALLBACK_SECRET: ${PROFILE_FALLBACK_SECRET:-}
+      PROFILE_FALLBACK_PAYLOAD: ${PROFILE_FALLBACK_PAYLOAD:-}
     depends_on: [gateway]
   gateway:
     build:
       context: ../backend
       dockerfile: gateway/Dockerfile
     environment:
-      DB_URL: postgres://app:appsecret@postgres:5432/convey
-      REDIS_URL: redis://redis:6379
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: minio
-      MINIO_SECRET_KEY: minio12345
-      JWT_SECRET: dev-jwt-secret-change
-      PSP_PROVIDER: sandbox
+      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minio}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      PSP_PROVIDER: ${PSP_PROVIDER:-sandbox}
+      PSP_SECRET: ${PSP_SECRET}
     depends_on: [postgres, redis, minio, identity, jobs, payments]
     ports: ["8080:8080"]
   identity:
@@ -101,20 +102,20 @@ services:
       context: ../backend
       dockerfile: services/identity/Dockerfile
     environment:
-      DB_URL: postgres://app:appsecret@postgres:5432/convey
-      JWT_SECRET: dev-jwt-secret-change
+      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
+      JWT_SECRET: ${JWT_SECRET}
     depends_on: [postgres]
   jobs:
     build:
       context: ../backend
       dockerfile: services/jobs/Dockerfile
     environment:
-      DB_URL: postgres://app:appsecret@postgres:5432/convey
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: minio
-      MINIO_SECRET_KEY: minio12345
-      CLAMAV_HOST: clamav
-      CLAMAV_PORT: 3310
+      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minio}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
+      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
     depends_on: [postgres, minio, clamav]
     ports: ["9002:9002"]  # WebSocket chat
   payments:
@@ -122,9 +123,9 @@ services:
       context: ../backend
       dockerfile: services/payments/Dockerfile
     environment:
-      DB_URL: postgres://app:appsecret@postgres:5432/convey
-      PSP_PROVIDER: sandbox
-      PSP_SECRET: dev-psp-secret
+      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
+      PSP_PROVIDER: ${PSP_PROVIDER:-sandbox}
+      PSP_SECRET: ${PSP_SECRET}
     depends_on: [postgres]
 volumes:
   pgdata: {}
