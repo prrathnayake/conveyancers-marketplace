@@ -6,6 +6,7 @@ RUN cmake -S . -B build && cmake --build build -j --target gateway
 
 FROM alpine:3.19
 WORKDIR /app
+RUN apk add --no-cache libstdc++ libgcc
 COPY --from=build /app/build/gateway/gateway /usr/local/bin/gateway
 EXPOSE 8080
 CMD ["/usr/local/bin/gateway"]

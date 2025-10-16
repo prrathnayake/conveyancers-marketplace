@@ -1,13 +1,21 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 
+import { decryptJsonPayload } from '../../../lib/crypto'
+
 const DEFAULT_GATEWAY_ORIGIN = 'http://127.0.0.1:8080'
 
-const FALLBACK_PROFILES = [
-  { id: 'pro_1001', name: 'Cora Conveyancer', state: 'VIC', suburb: 'Richmond', verified: true },
-  { id: 'pro_1002', name: 'Sydney Settlements', state: 'NSW', suburb: 'Parramatta', verified: true },
-  { id: 'pro_1003', name: 'QLD Property Law', state: 'QLD', suburb: 'Brisbane', verified: false },
-  { id: 'pro_1004', name: 'Capital Conveyancing', state: 'ACT', suburb: 'Canberra', verified: true },
-]
+const loadFallbackProfiles = () => {
+  const secret = process.env.PROFILE_FALLBACK_SECRET ?? ''
+  const payload = process.env.PROFILE_FALLBACK_PAYLOAD ?? ''
+  return (
+    decryptJsonPayload<
+      Array<{ id: string; name: string; state: string; suburb: string; verified: boolean }>
+    >({
+      secretBase64: secret,
+      payloadBase64: payload,
+    }) ?? []
+  )
+}
 
 const buildQueryString = (query: NextApiRequest['query']): string => {
   const params = new URLSearchParams()
@@ -57,6 +65,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.send(textBody)
   } catch (error) {
     res.setHeader('X-Data-Source', 'fallback')
-    res.status(200).json(FALLBACK_PROFILES)
+    res.status(200).json(loadFallbackProfiles())
   }
 }
