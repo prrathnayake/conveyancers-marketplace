@@ -5,10 +5,23 @@ services:
     container_name: nginx
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./tls:/etc/nginx/tls:ro
+      - ./tls:/etc/nginx/tls
       - ../frontend/.next:/var/www/frontend/.next
       - ../frontend/public:/var/www/frontend/public
     ports: ["80:80", "443:443"]
+    command: >-
+      /bin/sh -c '
+      if [ ! -f /etc/nginx/tls/dev.crt ] || [ ! -f /etc/nginx/tls/dev.key ]; then
+        echo "Generating development TLS certificates...";
+        mkdir -p /etc/nginx/tls;
+        rm -f /etc/nginx/tls/dev.crt /etc/nginx/tls/dev.key;
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+          -keyout /etc/nginx/tls/dev.key \
+          -out /etc/nginx/tls/dev.crt \
+          -subj "/C=AU/ST=VIC/L=Melbourne/O=Convey/OU=Dev/CN=localhost";
+      fi;
+      exec nginx -g "daemon off;";
+      '
     depends_on: [gateway]
   postgres:
     image: postgres:16-alpine
