@@ -57,7 +57,9 @@ services:
     ports: ["3000:3000"]
     depends_on: [prom, loki]
   gateway:
-    build: ../backend/gateway
+    build:
+      context: ../backend
+      dockerfile: gateway/Dockerfile
     environment:
       DB_URL: postgres://app:appsecret@postgres:5432/convey
       REDIS_URL: redis://redis:6379
@@ -69,13 +71,17 @@ services:
     depends_on: [postgres, redis, minio, identity, jobs, payments]
     ports: ["8080:8080"]
   identity:
-    build: ../backend/services/identity
+    build:
+      context: ../backend
+      dockerfile: services/identity/Dockerfile
     environment:
       DB_URL: postgres://app:appsecret@postgres:5432/convey
       JWT_SECRET: dev-jwt-secret-change
     depends_on: [postgres]
   jobs:
-    build: ../backend/services/jobs
+    build:
+      context: ../backend
+      dockerfile: services/jobs/Dockerfile
     environment:
       DB_URL: postgres://app:appsecret@postgres:5432/convey
       MINIO_ENDPOINT: http://minio:9000
@@ -86,7 +92,9 @@ services:
     depends_on: [postgres, minio, clamav]
     ports: ["9002:9002"]  # WebSocket chat
   payments:
-    build: ../backend/services/payments
+    build:
+      context: ../backend
+      dockerfile: services/payments/Dockerfile
     environment:
       DB_URL: postgres://app:appsecret@postgres:5432/convey
       PSP_PROVIDER: sandbox
