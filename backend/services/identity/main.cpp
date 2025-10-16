@@ -25,6 +25,7 @@ const std::vector<Profile> kProfiles = {
     {"pro_1002", "Sydney Settlements", "NSW", "Parramatta", true},
     {"pro_1003", "QLD Property Law", "QLD", "Brisbane", false},
     {"pro_1004", "Capital Conveyancing", "ACT", "Canberra", true},
+    {"pro_1005", "Northern Territory Solicitors", "NT", "Darwin", true},
 };
 
 std::string ToLower(std::string value) {
@@ -35,7 +36,17 @@ std::string ToLower(std::string value) {
 }
 
 bool MatchesQuery(const Profile &profile, const std::optional<std::string> &query,
-                  const std::optional<std::string> &state_filter) {
+                  const std::optional<std::string> &state_filter,
+                  bool verified_only) {
+  if (verified_only && !profile.verified) {
+    return false;
+  }
+
+  const auto requires_solicitor = profile.state == "QLD" || profile.state == "ACT";
+  if (requires_solicitor && !profile.verified) {
+    return false;
+  }
+
   if (state_filter.has_value()) {
     if (ToLower(profile.state) != ToLower(*state_filter)) {
       return false;
@@ -69,6 +80,7 @@ int main() {
   server.Get("/profiles/search", [](const httplib::Request &req, httplib::Response &res) {
     std::optional<std::string> query;
     std::optional<std::string> state;
+    bool verified_only = false;
 
     if (req.has_param("q")) {
       query = req.get_param_value("q");
@@ -76,10 +88,13 @@ int main() {
     if (req.has_param("state")) {
       state = req.get_param_value("state");
     }
+    if (req.has_param("verified")) {
+      verified_only = req.get_param_value("verified") == "true";
+    }
 
     json response = json::array();
     for (const auto &profile : kProfiles) {
-      if (MatchesQuery(profile, query, state)) {
+      if (MatchesQuery(profile, query, state, verified_only)) {
         response.push_back(ProfileToJson(profile));
       }
     }
