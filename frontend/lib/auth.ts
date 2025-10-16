@@ -1,9 +1,11 @@
-import type { NextApiRequest } from 'next'
-
 const HEADER_NAME = 'authorization'
 const PREFIX = 'bearer '
 
-export const extractBearerToken = (req: NextApiRequest): string | null => {
+type RequestWithHeaders = {
+  headers: Record<string, string | string[] | undefined>
+}
+
+export const extractBearerToken = (req: RequestWithHeaders): string | null => {
   const header = req.headers[HEADER_NAME]
   if (!header) {
     return null
@@ -20,7 +22,7 @@ export const extractBearerToken = (req: NextApiRequest): string | null => {
   return value
 }
 
-export const ensureDevToken = (req: NextApiRequest): boolean => {
+export const ensureDevToken = (req: RequestWithHeaders): boolean => {
   const requiredToken = process.env.DEV_SEED_ACCESS_TOKEN
   if (!requiredToken) {
     console.warn('DEV_SEED_ACCESS_TOKEN is not configured')
