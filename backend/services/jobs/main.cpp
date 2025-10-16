@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <ctime>
 #include <iomanip>
 #include <iostream>
@@ -22,6 +23,13 @@
 using json = nlohmann::json;
 
 namespace {
+
+struct Job;
+struct CallSession;
+
+json JobSummaryToJson(const Job &job);
+json ContactPolicyToJson(const Job &job, bool reveal_full, bool include_internal);
+json CallSessionToJson(const CallSession &session, bool include_token = false);
 
 const std::regex kEmailPattern(R"(([A-Z0-9._%+-]+)@([A-Z0-9.-]+\.[A-Z]{2,}))", std::regex::icase);
 const std::regex kPhonePattern(R"((\+?61|0)[0-9\s-]{8,})", std::regex::icase);
@@ -70,7 +78,12 @@ std::string MaskPhone(const std::string &value) {
   if (digits.size() < 4) {
     return "••••";
   }
-  return std::string(digits.size() - 3, '•') + digits.substr(digits.size() - 3);
+  std::string mask;
+  mask.reserve((digits.size() - 3) * 3);
+  for (size_t i = 0; i < digits.size() - 3; ++i) {
+    mask += "\u2022";
+  }
+  return mask + digits.substr(digits.size() - 3);
 }
 
 bool ContainsContactCoordinates(const std::string &text) {
@@ -125,6 +138,24 @@ std::string AddDaysToDate(const std::string &date, int days) {
   std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", &result);
   return buffer;
 }
+
+struct ContactPolicy {
+  bool unlocked = false;
+  std::optional<std::string> unlocked_at;
+  std::string unlocked_by_role;
+  std::string buyer_email;
+  std::string buyer_phone;
+  std::string seller_email;
+  std::string seller_phone;
+  std::string conveyancer_email;
+  std::string conveyancer_phone;
+  std::string buyer_email_masked;
+  std::string buyer_phone_masked;
+  std::string seller_email_masked;
+  std::string seller_phone_masked;
+  std::string conveyancer_email_masked;
+  std::string conveyancer_phone_masked;
+};
 
 ContactPolicy GenerateContactPolicy(const std::string &job_id, const std::string &conveyancer_id,
                                     const std::string &buyer_email_override = std::string{},
@@ -207,24 +238,6 @@ struct CompletionCertificate {
   std::string download_url;
   std::string verification_code;
   bool verified = false;
-};
-
-struct ContactPolicy {
-  bool unlocked = false;
-  std::optional<std::string> unlocked_at;
-  std::string unlocked_by_role;
-  std::string buyer_email;
-  std::string buyer_phone;
-  std::string seller_email;
-  std::string seller_phone;
-  std::string conveyancer_email;
-  std::string conveyancer_phone;
-  std::string buyer_email_masked;
-  std::string buyer_phone_masked;
-  std::string seller_email_masked;
-  std::string seller_phone_masked;
-  std::string conveyancer_email_masked;
-  std::string conveyancer_phone_masked;
 };
 
 struct TemplateTask {
@@ -922,7 +935,7 @@ json DisputeToJson(const Dispute &dispute) {
               {"evidence_urls", dispute.evidence_urls}};
 }
 
-json CallSessionToJson(const CallSession &session, bool include_token = false) {
+json CallSessionToJson(const CallSession &session, bool include_token) {
   json payload{{"id", session.id},
                {"type", session.type},
                {"status", session.status},
@@ -1153,7 +1166,7 @@ int main() {
                                "job_detail")) {
       return;
     }
-    const auto job_id = req.matches[1];
+    const auto job_id = req.matches[1].str();
     if (auto job = Store().Get(job_id)) {
       const auto role = req.get_header_value("X-Actor-Role");
       const bool include_internal = role == "admin" || role == "finance_admin";
@@ -1173,7 +1186,7 @@ int main() {
                                "job_milestones")) {
       return;
     }
-    const auto job_id = req.matches[1];
+    const auto job_id = req.matches[1].str();
     if (auto job = Store().Get(job_id)) {
       json response = json::array();
       for (const auto &milestone : job->milestones) {
@@ -1193,7 +1206,7 @@ int main() {
     if (!security::RequireRole(req, res, {"conveyancer", "admin"}, "jobs", "create_milestone")) {
       return;
     }
-    const auto job_id = req.matches[1];
+    const auto job_id = req.matches[1].str();
     auto payload = ParseJson(req, res);
     if (res.status == 400 && !res.body.empty()) {
       return;
@@ -1222,8 +1235,8 @@ int main() {
                                               "update_milestone")) {
                    return;
                  }
-                 const auto job_id = req.matches[1];
-                 const auto milestone_id = req.matches[2];
+                 const auto job_id = req.matches[1].str();
+                 const auto milestone_id = req.matches[2].str();
                  auto payload = ParseJson(req, res);
                  if (res.status == 400 && !res.body.empty()) {
                    return;
@@ -1250,7 +1263,7 @@ int main() {
                                "job_chat")) {
       return;
     }
-    const auto job_id = req.matches[1];
+    const auto job_id = req.matches[1].str();
     if (auto job = Store().Get(job_id)) {
       json response = json::array();
       for (const auto &message : job->messages) {
@@ -1271,7 +1284,7 @@ int main() {
                                "post_message")) {
       return;
     }
-    const auto job_id = req.matches[1];
+    const auto job_id = req.matches[1].str();
     auto payload = ParseJson(req, res);
     if (res.status == 400 && !res.body.empty()) {
       return;
@@ -1297,7 +1310,7 @@ int main() {
                                "job_documents")) {
       return;
     }
-    const auto job_id = req.matches[1];
+    const auto job_id = req.matches[1].str();
     if (auto job = Store().Get(job_id)) {
       json response = json::array();
       for (const auto &document : job->documents) {
@@ -1317,7 +1330,7 @@ int main() {
     if (!security::RequireRole(req, res, {"conveyancer", "admin"}, "jobs", "create_document")) {
       return;
     }
-    const auto job_id = req.matches[1];
+    const auto job_id = req.matches[1].str();
     auto payload = ParseJson(req, res);
     if (res.status == 400 && !res.body.empty()) {
       return;
@@ -1345,8 +1358,8 @@ int main() {
                                              "jobs", "sign_document")) {
                   return;
                 }
-                const auto job_id = req.matches[1];
-                const auto document_id = req.matches[2];
+                const auto job_id = req.matches[1].str();
+                const auto document_id = req.matches[2].str();
                 auto payload = ParseJson(req, res);
                 if (res.status == 400 && !res.body.empty()) {
                   return;
@@ -1367,7 +1380,7 @@ int main() {
     if (!security::RequireRole(req, res, {"conveyancer", "admin"}, "jobs", "complete_job")) {
       return;
     }
-    const auto job_id = req.matches[1];
+    const auto job_id = req.matches[1].str();
     auto payload = ParseJson(req, res);
     if (res.status == 400 && !res.body.empty()) {
       return;
@@ -1389,7 +1402,7 @@ int main() {
                                "open_dispute")) {
       return;
     }
-    const auto job_id = req.matches[1];
+    const auto job_id = req.matches[1].str();
     auto payload = ParseJson(req, res);
     if (res.status == 400 && !res.body.empty()) {
       return;
@@ -1415,7 +1428,7 @@ int main() {
                                "view_disputes")) {
       return;
     }
-    const auto job_id = req.matches[1];
+    const auto job_id = req.matches[1].str();
     if (auto job = Store().Get(job_id)) {
       json response = json::array();
       for (const auto &dispute : job->disputes) {
@@ -1436,8 +1449,8 @@ int main() {
                 if (!security::RequireRole(req, res, {"admin"}, "jobs", "update_dispute")) {
                   return;
                 }
-                const auto job_id = req.matches[1];
-                const auto dispute_id = req.matches[2];
+                const auto job_id = req.matches[1].str();
+                const auto dispute_id = req.matches[2].str();
                 auto payload = ParseJson(req, res);
                 if (res.status == 400 && !res.body.empty()) {
                   return;
@@ -1470,7 +1483,7 @@ int main() {
                                "jobs", "view_contact")) {
       return;
     }
-    const auto job_id = req.matches[1];
+    const auto job_id = req.matches[1].str();
     if (auto job = Store().Get(job_id)) {
       const auto role = req.get_header_value("X-Actor-Role");
       const bool include_internal = role == "admin" || role == "finance_admin";
@@ -1489,7 +1502,7 @@ int main() {
     if (!security::RequireRole(req, res, {"finance_admin", "admin"}, "jobs", "unlock_contact")) {
       return;
     }
-    const auto job_id = req.matches[1];
+    const auto job_id = req.matches[1].str();
     auto payload = ParseJson(req, res);
     if (res.status == 400 && !res.body.empty()) {
       return;
@@ -1524,7 +1537,7 @@ int main() {
     if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs", "schedule_call")) {
       return;
     }
-    const auto job_id = req.matches[1];
+    const auto job_id = req.matches[1].str();
     auto payload = ParseJson(req, res);
     if (res.status == 400 && !res.body.empty()) {
       return;
@@ -1565,7 +1578,7 @@ int main() {
     if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs", "list_calls")) {
       return;
     }
-    const auto job_id = req.matches[1];
+    const auto job_id = req.matches[1].str();
     const auto role = req.get_header_value("X-Actor-Role");
     const bool include_internal = role == "admin";
     json response = json::array();
@@ -1585,7 +1598,7 @@ int main() {
                                           "view_certificate")) {
                  return;
                }
-               const auto job_id = req.matches[1];
+               const auto job_id = req.matches[1].str();
                if (auto certificate = Store().GetCertificate(job_id)) {
                  res.set_content(CertificateToJson(*certificate).dump(), "application/json");
                  return;
@@ -1651,7 +1664,7 @@ int main() {
     if (!security::RequireRole(req, res, {"conveyancer", "admin"}, "jobs", "apply_template")) {
       return;
     }
-    const auto job_id = req.matches[1];
+    const auto job_id = req.matches[1].str();
     auto payload = ParseJson(req, res);
     if (res.status == 400 && !res.body.empty()) {
       return;
