@@ -38,6 +38,7 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [input, setInput] = useState('')
   const [status, setStatus] = useState<'idle' | 'sending'>('idle')
+  const [policyWarning, setPolicyWarning] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const threadRef = useRef<HTMLDivElement | null>(null)
 
@@ -111,6 +112,7 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
       setMessages([])
       setHasMore(false)
       setCursor(null)
+      setPolicyWarning(null)
       return
     }
     const controller = new AbortController()
@@ -133,7 +135,9 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
       if (!response.ok) {
         throw new Error('failed_to_send')
       }
+      const payload = (await response.json()) as { policyWarning?: string }
       setInput('')
+      setPolicyWarning(payload.policyWarning ?? null)
       await loadConversation({ silent: true })
     } catch (error) {
       console.error(error)
@@ -241,6 +245,11 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
                     />
                   </div>
                 </header>
+                {policyWarning ? (
+                  <div className="chat-policy-banner" role="status">
+                    <strong>ConveySafe reminder:</strong> {policyWarning}
+                  </div>
+                ) : null}
                 <div className="chat-thread" ref={threadRef}>
                   {hasMore ? (
                     <div className="chat-thread__loader">

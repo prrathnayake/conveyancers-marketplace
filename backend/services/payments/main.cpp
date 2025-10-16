@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "../../common/security.h"
@@ -32,6 +33,7 @@ struct PaymentRecord {
   std::string currency;
   int amount_cents;
   std::string reference;
+  std::string conveyancer_account_id;
   PaymentStatus status;
   std::optional<std::string> released_at;
   std::optional<std::string> refunded_at;
@@ -114,6 +116,7 @@ json PaymentToJson(const PaymentRecord &record) {
                {"currency", record.currency},
                {"amount_cents", record.amount_cents},
                {"reference", record.reference},
+               {"conveyancer_account_id", record.conveyancer_account_id},
                {"status", PaymentStatusToString(record.status)}};
   if (record.released_at.has_value()) {
     payload["released_at"] = *record.released_at;
@@ -172,7 +175,8 @@ class PaymentLedger {
  public:
   PaymentRecord CreateHold(const std::string &job_id, const std::string &milestone_id,
                            const std::string &currency, int amount_cents,
-                           const std::string &reference) {
+                           const std::string &reference,
+                           const std::string &conveyancer_account_id) {
     std::lock_guard<std::mutex> lock(mutex_);
     PaymentRecord record;
     record.id = GenerateId("hold_");
@@ -181,6 +185,7 @@ class PaymentLedger {
     record.currency = currency;
     record.amount_cents = amount_cents;
     record.reference = reference;
+    record.conveyancer_account_id = conveyancer_account_id;
     record.status = PaymentStatus::kHeld;
     ledger_[record.id] = record;
     return record;
@@ -425,6 +430,102 @@ InvoiceLedger &GlobalInvoices() {
   return ledger;
 }
 
+class LoyaltyEngine {
+ public:
+  struct Tier {
+    int threshold;
+    double rate;
+    std::string name;
+    std::string badge;
+  };
+
+  LoyaltyEngine() {
+    tiers_.push_back({0, 0.018, "Launch", "ConveySafe Launch"});
+    tiers_.push_back({3, 0.015, "Trusted Partner", "ConveySafe Trusted"});
+    tiers_.push_back({8, 0.012, "Preferred Partner", "ConveySafe Preferred"});
+  }
+
+  double ResolveRate(const std::string &conveyancer_id) const {
+    if (conveyancer_id.empty()) {
+      return tiers_.front().rate;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    const int count = CompletedCountUnlocked(conveyancer_id);
+    return ResolveTierForCount(count).rate;
+  }
+
+  void RecordCheckout(const std::string &conveyancer_id, const std::string &job_id) {
+    if (conveyancer_id.empty()) {
+      return;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto &jobs = completed_jobs_[conveyancer_id];
+    if (jobs.insert(job_id).second) {
+      completion_counts_[conveyancer_id] = static_cast<int>(jobs.size());
+    }
+  }
+
+  json DescribeMember(const std::string &conveyancer_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const int count = CompletedCountUnlocked(conveyancer_id);
+    const auto tier = ResolveTierForCount(count);
+    return json{{"completed_jobs", count},
+                {"tier", tier.name},
+                {"badge", tier.badge},
+                {"fee_rate", tier.rate}};
+  }
+
+  json Summaries() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::unordered_map<std::string, int> tier_counts;
+    for (const auto &tier : tiers_) {
+      tier_counts[tier.name] = 0;
+    }
+    for (const auto &[member, count] : completion_counts_) {
+      const auto tier = ResolveTierForCount(count);
+      tier_counts[tier.name] += 1;
+    }
+    json tiers = json::array();
+    for (const auto &tier : tiers_) {
+      tiers.push_back(json{{"name", tier.name},
+                           {"threshold", tier.threshold},
+                           {"fee_rate", tier.rate},
+                           {"badge", tier.badge},
+                           {"members", tier_counts[tier.name]}});
+    }
+    return json{{"members", static_cast<int>(completion_counts_.size())},
+                {"tiers", tiers}};
+  }
+
+ private:
+  Tier ResolveTierForCount(int count) const {
+    Tier result = tiers_.front();
+    for (const auto &tier : tiers_) {
+      if (count >= tier.threshold) {
+        result = tier;
+      }
+    }
+    return result;
+  }
+
+  int CompletedCountUnlocked(const std::string &conveyancer_id) const {
+    if (auto it = completion_counts_.find(conveyancer_id); it != completion_counts_.end()) {
+      return it->second;
+    }
+    return 0;
+  }
+
+  mutable std::mutex mutex_;
+  std::unordered_map<std::string, int> completion_counts_;
+  std::unordered_map<std::string, std::unordered_set<std::string>> completed_jobs_;
+  std::vector<Tier> tiers_;
+};
+
+LoyaltyEngine &GlobalLoyalty() {
+  static LoyaltyEngine engine;
+  return engine;
+}
+
 std::optional<json> ParseJson(const httplib::Request &req) {
   try {
     return json::parse(req.body);
@@ -618,7 +719,8 @@ json BuildMetricsPayload() {
                     {"voided", voided},
                     {"overdue", overdue},
                     {"outstanding_cents", invoice_outstanding},
-                    {"total_cents", invoice_total}}}};
+                    {"total_cents", invoice_total}}},
+              {"loyalty", GlobalLoyalty().Summaries()}};
 }
 
 }  // namespace
@@ -652,6 +754,7 @@ int main() {
     auto currency = RequireString(*payload, "currency");
     auto amount_cents = RequirePositiveInt(*payload, "amount_cents");
     auto reference = payload->value("reference", std::string{});
+    auto conveyancer_account_id = payload->value("conveyancer_account_id", std::string{});
 
     if (!job_id || !milestone_id || !currency || !amount_cents) {
       WriteJson(res, json{{"error", "missing_required_fields"}}, 400);
@@ -667,8 +770,13 @@ int main() {
       reference = job_id.value() + "-" + milestone_id.value();
     }
 
-    auto record = GlobalLedger().CreateHold(*job_id, *milestone_id, *currency, *amount_cents, reference);
-    WriteJson(res, PaymentToJson(record), 201);
+    auto record = GlobalLedger().CreateHold(*job_id, *milestone_id, *currency, *amount_cents, reference,
+                                            conveyancer_account_id);
+    json response = PaymentToJson(record);
+    if (!conveyancer_account_id.empty()) {
+      response["loyalty"] = GlobalLoyalty().DescribeMember(conveyancer_account_id);
+    }
+    WriteJson(res, response, 201);
   });
 
   server.Get("/payments/hold", [](const httplib::Request &req, httplib::Response &res) {
@@ -834,7 +942,8 @@ int main() {
     }
 
     const auto fee_rate_override = RequireDoubleInRange(*payload, "service_fee_rate", 0.0, 0.25);
-    const double service_fee_rate = fee_rate_override.value_or(0.018);
+    const double default_loyalty_rate = GlobalLoyalty().ResolveRate(hold->conveyancer_account_id);
+    const double service_fee_rate = fee_rate_override.value_or(default_loyalty_rate);
     std::string processed_at = payload->value("processed_at", std::string{});
     if (processed_at.empty()) {
       processed_at = CurrentIsoTimestamp();
@@ -891,6 +1000,10 @@ int main() {
     if (invoice_id.has_value()) {
       response["invoice"] = invoice_json;
     }
+    if (!hold->conveyancer_account_id.empty()) {
+      GlobalLoyalty().RecordCheckout(hold->conveyancer_account_id, hold->job_id);
+      response["loyalty"] = GlobalLoyalty().DescribeMember(hold->conveyancer_account_id);
+    }
     WriteJson(res, response, 201);
   });
 
@@ -931,6 +1044,31 @@ int main() {
       return;
     }
     WriteJson(res, json{{"error", "checkout_not_found"}}, 404);
+  });
+
+  server.Get("/payments/loyalty/schedule", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "payments")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"conveyancer", "finance_admin", "admin"}, "payments",
+                               "view_loyalty_schedule")) {
+      return;
+    }
+    WriteJson(res, GlobalLoyalty().Summaries());
+  });
+
+  server.Get(R"(/payments/loyalty/([\w_-]+))", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "payments")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"conveyancer", "finance_admin", "admin"}, "payments",
+                               "view_loyalty_status")) {
+      return;
+    }
+    const auto account_id = req.matches[1];
+    json payload = GlobalLoyalty().DescribeMember(account_id);
+    payload["account_id"] = account_id;
+    WriteJson(res, payload);
   });
 
   server.Get("/payments/metrics", [](const httplib::Request &req, httplib::Response &res) {

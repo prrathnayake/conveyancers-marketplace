@@ -174,7 +174,7 @@ const Search = (): JSX.Element => {
             </div>
             <div role="listitem">
               <strong>{totalVerified}</strong>
-              <span>ARNECC verified</span>
+              <span>ConveySafe verified</span>
             </div>
             <div role="listitem">
               <strong>{remoteCapable}</strong>
@@ -218,7 +218,7 @@ const Search = (): JSX.Element => {
                 checked={showVerifiedOnly}
                 onChange={(event) => setShowVerifiedOnly(event.target.checked)}
               />
-              Only show ARNECC-verified
+              Only show ConveySafe verified
             </label>
             <label className={styles.toggle}>
               <input type="checkbox" checked={remoteOnly} onChange={(event) => setRemoteOnly(event.target.checked)} />
@@ -307,8 +307,8 @@ const Search = (): JSX.Element => {
                       {profile.suburb}, {profile.state}
                     </p>
                   </div>
-                  <span className={`${styles.status} ${profile.verified ? styles.statusVerified : styles.statusPending}`}>
-                    {profile.verified ? 'ARNECC verified' : 'Awaiting verification'}
+                    <span className={`${styles.status} ${profile.verified ? styles.statusVerified : styles.statusPending}`}>
+                    {profile.verified ? 'ConveySafe verified' : 'Awaiting ConveySafe checks'}
                   </span>
                 </div>
                 <div className={styles.cardBody}>
