@@ -6,8 +6,6 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./tls:/etc/nginx/tls
-      - ../frontend/.next:/var/www/frontend/.next
-      - ../frontend/public:/var/www/frontend/public
     ports: ["80:80", "443:443"]
     command: >-
       /bin/sh -c '
@@ -26,7 +24,7 @@ services:
       fi;
       exec nginx -g "daemon off;";
       '
-    depends_on: [gateway]
+    depends_on: [frontend, gateway]
   postgres:
     image: postgres:16-alpine
     environment:
@@ -73,6 +71,17 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
     ports: ["3000:3000"]
     depends_on: [prom, loki]
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: '1'
+      GATEWAY_ORIGIN: http://gateway:8080
+      PROFILE_FALLBACK_SECRET: 'G9XINT9+N7kCtQmSIPrD/Ox3iMxt/j+RaH8Zph24EQ8='
+      PROFILE_FALLBACK_PAYLOAD: 'IzayN+jhZi9xaJB25LaXX9GNF9DbDTaSv1ONNN7XTDOTFJYL2ywzAdd1FuQNZyPBeN0u7L3pSxyXuRnU0Tq8R+5OXp/BgyAtTyUXHHz9R/1q2I4wXJYX6fmXtcBmq2xArouF7e3vBT65SE1Nv0wmfkOfoYXgz8J9WZtLo7rneE0ehgtQqrXtwI/GbtuavFXcwP37CWfYVgvlk1/TtQo0Fu1zAUdmVr07QgoJCmsYIEG0vz48Sqn/0ljJnriJtILwHZ2oyivmu1YQTcreQAJBMhVBrbqDRLNVxl1b6a6zCgBdtrMRHL3guqZGCE1/1GuMo8QiUESiYpuYwnGVo8pBdBraoY7SO4p3PfTTHi67Z3VpYtnh5GjMbt/LXsKVyq2roYV2J7rTetM/ThKHHU2bKVwEA+dM3WC2/tjxUp/8iG/pWhxnwQywZi21OFOjJ6Ph0kZz88DNHAw+fo9kjV3u4SXh4HvuFVZ8qqCDDq+3+9YjDXGQeqGOveTAXNCbGsdkiYF/RkVpCaXEDI0jkg2fzchTUtqABVnR+0zFS/0R'
+    depends_on: [gateway]
   gateway:
     build:
       context: ../backend
