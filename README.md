@@ -97,18 +97,19 @@ cp infra/env/.env.example infra/env/.env
 # 2. Generate self-signed TLS certificates for the local nginx proxy
 bash infra/tls/dev_certs.sh
 
-# 3. Build and start the full stack
+# 3. Build and start the full stack (frontend, backend, and infra)
 docker compose -f infra/docker-compose.yml up -d --build
 
-# 4. Prepare the frontend environment file and install dependencies
+# 4. (Optional) Prepare the frontend environment file for local overrides
 cp frontend/.env.example frontend/.env.local
+
+# 5. (Optional) Install dependencies if you plan to run the Next.js dev server locally
 (cd frontend && npm install)
 
-# 5. Seed sample data using the admin UI (optional but recommended)
-(cd frontend && npm run dev)
-# Visit http://localhost:5173/admin/seed and trigger the seed workflow
+# 6. Seed sample data using the admin UI (optional but recommended)
+# With the stack running via Docker you can visit https://localhost/admin/seed and trigger the workflow
 
-# 6. Access the stack
+# 7. Access the stack
 # Frontend: https://localhost
 # Grafana:  https://localhost/grafana (admin / admin)
 ```
