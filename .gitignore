@@ -1,3 +1,4 @@
 # TLS artifacts generated locally for development
 infra/tls/dev.key
 infra/tls/dev.crt
+.env
