@@ -17,6 +17,7 @@
 #include <string_view>
 #include <tuple>
 #include <utility>
+#include <vector>
 #include <cstdio>
 #include <ctime>
 #include <system_error>
@@ -211,6 +212,24 @@ inline std::string ExpectedApiKey() {
     return env;
   }
   return "local-dev-api-key";
+}
+
+inline std::string DeriveScopedToken(std::string_view scope, std::string_view subject) {
+  std::string material;
+  material.reserve(scope.size() + subject.size() + 32);
+  material.append(scope);
+  material.push_back(':');
+  material.append(subject);
+  material.push_back(':');
+  material.append(ExpectedApiKey());
+  const auto hash_value = std::hash<std::string>{}(material);
+  std::ostringstream oss;
+  oss << scope << '_' << std::hex << std::uppercase << hash_value;
+  return oss.str();
+}
+
+inline bool VerifyScopedToken(std::string_view scope, std::string_view subject, std::string_view token) {
+  return token == DeriveScopedToken(scope, subject);
 }
 
 inline std::string RequestId(const httplib::Request &req) {
