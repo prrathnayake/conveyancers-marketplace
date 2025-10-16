@@ -13,12 +13,16 @@ services:
       /bin/sh -c '
       if [ ! -f /etc/nginx/tls/dev.crt ] || [ ! -f /etc/nginx/tls/dev.key ]; then
         echo "Generating development TLS certificates...";
-        mkdir -p /etc/nginx/tls;
-        rm -f /etc/nginx/tls/dev.crt /etc/nginx/tls/dev.key;
-        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-          -keyout /etc/nginx/tls/dev.key \
-          -out /etc/nginx/tls/dev.crt \
-          -subj "/C=AU/ST=VIC/L=Melbourne/O=Convey/OU=Dev/CN=localhost";
+        if [ -x /etc/nginx/tls/dev_certs.sh ]; then
+          /etc/nginx/tls/dev_certs.sh;
+        else
+          mkdir -p /etc/nginx/tls;
+          rm -f /etc/nginx/tls/dev.crt /etc/nginx/tls/dev.key;
+          openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout /etc/nginx/tls/dev.key \
+            -out /etc/nginx/tls/dev.crt \
+            -subj "/C=AU/ST=VIC/L=Melbourne/O=Convey/OU=Dev/CN=localhost";
+        fi;
       fi;
       exec nginx -g "daemon off;";
       '
