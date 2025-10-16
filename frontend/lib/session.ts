@@ -1,5 +1,4 @@
-import type { NextApiRequest, NextApiResponse } from 'next'
-import type { GetServerSidePropsContext } from 'next'
+import type { IncomingHttpHeaders } from 'http'
 import jwt, { type JwtPayload } from 'jsonwebtoken'
 import * as cookie from 'cookie'
 import type { SerializeOptions } from 'cookie'
@@ -83,12 +82,20 @@ export const getUserById = (id: number): SessionUser | null => {
   return mapUser(stmt.get(id))
 }
 
-export const getSessionFromRequest = (req: NextApiRequest | GetServerSidePropsContext['req']): SessionUser | null => {
+type RequestWithCookies = {
+  headers: IncomingHttpHeaders & { cookie?: string | string[] }
+}
+
+type ResponseWithJson = {
+  status: (statusCode: number) => { json: (body: any) => any }
+}
+
+export const getSessionFromRequest = (req: RequestWithCookies): SessionUser | null => {
   const cookiesHeader = req.headers.cookie
   if (!cookiesHeader) {
     return null
   }
-  const cookies = cookie.parse(cookiesHeader)
+  const cookies = cookie.parse(Array.isArray(cookiesHeader) ? cookiesHeader.join('; ') : cookiesHeader)
   const token = cookies[COOKIE_NAME]
   if (!token) {
     return null
@@ -101,8 +108,8 @@ export const getSessionFromRequest = (req: NextApiRequest | GetServerSidePropsCo
 }
 
 export const requireRole = (
-  req: NextApiRequest,
-  res: NextApiResponse,
+  req: RequestWithCookies,
+  res: ResponseWithJson,
   roles: SessionUser['role'][]
 ): SessionUser | null => {
   const user = getSessionFromRequest(req)
@@ -113,7 +120,7 @@ export const requireRole = (
   return user
 }
 
-export const requireAuth = (req: NextApiRequest, res: NextApiResponse): SessionUser | null => {
+export const requireAuth = (req: RequestWithCookies, res: ResponseWithJson): SessionUser | null => {
   const user = getSessionFromRequest(req)
   if (!user) {
     res.status(401).json({ error: 'unauthorized' })
