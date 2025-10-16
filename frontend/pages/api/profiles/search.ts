@@ -4,17 +4,31 @@ import { decryptJsonPayload } from '../../../lib/crypto'
 
 const DEFAULT_GATEWAY_ORIGIN = 'http://127.0.0.1:8080'
 
+const STATIC_FALLBACK_PROFILES: Array<{ id: string; name: string; state: string; suburb: string; verified: boolean }> = [
+  { id: 'pro_1001', name: 'Harbourline Conveyancing', state: 'NSW', suburb: 'Sydney', verified: true },
+  { id: 'pro_1002', name: 'Reid Property Law', state: 'VIC', suburb: 'Melbourne', verified: true },
+  { id: 'pro_1003', name: 'River City Settlements', state: 'QLD', suburb: 'Brisbane', verified: true },
+  { id: 'pro_1004', name: 'Capital Chambers Conveyancing', state: 'ACT', suburb: 'Canberra', verified: true },
+]
+
 const loadFallbackProfiles = () => {
   const secret = process.env.PROFILE_FALLBACK_SECRET ?? ''
   const payload = process.env.PROFILE_FALLBACK_PAYLOAD ?? ''
-  return (
-    decryptJsonPayload<
-      Array<{ id: string; name: string; state: string; suburb: string; verified: boolean }>
-    >({
-      secretBase64: secret,
-      payloadBase64: payload,
-    }) ?? []
-  )
+  const decrypted =
+    secret && payload
+      ? decryptJsonPayload<
+          Array<{ id: string; name: string; state: string; suburb: string; verified: boolean }>
+        >({
+          secretBase64: secret,
+          payloadBase64: payload,
+        })
+      : null
+
+  if (Array.isArray(decrypted) && decrypted.length > 0) {
+    return decrypted
+  }
+
+  return STATIC_FALLBACK_PROFILES
 }
 
 const buildQueryString = (query: NextApiRequest['query']): string => {
