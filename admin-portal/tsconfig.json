@@ -14,7 +14,7 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "types": ["node", "react"]
+    "types": ["next", "node", "react"]
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", "../frontend/lib/**/*.ts"],
   "exclude": ["node_modules"]
