@@ -86,6 +86,20 @@ Each service communicates through well-defined gRPC APIs while the gateway offer
 
 ---
 
+## Prerequisites
+
+Before you begin, make sure your local environment has the following tools installed:
+
+- **Docker Desktop 4.24+** (or Docker Engine with Compose v2) for orchestrating the local stack.
+- **Node.js 20 LTS** and **npm 10+** for working with the Next.js frontends.
+- **CMake 3.26+** and a modern C++20 compiler (Clang 15 or GCC 12) for building the backend services.
+- **OpenSSL** for certificate generation scripts under `infra/tls/`.
+
+> On macOS, Homebrew packages (`brew install docker cmake openssl@3 node`) provide the required tooling. On Windows, ensure WSL2
+> integration is enabled so Docker Desktop can provision the Linux containers used throughout the stack.
+
+---
+
 ## Quick start
 
 The quickest way to experience the stack locally is via Docker Compose.
