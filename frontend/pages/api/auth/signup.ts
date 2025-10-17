@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import db from '../../../lib/db'
 import { createSessionCookie } from '../../../lib/session'
 import { ensureAdminSeeded } from '../../../lib/adminSeed'
+import { logServerError, serializeError } from '../../../lib/serverLogger'
 
 const allowedRoles = new Set(['buyer', 'seller', 'conveyancer'])
 
@@ -68,7 +69,11 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
     res.setHeader('Set-Cookie', cookie)
     res.status(201).json({ ok: true })
   } catch (error) {
-    console.error('Signup handler failed', { error })
+    logServerError('Signup handler failed', {
+      error: serializeError(error),
+      endpoint: '/api/auth/signup',
+      email: (req.body as SignupRequest)?.email ?? null,
+    })
     res.status(500).json({ error: 'signup_failed' })
   }
 }

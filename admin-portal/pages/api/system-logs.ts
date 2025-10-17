@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { NextApiRequest, NextApiResponse } from 'next'
 
 import { requireRole } from '../../../frontend/lib/session'
+import { logServerError, serializeError } from '../../../frontend/lib/serverLogger'
 
 const LOG_EXTENSION = '.log'
 const MAX_ENTRIES = 200
@@ -198,6 +199,11 @@ const handler = async (
         res.status(404).json({ error: 'log_not_found' })
         return
       }
+      logServerError('Failed to read system log', {
+        error: serializeError(error),
+        endpoint: '/api/system-logs',
+        service: sanitized,
+      })
       res.status(500).json({ error: 'log_read_failed' })
     }
     return
@@ -206,7 +212,11 @@ const handler = async (
   try {
     const services = await listServices(directory)
     res.status(200).json({ services })
-  } catch {
+  } catch (error) {
+    logServerError('Failed to list system log services', {
+      error: serializeError(error),
+      endpoint: '/api/system-logs',
+    })
     res.status(500).json({ error: 'log_directory_unavailable' })
   }
 }
