@@ -42,9 +42,23 @@ const ConveyancerProfilePage = ({ profile, viewer }: ConveyancerProfilePageProps
   const [status, setStatus] = useState<'idle' | 'starting' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
 
+  const allowedRoles: SessionUser['role'][] = ['buyer', 'seller', 'admin']
+  const canViewerStartChat = Boolean(
+    viewer && viewer.id !== profile.userId && allowedRoles.includes(viewer.role),
+  )
+
   const handleStartChat = async () => {
     if (!viewer) {
       await router.push(`/login?next=${encodeURIComponent(router.asPath)}`)
+      return
+    }
+    if (!canViewerStartChat) {
+      setStatus('error')
+      setError(
+        viewer.id === profile.userId
+          ? 'You already manage this conveyancer profile.'
+          : 'Secure chat is available to buyers, sellers, and admins only.',
+      )
       return
     }
     setStatus('starting')
@@ -56,7 +70,11 @@ const ConveyancerProfilePage = ({ profile, viewer }: ConveyancerProfilePageProps
         body: JSON.stringify({ partnerId: profile.userId }),
       })
       if (!response.ok) {
-        throw new Error('Unable to open conversation')
+        const message =
+          response.status === 403
+            ? 'Secure chat is only available between conveyancers and verified clients.'
+            : 'Unable to open conversation'
+        throw new Error(message)
       }
       await router.push(`/chat?partnerId=${profile.userId}`)
     } catch (err) {
@@ -131,8 +149,19 @@ const ConveyancerProfilePage = ({ profile, viewer }: ConveyancerProfilePageProps
                   Keep messages, invoices, and milestone approvals inside ConveySafe to protect both parties with escrow and audit
                   trails.
                 </p>
-                <button type="button" className="cta-primary" onClick={() => void handleStartChat()} disabled={status === 'starting'}>
-                  {viewer ? (status === 'starting' ? 'Opening chat…' : 'Start secure chat') : 'Sign in to chat'}
+                <button
+                  type="button"
+                  className="cta-primary"
+                  onClick={() => void handleStartChat()}
+                  disabled={status === 'starting'}
+                >
+                  {viewer
+                    ? status === 'starting'
+                      ? 'Opening chat…'
+                      : canViewerStartChat
+                        ? 'Start secure chat'
+                        : 'Secure chat unavailable'
+                    : 'Sign in to chat'}
                 </button>
                 {error ? (
                   <p className="profile-card__error" role="alert">
@@ -158,6 +187,11 @@ const ConveyancerProfilePage = ({ profile, viewer }: ConveyancerProfilePageProps
                 <p className="profile-card__note">
                   Contact details stay masked until you engage through escrow-protected chat, keeping the audit trail intact.
                 </p>
+                {viewer && !canViewerStartChat ? (
+                  <p className="profile-card__note" role="note">
+                    Only buyers, sellers, and admins can initiate secure chat with a conveyancer.
+                  </p>
+                ) : null}
               </div>
               <div className="profile-card__support">
                 <h3>Need help?</h3>
@@ -177,29 +211,23 @@ const ConveyancerProfilePage = ({ profile, viewer }: ConveyancerProfilePageProps
 }
 
 export const getServerSideProps: GetServerSideProps<ConveyancerProfilePageProps> = async ({ req, res, params }) => {
+  const { parseId, findConveyancerProfile, buildConveyancerProfile } = await import('../api/profiles/[id]')
   const viewer = getSessionFromRequest(req)
-  const id = params?.id
-  const protocol = (req.headers['x-forwarded-proto'] as string) ?? 'http'
-  const host = req.headers.host ?? 'localhost:5173'
-  const response = await fetch(`${protocol}://${host}/api/profiles/${id}`, {
-    headers: { cookie: req.headers.cookie ?? '' },
-  })
+  const id = parseId(params?.id)
 
-  if (response.status === 404) {
+  if (!id) {
     res.statusCode = 404
     return { notFound: true }
   }
 
-  if (!response.ok) {
-    return {
-      redirect: {
-        destination: '/search',
-        permanent: false,
-      },
-    }
+  const row = findConveyancerProfile(id)
+
+  if (!row) {
+    res.statusCode = 404
+    return { notFound: true }
   }
 
-  const profile = (await response.json()) as ConveyancerProfile
+  const profile = buildConveyancerProfile(row, viewer)
   return { props: { profile, viewer } }
 }
 

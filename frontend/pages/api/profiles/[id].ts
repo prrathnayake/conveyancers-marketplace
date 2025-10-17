@@ -1,9 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 
 import db from '../../../lib/db'
+import type { SessionUser } from '../../../lib/session'
 import { getSessionFromRequest } from '../../../lib/session'
 
-const parseId = (value: string | string[] | undefined): number | null => {
+export const parseId = (value: string | string[] | undefined): number | null => {
   if (!value) {
     return null
   }
@@ -18,19 +19,25 @@ const parseId = (value: string | string[] | undefined): number | null => {
   return Number(match[1])
 }
 
-const handler = (req: NextApiRequest, res: NextApiResponse): void => {
-  if (req.method !== 'GET') {
-    res.setHeader('Allow', ['GET'])
-    res.status(405).end('Method Not Allowed')
-    return
-  }
+export type ConveyancerProfileRow = {
+  id: number
+  full_name: string
+  firm_name: string
+  bio: string
+  phone: string
+  state: string
+  suburb: string
+  website: string
+  remote_friendly: number
+  turnaround: string
+  response_time: string
+  specialties: string
+  verified: number
+  rating: number
+  review_count: number
+}
 
-  const conveyancerId = parseId(req.query.id)
-  if (!conveyancerId || Number.isNaN(conveyancerId)) {
-    res.status(400).json({ error: 'invalid_id' })
-    return
-  }
-
+export const findConveyancerProfile = (conveyancerId: number): ConveyancerProfileRow | null => {
   const row = db
     .prepare(
       `SELECT u.id, u.full_name, cp.firm_name, cp.bio, cp.phone, cp.state, cp.suburb, cp.website, cp.remote_friendly,
@@ -43,47 +50,34 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
      GROUP BY u.id, cp.firm_name, cp.bio, cp.phone, cp.state, cp.suburb, cp.website, cp.remote_friendly,
               cp.turnaround, cp.response_time, cp.specialties, cp.verified`
     )
-    .get(conveyancerId) as
-      | {
-          id: number
-          full_name: string
-          firm_name: string
-          bio: string
-          phone: string
-          state: string
-          suburb: string
-          website: string
-          remote_friendly: number
-          turnaround: string
-          response_time: string
-          specialties: string
-          verified: number
-          rating: number
-          review_count: number
-        }
-      | undefined
+    .get(conveyancerId) as ConveyancerProfileRow | undefined
 
-  if (!row) {
-    res.status(404).json({ error: 'not_found' })
-    return
+  return row ?? null
+}
+
+const parseSpecialties = (value: string): string[] => {
+  if (!value) {
+    return []
   }
-
-  let specialties: string[] = []
-  if (row.specialties) {
-    try {
-      const parsed = JSON.parse(row.specialties)
-      if (Array.isArray(parsed)) {
-        specialties = parsed.filter((item: unknown): item is string => typeof item === 'string')
-      }
-    } catch (error) {
-      console.warn('Failed to parse specialties', error)
+  try {
+    const parsed = JSON.parse(value)
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item: unknown): item is string => typeof item === 'string')
     }
+  } catch (error) {
+    console.warn('Failed to parse specialties', error)
   }
+  return []
+}
 
-  const viewer = getSessionFromRequest(req)
+export const buildConveyancerProfile = (
+  row: ConveyancerProfileRow,
+  viewer: SessionUser | null,
+) => {
+  const specialties = parseSpecialties(row.specialties)
   const revealPhone = Boolean(viewer && (viewer.role === 'admin' || viewer.id === row.id))
 
-  res.status(200).json({
+  return {
     id: `conveyancer_${row.id}`,
     userId: row.id,
     fullName: row.full_name,
@@ -101,7 +95,31 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
     reviewCount: Number(row.review_count ?? 0),
     contactPhone: revealPhone ? row.phone : null,
     hasContactAccess: revealPhone,
-  })
+  }
+}
+
+const handler = (req: NextApiRequest, res: NextApiResponse): void => {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', ['GET'])
+    res.status(405).end('Method Not Allowed')
+    return
+  }
+
+  const conveyancerId = parseId(req.query.id)
+  if (!conveyancerId || Number.isNaN(conveyancerId)) {
+    res.status(400).json({ error: 'invalid_id' })
+    return
+  }
+
+  const row = findConveyancerProfile(conveyancerId)
+
+  if (!row) {
+    res.status(404).json({ error: 'not_found' })
+    return
+  }
+
+  const viewer = getSessionFromRequest(req)
+  res.status(200).json(buildConveyancerProfile(row, viewer))
 }
 
 export default handler

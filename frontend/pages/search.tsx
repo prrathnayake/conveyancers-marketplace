@@ -185,7 +185,11 @@ const Search = (): JSX.Element => {
         return
       }
       if (!response.ok) {
-        throw new Error('Unable to open secure chat')
+        const message =
+          response.status === 403
+            ? 'Secure chat is only available between conveyancers and verified clients.'
+            : 'Unable to open secure chat'
+        throw new Error(message)
       }
       await router.push(`/chat?partnerId=${userId}`)
     } catch (err) {
