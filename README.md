@@ -265,6 +265,9 @@ We welcome pull requests that enhance functionality, documentation, or developer
 
 ---
 
-## License
+## License & legal notices
 
-This project is released under the MIT License. See the [`LICENSE`](LICENSE) file for the full text.
+This project is distributed under a proprietary license. Usage is restricted to authorized
+collaborators with written permission from the repository owners. See the
+[`LICENSE`](LICENSE) file for the full text and review the [`LEGAL_NOTICE`](LEGAL_NOTICE.md)
+for patent and confidentiality information.
