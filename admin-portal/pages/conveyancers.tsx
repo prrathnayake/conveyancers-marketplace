@@ -182,7 +182,7 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
   }
 
   return (
-    <AdminLayout>
+    <AdminLayout user={user}>
       <Head>
         <title>Manage conveyancers</title>
       </Head>

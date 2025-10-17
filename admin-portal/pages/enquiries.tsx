@@ -83,7 +83,7 @@ const EnquiriesPage = ({ user }: EnquiryPageProps): JSX.Element => {
   }
 
   return (
-    <AdminLayout>
+    <AdminLayout user={user}>
       <Head>
         <title>Enquiry search</title>
       </Head>

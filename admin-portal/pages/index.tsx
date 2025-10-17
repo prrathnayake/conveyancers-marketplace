@@ -60,7 +60,7 @@ const createSparklinePath = (series: readonly number[]): { line: string; area: s
 
 const AdminDashboard = ({ user, summary }: AdminDashboardProps): JSX.Element => {
   return (
-    <AdminLayout>
+    <AdminLayout user={user}>
       <Head>
         <title>Admin dashboard</title>
       </Head>
