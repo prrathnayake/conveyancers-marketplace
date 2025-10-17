@@ -117,24 +117,43 @@ inline std::filesystem::path LogFilePath(std::string_view service) {
   return LogDirectoryPath() / (SanitizeServiceName(service) + ".log");
 }
 
-inline void WriteLogToFile(std::string_view service, std::string_view category, std::string_view message,
-                           std::string_view context) {
-  static std::mutex log_mutex;
-  const std::lock_guard<std::mutex> lock(log_mutex);
-  const auto path = LogFilePath(service);
+inline std::filesystem::path ErrorLogFilePath() {
+  return LogDirectoryPath() / "errors.log";
+}
+
+inline std::string BuildLogEntry(std::string_view timestamp, std::string_view service,
+                                 std::string_view category, std::string_view message,
+                                 std::string_view context) {
+  std::ostringstream oss;
+  oss << "{\"timestamp\":\"" << EscapeJson(timestamp) << "\",\"service\":\"" << EscapeJson(service)
+      << "\",\"category\":\"" << EscapeJson(category) << "\",\"message\":\"" << EscapeJson(message) << "\"";
+  if (!context.empty()) {
+    oss << ",\"context\":\"" << EscapeJson(context) << "\"";
+  }
+  oss << '}';
+  return oss.str();
+}
+
+inline void AppendLogEntry(const std::filesystem::path &path, const std::string &entry) {
   std::error_code ec;
   std::filesystem::create_directories(path.parent_path(), ec);
   std::ofstream stream(path, std::ios::app);
   if (!stream.is_open()) {
     return;
   }
+  stream << entry << '\n';
+}
+
+inline void WriteLogToFile(std::string_view service, std::string_view category, std::string_view message,
+                           std::string_view context) {
+  static std::mutex log_mutex;
+  const std::lock_guard<std::mutex> lock(log_mutex);
   const auto timestamp = TimestampNow();
-  stream << "{\"timestamp\":\"" << EscapeJson(timestamp) << "\",\"service\":\"" << EscapeJson(service)
-         << "\",\"category\":\"" << EscapeJson(category) << "\",\"message\":\"" << EscapeJson(message) << "\"";
-  if (!context.empty()) {
-    stream << ",\"context\":\"" << EscapeJson(context) << "\"";
+  const auto entry = BuildLogEntry(timestamp, service, category, message, context);
+  AppendLogEntry(LogFilePath(service), entry);
+  if (category == "error") {
+    AppendLogEntry(ErrorLogFilePath(), entry);
   }
-  stream << "}\n";
 }
 
 inline void EmitLog(std::string_view service, std::string_view category, const std::string &message,
@@ -286,6 +305,11 @@ inline void ConfigureServer(httplib::Server &server, std::string_view service_na
     oss << req.method << ' ' << req.path << " -> " << res.status;
     LogEvent(service_name, "http", oss.str(), RequestId(req));
     MetricsRegistry::Instance().RecordRequest(service_name, req.method, res.status);
+    if (res.status >= 400) {
+      std::ostringstream error_oss;
+      error_oss << "HTTP error " << req.method << ' ' << req.path << " -> " << res.status;
+      LogEvent(service_name, "error", error_oss.str(), RequestId(req));
+    }
   });
 
   server.set_exception_handler([service_name](const auto &req, auto &res, std::exception_ptr ep) {
