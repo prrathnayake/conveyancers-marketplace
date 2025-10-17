@@ -355,6 +355,13 @@
   gap: 0.75rem;
 }
 
+.cardError {
+  flex-basis: 100%;
+  margin: 0;
+  color: #dc2626;
+  font-size: 0.85rem;
+}
+
 .ghostPrimary,
 .ghostSecondary {
   border-radius: 12px;
@@ -385,6 +392,17 @@
   border-radius: 999px;
   font-weight: 600;
   font-size: 0.85rem;
+}
+
+.tableActions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.inlineError {
+  color: #dc2626;
+  font-size: 0.8rem;
 }
 
 .tableWrapper {

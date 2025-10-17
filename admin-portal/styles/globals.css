@@ -838,6 +838,42 @@ select {
   flex-wrap: wrap;
 }
 
+.admin-input-with-addon {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  border-radius: var(--admin-radius-sm);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.admin-input-with-addon > .admin-input {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding-right: 0.75rem;
+}
+
+.admin-input-addon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.85rem;
+  height: 100%;
+  font-weight: 600;
+  font-size: 0.85rem;
+  background: rgba(15, 23, 42, 0.75);
+  color: var(--admin-text-soft);
+  border-left: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.admin-field__help {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--admin-text-soft);
+}
+
 .admin-error {
   color: var(--admin-danger);
   background: rgba(248, 113, 113, 0.12);
