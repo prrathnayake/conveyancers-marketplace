@@ -106,6 +106,35 @@ struct AuditEvent {
   std::string created_at;
 };
 
+struct PrivacyPreference {
+  std::string account_id;
+  std::string policy_version;
+  bool marketing_opt_in = false;
+  std::string acknowledged_at;
+};
+
+struct ErasureRequest {
+  std::string id;
+  std::string account_id;
+  std::string requested_by;
+  std::string requested_at;
+  std::string reason;
+  std::string contact;
+  std::string status;
+  std::string processed_at;
+  std::string processed_by;
+  std::string resolution_notes;
+};
+
+struct SupportSession {
+  std::string token;
+  std::string target_account_id;
+  std::string issued_by;
+  std::string issued_at;
+  std::string expires_at;
+  std::string reason;
+};
+
 class IdentityStore {
  public:
  IdentityStore() {
@@ -194,6 +223,14 @@ class IdentityStore {
     audit_log_.push_back(event);
 
     return RegistrationResult{account.id, account.two_factor_secret};
+  }
+
+  std::optional<Account> GetAccountById(const std::string &account_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (auto it = accounts_.find(account_id); it != accounts_.end()) {
+      return it->second;
+    }
+    return std::nullopt;
   }
 
   const Profile *GetProfileById(const std::string &id) const {
@@ -550,6 +587,193 @@ class IdentityStore {
       }
     }
     return alerts;
+  }
+
+  bool RecordPrivacyConsent(const std::string &account_id, const std::string &policy_version,
+                            bool marketing_opt_in, const std::string &actor_account_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (accounts_.find(account_id) == accounts_.end()) {
+      return false;
+    }
+    PrivacyPreference preference;
+    preference.account_id = account_id;
+    preference.policy_version = policy_version;
+    preference.marketing_opt_in = marketing_opt_in;
+    preference.acknowledged_at = NowIso8601();
+    privacy_preferences_[account_id] = preference;
+    const auto actor = actor_account_id.empty() ? account_id : actor_account_id;
+    RecordAudit(actor, "privacy_acknowledged", "account",
+                json{{"account_id", account_id},
+                     {"policy_version", policy_version},
+                     {"marketing_opt_in", marketing_opt_in}});
+    return true;
+  }
+
+  std::optional<PrivacyPreference> GetPrivacyConsent(const std::string &account_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (auto it = privacy_preferences_.find(account_id); it != privacy_preferences_.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  }
+
+  json DescribePrivacyConsent(const PrivacyPreference &preference) const {
+    return json{{"account_id", preference.account_id},
+                {"policy_version", preference.policy_version},
+                {"marketing_opt_in", preference.marketing_opt_in},
+                {"acknowledged_at", preference.acknowledged_at}};
+  }
+
+  std::optional<ErasureRequest> SubmitErasureRequest(const std::string &account_id,
+                                                     const std::string &requested_by,
+                                                     const std::string &reason,
+                                                     const std::string &contact) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (accounts_.find(account_id) == accounts_.end()) {
+      return std::nullopt;
+    }
+    ErasureRequest request;
+    request.id = GenerateId("erase_");
+    request.account_id = account_id;
+    request.requested_by = requested_by.empty() ? account_id : requested_by;
+    request.requested_at = NowIso8601();
+    request.reason = reason;
+    request.contact = contact;
+    request.status = "pending";
+    erasure_requests_[request.id] = request;
+    erasure_order_.push_back(request.id);
+    RecordAudit(request.requested_by, "privacy_erasure_requested", "account",
+                json{{"account_id", account_id}, {"reason", reason}});
+    return request;
+  }
+
+  std::vector<ErasureRequest> ListErasureRequests() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<ErasureRequest> requests;
+    requests.reserve(erasure_order_.size());
+    for (const auto &id : erasure_order_) {
+      if (auto it = erasure_requests_.find(id); it != erasure_requests_.end()) {
+        requests.push_back(it->second);
+      }
+    }
+    return requests;
+  }
+
+  std::optional<ErasureRequest> ResolveErasureRequest(const std::string &request_id,
+                                                      const std::string &processed_by,
+                                                      const std::string &status,
+                                                      const std::string &notes) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = erasure_requests_.find(request_id);
+    if (it == erasure_requests_.end()) {
+      return std::nullopt;
+    }
+    auto &request = it->second;
+    request.status = status;
+    request.processed_at = NowIso8601();
+    request.processed_by = processed_by;
+    request.resolution_notes = notes;
+    RecordAudit(processed_by, "privacy_erasure_resolved", "account",
+                json{{"account_id", request.account_id},
+                     {"request_id", request.id},
+                     {"status", status}});
+    return request;
+  }
+
+  json DescribeErasureRequest(const ErasureRequest &request) const {
+    return json{{"id", request.id},
+                {"account_id", request.account_id},
+                {"requested_by", request.requested_by},
+                {"requested_at", request.requested_at},
+                {"reason", request.reason},
+                {"contact", request.contact},
+                {"status", request.status},
+                {"processed_at", request.processed_at},
+                {"processed_by", request.processed_by},
+                {"resolution_notes", request.resolution_notes}};
+  }
+
+  std::optional<SupportSession> IssueSupportSession(const std::string &target_account_id,
+                                                    const std::string &issued_by,
+                                                    const std::string &reason,
+                                                    int ttl_minutes) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (accounts_.find(target_account_id) == accounts_.end()) {
+      return std::nullopt;
+    }
+    if (ttl_minutes <= 0) {
+      ttl_minutes = 15;
+    }
+    SupportSession session;
+    session.token = GenerateId("support_");
+    session.target_account_id = target_account_id;
+    session.issued_by = issued_by;
+    session.issued_at = NowIso8601();
+    session.expires_at = FormatIso8601(std::chrono::system_clock::now() +
+                                       std::chrono::minutes(ttl_minutes));
+    session.reason = reason;
+    support_sessions_[session.token] = session;
+    support_session_order_.push_back(session.token);
+    RecordAudit(issued_by, "support_impersonation_issued", "account",
+                json{{"target_account_id", target_account_id}, {"token", session.token}});
+    return session;
+  }
+
+  std::vector<SupportSession> ListSupportSessions() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<SupportSession> sessions;
+    sessions.reserve(support_session_order_.size());
+    for (const auto &token : support_session_order_) {
+      if (auto it = support_sessions_.find(token); it != support_sessions_.end()) {
+        sessions.push_back(it->second);
+      }
+    }
+    return sessions;
+  }
+
+  bool ResetTwoFactorSecret(const std::string &account_id, const std::string &actor_account_id,
+                            std::string *new_secret) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = accounts_.find(account_id);
+    if (it == accounts_.end()) {
+      return false;
+    }
+    it->second.two_factor_secret = GenerateSecret();
+    if (new_secret) {
+      *new_secret = it->second.two_factor_secret;
+    }
+    RecordAudit(actor_account_id, "support_2fa_reset", "account",
+                json{{"account_id", account_id}});
+    return true;
+  }
+
+  bool OverrideKycWithReason(const std::string &profile_id, const std::string &reference,
+                             bool approved, const std::string &actor_account_id,
+                             const std::string &notes) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = profiles_.find(profile_id);
+    if (it == profiles_.end()) {
+      return false;
+    }
+    it->second.compliance.kyc_verified = approved;
+    it->second.compliance.kyc_reference = reference;
+    if (approved) {
+      it->second.verified = it->second.compliance.licence_verified;
+    }
+    RecordAudit(actor_account_id, "support_kyc_override", "profile",
+                json{{"profile_id", profile_id},
+                     {"approved", approved},
+                     {"notes", notes}});
+    return true;
+  }
+
+  json DescribeSupportSession(const SupportSession &session) const {
+    return json{{"token", session.token},
+                {"target_account_id", session.target_account_id},
+                {"issued_by", session.issued_by},
+                {"issued_at", session.issued_at},
+                {"expires_at", session.expires_at},
+                {"reason", session.reason}};
   }
 
   json PurgeAuditLog(int retention_days) {
@@ -911,6 +1135,13 @@ class IdentityStore {
     account_by_email_[email] = account.id;
     profiles_[profile.id] = profile;
     profile_by_account_[account.id] = profile.id;
+
+    PrivacyPreference pref;
+    pref.account_id = account.id;
+    pref.policy_version = "seed_v1";
+    pref.marketing_opt_in = false;
+    pref.acknowledged_at = NowIso8601();
+    privacy_preferences_[account.id] = pref;
   }
 
   mutable std::mutex mutex_;
@@ -923,6 +1154,11 @@ class IdentityStore {
   std::unordered_set<std::string> active_sessions_;
   std::unordered_map<std::string, LicenceRegistryEntry> licence_registry_;
   std::vector<AuditEvent> audit_log_;
+  std::unordered_map<std::string, PrivacyPreference> privacy_preferences_;
+  std::unordered_map<std::string, ErasureRequest> erasure_requests_;
+  std::vector<std::string> erasure_order_;
+  std::unordered_map<std::string, SupportSession> support_sessions_;
+  std::vector<std::string> support_session_order_;
 };
 
 IdentityStore &Store() {
@@ -951,6 +1187,25 @@ std::string BuildOtpAuthUri(const std::string &email, const std::string &secret)
   uri << "otpauth://totp/" << UrlEncode(label) << "?secret=" << secret
       << "&issuer=" << UrlEncode(issuer) << "&algorithm=SHA1&digits=6&period=30";
   return uri.str();
+}
+
+std::string ActorAccountId(const httplib::Request &req) {
+  return req.get_header_value("X-Actor-Account-Id");
+}
+
+bool RequireSelfOrAdmin(const httplib::Request &req, httplib::Response &res,
+                        const std::string &account_id) {
+  const auto role = req.get_header_value("X-Actor-Role");
+  if (role == "admin") {
+    return true;
+  }
+  const auto actor_account = ActorAccountId(req);
+  if (actor_account.empty() || actor_account != account_id) {
+    res.status = 403;
+    res.set_content(R"({"error":"forbidden"})", "application/json");
+    return false;
+  }
+  return true;
 }
 
 json ParseJson(const httplib::Request &req, httplib::Response &res) {
@@ -1170,6 +1425,252 @@ int main() {
     if (!Store().AddReview(profile_id, payload["author_name"].get<std::string>(),
                            payload["role"].get<std::string>(), rating,
                            payload["comment"].get<std::string>())) {
+      res.status = 404;
+      res.set_content(R"({"error":"profile_not_found"})", "application/json");
+      return;
+    }
+    res.set_content(R"({"ok":true})", "application/json");
+  });
+
+  server.Post("/auth/privacy/acknowledge", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "identity")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "identity",
+                               "privacy_ack")) {
+      return;
+    }
+    auto payload = ParseJson(req, res);
+    if (res.status == 400 && !res.body.empty()) {
+      return;
+    }
+    if (!RequireFields(payload, res, {"account_id", "policy_version"})) {
+      return;
+    }
+    const auto account_id = payload["account_id"].get<std::string>();
+    if (!RequireSelfOrAdmin(req, res, account_id)) {
+      return;
+    }
+    const bool marketing_opt_in = payload.value("marketing_opt_in", false);
+    const auto actor_account = ActorAccountId(req);
+    if (!Store().RecordPrivacyConsent(account_id, payload["policy_version"].get<std::string>(),
+                                      marketing_opt_in, actor_account)) {
+      res.status = 404;
+      res.set_content(R"({"error":"account_not_found"})", "application/json");
+      return;
+    }
+    if (auto preference = Store().GetPrivacyConsent(account_id)) {
+      res.set_content(Store().DescribePrivacyConsent(*preference).dump(), "application/json");
+      return;
+    }
+    res.set_content(R"({"ok":true})", "application/json");
+  });
+
+  server.Get(R"(/auth/privacy/([\w_-]+))", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "identity")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "identity",
+                               "privacy_status")) {
+      return;
+    }
+    const auto account_id = req.matches[1];
+    if (!RequireSelfOrAdmin(req, res, account_id)) {
+      return;
+    }
+    if (auto preference = Store().GetPrivacyConsent(account_id)) {
+      res.set_content(Store().DescribePrivacyConsent(*preference).dump(), "application/json");
+      return;
+    }
+    res.status = 404;
+    res.set_content(R"({"error":"preference_not_found"})", "application/json");
+  });
+
+  server.Post("/auth/privacy/erasure", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "identity")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "identity",
+                               "privacy_erasure")) {
+      return;
+    }
+    auto payload = ParseJson(req, res);
+    if (res.status == 400 && !res.body.empty()) {
+      return;
+    }
+    std::string account_id = payload.value("account_id", std::string{});
+    if (account_id.empty()) {
+      account_id = ActorAccountId(req);
+    }
+    if (account_id.empty()) {
+      res.status = 400;
+      res.set_content(R"({"error":"missing_field","field":"account_id"})", "application/json");
+      return;
+    }
+    if (!RequireSelfOrAdmin(req, res, account_id)) {
+      return;
+    }
+    const auto reason = payload.value("reason", std::string{});
+    if (reason.empty()) {
+      res.status = 400;
+      res.set_content(R"({"error":"missing_field","field":"reason"})", "application/json");
+      return;
+    }
+    const auto contact = payload.value("contact", std::string{});
+    const auto actor_account = ActorAccountId(req);
+    if (auto request = Store().SubmitErasureRequest(account_id, actor_account, reason, contact)) {
+      res.status = 202;
+      res.set_content(Store().DescribeErasureRequest(*request).dump(), "application/json");
+      return;
+    }
+    res.status = 404;
+    res.set_content(R"({"error":"account_not_found"})", "application/json");
+  });
+
+  server.Get("/admin/privacy/erasure", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "identity")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"admin"}, "identity", "privacy_erasure_list")) {
+      return;
+    }
+    json response = json::array();
+    for (const auto &request : Store().ListErasureRequests()) {
+      response.push_back(Store().DescribeErasureRequest(request));
+    }
+    res.set_content(response.dump(), "application/json");
+  });
+
+  server.Post(R"(/admin/privacy/erasure/([\w_-]+)/resolve)",
+              [](const httplib::Request &req, httplib::Response &res) {
+                if (!security::Authorize(req, res, "identity")) {
+                  return;
+                }
+                if (!security::RequireRole(req, res, {"admin"}, "identity",
+                                           "privacy_erasure_resolve")) {
+                  return;
+                }
+                const auto request_id = req.matches[1];
+                auto payload = ParseJson(req, res);
+                if (res.status == 400 && !res.body.empty()) {
+                  return;
+                }
+                if (!RequireFields(payload, res, {"status"})) {
+                  return;
+                }
+                std::string status = payload["status"].get<std::string>();
+                if (status != "approved" && status != "rejected" && status != "pending") {
+                  res.status = 400;
+                  res.set_content(R"({"error":"invalid_status"})", "application/json");
+                  return;
+                }
+                const auto notes = payload.value("notes", std::string{});
+                const auto actor_account = ActorAccountId(req);
+                if (auto request =
+                        Store().ResolveErasureRequest(request_id, actor_account, status, notes)) {
+                  res.set_content(Store().DescribeErasureRequest(*request).dump(), "application/json");
+                  return;
+                }
+                res.status = 404;
+                res.set_content(R"({"error":"erasure_not_found"})", "application/json");
+              });
+
+  server.Post("/admin/support/impersonate", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "identity")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"admin"}, "identity", "support_impersonate")) {
+      return;
+    }
+    auto payload = ParseJson(req, res);
+    if (res.status == 400 && !res.body.empty()) {
+      return;
+    }
+    if (!RequireFields(payload, res, {"account_id"})) {
+      return;
+    }
+    const auto target_account = payload["account_id"].get<std::string>();
+    const auto reason = payload.value("reason", std::string{"Assisted support session"});
+    int ttl = payload.value("ttl_minutes", 15);
+    if (ttl <= 0) {
+      ttl = 15;
+    }
+    const auto actor_account = ActorAccountId(req);
+    if (auto session = Store().IssueSupportSession(target_account, actor_account, reason, ttl)) {
+      res.set_content(Store().DescribeSupportSession(*session).dump(), "application/json");
+      return;
+    }
+    res.status = 404;
+    res.set_content(R"({"error":"account_not_found"})", "application/json");
+  });
+
+  server.Get("/admin/support/sessions", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "identity")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"admin"}, "identity", "support_sessions")) {
+      return;
+    }
+    json response = json::array();
+    for (const auto &session : Store().ListSupportSessions()) {
+      response.push_back(Store().DescribeSupportSession(session));
+    }
+    res.set_content(response.dump(), "application/json");
+  });
+
+  server.Post("/admin/support/reset_2fa", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "identity")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"admin"}, "identity", "support_reset_2fa")) {
+      return;
+    }
+    auto payload = ParseJson(req, res);
+    if (res.status == 400 && !res.body.empty()) {
+      return;
+    }
+    if (!RequireFields(payload, res, {"account_id"})) {
+      return;
+    }
+    const auto account_id = payload["account_id"].get<std::string>();
+    std::string new_secret;
+    const auto actor_account = ActorAccountId(req);
+    if (!Store().ResetTwoFactorSecret(account_id, actor_account, &new_secret)) {
+      res.status = 404;
+      res.set_content(R"({"error":"account_not_found"})", "application/json");
+      return;
+    }
+    auto account = Store().GetAccountById(account_id);
+    std::string otp_uri;
+    if (account) {
+      otp_uri = BuildOtpAuthUri(account->email, new_secret);
+    }
+    res.set_content(json{{"account_id", account_id},
+                         {"two_factor_setup", json{{"secret", new_secret}, {"uri", otp_uri}}}}
+                        .dump(),
+                    "application/json");
+  });
+
+  server.Post("/admin/support/kyc_override", [](const httplib::Request &req, httplib::Response &res) {
+    if (!security::Authorize(req, res, "identity")) {
+      return;
+    }
+    if (!security::RequireRole(req, res, {"admin"}, "identity", "support_kyc")) {
+      return;
+    }
+    auto payload = ParseJson(req, res);
+    if (res.status == 400 && !res.body.empty()) {
+      return;
+    }
+    if (!RequireFields(payload, res, {"profile_id", "reference", "approved"})) {
+      return;
+    }
+    const auto profile_id = payload["profile_id"].get<std::string>();
+    const auto reference = payload["reference"].get<std::string>();
+    const auto approved = payload["approved"].get<bool>();
+    const auto notes = payload.value("notes", std::string{});
+    const auto actor_account = ActorAccountId(req);
+    if (!Store().OverrideKycWithReason(profile_id, reference, approved, actor_account, notes)) {
       res.status = 404;
       res.set_content(R"({"error":"profile_not_found"})", "application/json");
       return;
