@@ -1,0 +1,11 @@
+.git
+logs
+frontend/node_modules
+admin-portal/node_modules
+**/node_modules
+**/.next
+**/dist
+**/build
+.DS_Store
+infra/tls/dev.crt
+infra/tls/dev.key

@@ -5,10 +5,12 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 
 FROM base AS deps
+RUN apk add --no-cache python3 make g++
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 FROM base AS builder
+RUN apk add --no-cache python3 make g++
 COPY --from=deps /app/node_modules ./node_modules
 COPY frontend ./
 COPY tooling /tooling
@@ -19,6 +21,8 @@ FROM base AS runner
 ENV NODE_ENV=production
 # Expose the port Next.js listens on
 EXPOSE 3000
+
+RUN apk add --no-cache libstdc++
 
 # Copy only the runtime assets to keep the image leaner
 COPY --from=builder /app/public ./public
