@@ -11,6 +11,7 @@ const AdminLoginPage = (): JSX.Element => {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<'idle' | 'loading'>('idle')
+  const [showPassword, setShowPassword] = useState(false)
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -54,15 +55,27 @@ const AdminLoginPage = (): JSX.Element => {
         </label>
         <label className="admin-form__label" htmlFor="password">
           Password
-          <input
-            id="password"
-            className="admin-input"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            minLength={8}
-            required
-          />
+          <div className="password-field">
+            <input
+              id="password"
+              className="admin-input password-field__input"
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              minLength={8}
+              required
+              autoComplete="current-password"
+            />
+            <button
+              type="button"
+              className="password-field__toggle"
+              onClick={() => setShowPassword((prev) => !prev)}
+              aria-pressed={showPassword}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? 'Hide' : 'Show'}
+            </button>
+          </div>
         </label>
         <button type="submit" className="admin-button" disabled={status === 'loading'}>
           {status === 'loading' ? 'Verifying…' : 'Enter control room'}

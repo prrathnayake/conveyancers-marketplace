@@ -81,6 +81,9 @@ services:
       GATEWAY_ORIGIN: http://gateway:8080
       PROFILE_FALLBACK_SECRET: ${PROFILE_FALLBACK_SECRET:-}
       PROFILE_FALLBACK_PAYLOAD: ${PROFILE_FALLBACK_PAYLOAD:-}
+      ADMIN_SEED_EMAIL: ${ADMIN_SEED_EMAIL:-admin@example.com}
+      ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:-super-secure-password}
+      ADMIN_SEED_PASSWORD_HASH: ${ADMIN_SEED_PASSWORD_HASH:-}
     depends_on: [gateway]
   admin-portal:
     build:
@@ -92,6 +95,9 @@ services:
       NEXT_PUBLIC_MAIN_APP_URL: ${NEXT_PUBLIC_MAIN_APP_URL:-https://localhost}
       JWT_SECRET: ${JWT_SECRET}
       LOG_DIRECTORY: /workspace/logs
+      ADMIN_SEED_EMAIL: ${ADMIN_SEED_EMAIL:-admin@example.com}
+      ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:-super-secure-password}
+      ADMIN_SEED_PASSWORD_HASH: ${ADMIN_SEED_PASSWORD_HASH:-}
     depends_on: [gateway]
     ports: ["4300:4300"]
     volumes:
