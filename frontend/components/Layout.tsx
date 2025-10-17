@@ -8,33 +8,30 @@ import UserMenu from './UserMenu'
 type PrimaryNavItem = {
   href: string
   label: string
+  description: string
 }
 
-type SubNavItem =
-  | {
-      href: string
-      label: string
-    }
-  | {
-      anchor: string
-      label: string
-    }
-
 const mainNav: PrimaryNavItem[] = [
-  { href: '/', label: 'Overview' },
-  { href: '/search', label: 'Find experts' },
-]
-
-const workflowNav: SubNavItem[] = [
-  { anchor: '#workflow', label: 'Milestone flow' },
-  { anchor: '#features', label: 'Security' },
-  { anchor: '#faq', label: 'FAQs' },
-]
-
-const sellerNav: SubNavItem[] = [
-  { href: '/search?seller=true', label: 'Seller dashboard' },
-  { href: '/search?tab=jobs', label: 'Active jobs' },
-  { href: '/search?tab=documents', label: 'Documents' },
+  {
+    href: '/',
+    label: 'Platform overview',
+    description: 'Digitise every settlement milestone with audit-ready controls',
+  },
+  {
+    href: '/search',
+    label: 'Marketplace',
+    description: 'Match with verified conveyancers and property law specialists',
+  },
+  {
+    href: '/conveyancer',
+    label: 'For conveyancers',
+    description: 'Grow your practice with ready-to-brief developer mandates',
+  },
+  {
+    href: '/chat',
+    label: 'Client workspace',
+    description: 'Collaborate securely with lenders, buyers, and allied professionals',
+  },
 ]
 
 type LayoutProps = {
@@ -49,17 +46,6 @@ const Layout: FC<LayoutProps> = ({ children }) => {
       return prefixed
     }
     return mainNav.find((item) => router.pathname === item.href) ?? mainNav[0]
-  }, [router.pathname])
-
-  const isAnchorItem = (item: SubNavItem): item is Extract<SubNavItem, { anchor: string }> => {
-    return Object.prototype.hasOwnProperty.call(item, 'anchor')
-  }
-
-  const subNav = useMemo(() => {
-    if (router.pathname.startsWith('/search')) {
-      return sellerNav
-    }
-    return workflowNav
   }, [router.pathname])
 
   const [banner, setBanner] = useState<string>('')
@@ -107,9 +93,23 @@ const Layout: FC<LayoutProps> = ({ children }) => {
   return (
     <div className="app-shell">
       <header className="site-header" role="banner">
+        <div className="site-header__topline">
+          <span className="site-header__topline-text">
+            Trusted by development, lending, and conveyancing teams for frictionless settlements.
+          </span>
+          <Link href="/search?tab=jobs" className="site-header__topline-link">
+            View live matters
+          </Link>
+        </div>
         <div className="site-header__bar">
-          <Link href="/" className="site-logo">
-            Conveyancers Marketplace
+          <Link href="/" className="site-logo" aria-label="Conveyancers Marketplace home">
+            <span className="site-logo__mark" aria-hidden="true">
+              CM
+            </span>
+            <span className="site-logo__text">
+              <span className="site-logo__title">Conveyancers Marketplace</span>
+              <span className="site-logo__subtitle">Settlement workflows without friction</span>
+            </span>
           </Link>
           <nav aria-label="Primary" className="site-nav">
             {mainNav.map((item) => {
@@ -120,32 +120,20 @@ const Layout: FC<LayoutProps> = ({ children }) => {
                   href={item.href}
                   className={`site-nav__item ${isActive ? 'site-nav__item--active' : ''}`}
                 >
-                  {item.label}
+                  <span className="site-nav__label">{item.label}</span>
+                  <span className="site-nav__description">{item.description}</span>
                 </Link>
               )
             })}
           </nav>
           <div className="site-header__actions">
+            <Link href="/signup" className="site-nav__cta">
+              Book a demo
+            </Link>
             <ThemeToggle />
             <UserMenu />
           </div>
         </div>
-        <nav aria-label="Context" className="site-subnav">
-          {subNav.map((item) => {
-            if (isAnchorItem(item)) {
-              return (
-                <a key={item.anchor} href={item.anchor} className="site-subnav__item">
-                  {item.label}
-                </a>
-              )
-            }
-            return (
-              <Link key={item.href} href={item.href} className="site-subnav__item">
-                {item.label}
-              </Link>
-            )
-          })}
-        </nav>
       </header>
       {banner ? (
         <div role="alert" className="status-banner">
