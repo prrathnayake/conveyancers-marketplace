@@ -11,39 +11,33 @@ const roleLabels: Record<string, string> = {
 
 const adminPortalUrl = process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL
 
-const UserMenu = (): JSX.Element => {
+const UserMenu = (): JSX.Element | null => {
   const { user, logout } = useAuth()
   const [open, setOpen] = useState(false)
 
   if (!user) {
-    return (
-      <div className="user-menu">
-        <Link href="/login" className="cta-secondary">
-          Log in
-        </Link>
-        <Link href="/signup" className="cta-primary">
-          Create account
-        </Link>
-      </div>
-    )
+    return null
   }
 
   return (
     <div className="user-menu" data-state={open ? 'open' : 'closed'}>
       <button
         type="button"
-        className="user-pill"
+        className="user-avatar-button"
         onClick={() => setOpen((prev) => !prev)}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={`${user.fullName} account menu`}
       >
-        <span className="user-avatar">{user.fullName.charAt(0)}</span>
-        <span className="user-details">
-          <span className="user-name">{user.fullName}</span>
-          <span className="user-role">{roleLabels[user.role] ?? user.role}</span>
+        <span className="user-avatar" aria-hidden="true">
+          {user.fullName.charAt(0)}
         </span>
       </button>
       <div className="user-dropdown" role="menu">
+        <div className="user-dropdown__header" role="presentation">
+          <span className="user-dropdown__name">{user.fullName}</span>
+          <span className="user-dropdown__role">{roleLabels[user.role] ?? user.role}</span>
+        </div>
         <Link href="/account" className="dropdown-item" role="menuitem">
           Account settings
         </Link>
