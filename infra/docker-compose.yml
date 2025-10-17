@@ -112,6 +112,8 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minio}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-change-me}
       JWT_SECRET: ${JWT_SECRET:-change-me}
+      IDENTITY_HOST: identity
+      IDENTITY_PORT: 7001
       PSP_PROVIDER: ${PSP_PROVIDER:-sandbox}
       PSP_SECRET: ${PSP_SECRET:-change-me}
     depends_on: [postgres, redis, minio, identity, jobs, payments]
