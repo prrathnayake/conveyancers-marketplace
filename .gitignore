@@ -4,7 +4,7 @@ infra/tls/dev.crt
 .env.local
 .env
 infra/.env
-frontend/data/*.db*
+data/*.db*
 node_modules
 **/node_modules
 .next
