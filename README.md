@@ -173,7 +173,8 @@ npm run dev           # Runs the dashboard on http://localhost:5300
 
 Backend services emit structured JSON log lines to the repository-level `logs/` directory (override with the `LOG_DIRECTORY`
 environment variable). The “System logs” view inside the admin portal surfaces the most recent entries per service so operators
-can review workflow interactions without shell access.
+can review workflow interactions without shell access. A consolidated `logs/errors.log` file now collects every error-level
+event across services to simplify post-incident reviews.
 
 ### Backend (C++ services)
 
