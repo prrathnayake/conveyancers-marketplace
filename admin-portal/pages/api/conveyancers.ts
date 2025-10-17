@@ -143,7 +143,7 @@ const updateConveyancer = (payload: any) => {
 
   const tx = db.transaction(() => {
     if (fullName) {
-      db.prepare('UPDATE users SET full_name = ? WHERE id = ? AND role = "conveyancer"').run(fullName.trim(), id)
+      db.prepare("UPDATE users SET full_name = ? WHERE id = ? AND role = 'conveyancer'").run(fullName.trim(), id)
     }
 
     if (profile) {
@@ -182,7 +182,7 @@ const updateConveyancer = (payload: any) => {
 }
 
 const deleteConveyancer = (id: number) => {
-  db.prepare('DELETE FROM users WHERE id = ? AND role = "conveyancer"').run(id)
+  db.prepare("DELETE FROM users WHERE id = ? AND role = 'conveyancer'").run(id)
 }
 
 const handler = async (req: NextApiRequest, res: NextApiResponse) => {
