@@ -5,6 +5,15 @@ import AdminLayout from '../components/AdminLayout'
 import type { SessionUser } from '../../frontend/lib/session'
 import { getSessionFromRequest } from '../../frontend/lib/session'
 
+type MonitoringPanel = {
+  id: string
+  title: string
+  value: string
+  trend: string
+  series: number[]
+  footnote: string
+}
+
 type Summary = {
   conveyancers: number
   buyers: number
@@ -16,6 +25,7 @@ type Summary = {
     actorEmail: string | null
     createdAt: string
   }
+  monitoringPanels: MonitoringPanel[]
 }
 
 type AdminDashboardProps = {
@@ -47,33 +57,6 @@ const createSparklinePath = (series: readonly number[]): { line: string; area: s
   const area = `M0,100 ${areaPoints} L100,100 Z`
   return { line, area }
 }
-
-const monitoringPanels = [
-  {
-    id: 'escrow',
-    title: 'Escrow release compliance',
-    value: '99.4%',
-    trend: '+0.6% vs last week',
-    series: [92, 94, 95, 97, 96, 98, 99.4],
-    footnote: 'Alerts trigger when compliance dips below 97% in any 24 hour period.',
-  },
-  {
-    id: 'response',
-    title: 'Median support response',
-    value: '7m',
-    trend: 'SLA met 100% of sessions',
-    series: [15, 12, 11, 9, 8, 7.5, 7],
-    footnote: 'Measured across live chat escalations in the last 12 hours.',
-  },
-  {
-    id: 'audit',
-    title: 'Critical alerts acknowledged',
-    value: '12 / 12',
-    trend: '0 pending acknowledgements',
-    series: [8, 9, 11, 10, 12, 12, 12],
-    footnote: 'Audit log confirmations within the last four maintenance windows.',
-  },
-] as const
 
 const AdminDashboard = ({ user, summary }: AdminDashboardProps): JSX.Element => {
   return (
@@ -122,34 +105,38 @@ const AdminDashboard = ({ user, summary }: AdminDashboardProps): JSX.Element => 
             </div>
           </header>
           <div className="admin-monitoring__grid">
-            {monitoringPanels.map((panel) => {
-              const { line, area } = createSparklinePath(panel.series)
-              const gradientId = `spark-${panel.id}`
-              return (
-                <article key={panel.id} className="admin-monitoring__card">
-                  <div className="admin-monitoring__header">
-                    <div>
-                      <h3>{panel.title}</h3>
-                      <p className="admin-monitoring__trend">{panel.trend}</p>
+            {summary?.monitoringPanels && summary.monitoringPanels.length > 0 ? (
+              summary.monitoringPanels.map((panel) => {
+                const { line, area } = createSparklinePath(panel.series)
+                const gradientId = `spark-${panel.id}`
+                return (
+                  <article key={panel.id} className="admin-monitoring__card">
+                    <div className="admin-monitoring__header">
+                      <div>
+                        <h3>{panel.title}</h3>
+                        <p className="admin-monitoring__trend">{panel.trend}</p>
+                      </div>
+                      <p className="admin-monitoring__value">{panel.value}</p>
                     </div>
-                    <p className="admin-monitoring__value">{panel.value}</p>
-                  </div>
-                  <div className="admin-monitoring__chart" role="img" aria-label={`${panel.title} trend graph`}>
-                    <svg viewBox="0 0 100 100" preserveAspectRatio="none">
-                      <defs>
-                        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="rgba(96, 165, 250, 0.75)" />
-                          <stop offset="100%" stopColor="rgba(96, 165, 250, 0)" />
-                        </linearGradient>
-                      </defs>
-                      <path d={area} fill={`url(#${gradientId})`} opacity={0.6} />
-                      <path d={line} fill="none" stroke="rgba(96, 165, 250, 0.95)" strokeWidth={2.5} strokeLinecap="round" />
-                    </svg>
-                  </div>
-                  <p className="admin-monitoring__footnote">{panel.footnote}</p>
-                </article>
-              )
-            })}
+                    <div className="admin-monitoring__chart" role="img" aria-label={`${panel.title} trend graph`}>
+                      <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+                        <defs>
+                          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="rgba(96, 165, 250, 0.75)" />
+                            <stop offset="100%" stopColor="rgba(96, 165, 250, 0)" />
+                          </linearGradient>
+                        </defs>
+                        <path d={area} fill={`url(#${gradientId})`} opacity={0.6} />
+                        <path d={line} fill="none" stroke="rgba(96, 165, 250, 0.95)" strokeWidth={2.5} strokeLinecap="round" />
+                      </svg>
+                    </div>
+                    <p className="admin-monitoring__footnote">{panel.footnote}</p>
+                  </article>
+                )
+              })
+            ) : (
+              <p className="admin-empty">Monitoring signals will appear once activity has been recorded.</p>
+            )}
           </div>
         </section>
         {summary?.lastAuditEvent ? (

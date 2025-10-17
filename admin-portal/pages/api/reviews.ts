@@ -4,6 +4,7 @@ import { recordAuditEvent } from '../../../frontend/lib/audit'
 import db from '../../../frontend/lib/db'
 import { notifyAdminChange } from '../../../frontend/lib/notifications'
 import { requireRole } from '../../../frontend/lib/session'
+import { logServerError, serializeError } from '../../../frontend/lib/serverLogger'
 
 type ReviewRecord = {
   id: number
@@ -112,7 +113,12 @@ const handler = async (req: NextApiRequest, res: NextApiResponse) => {
       res.status(404).json({ error: 'missing_conveyancer' })
       return
     }
-    console.error('Admin reviews handler failed', error)
+    logServerError('Admin reviews handler failed', {
+      error: serializeError(error),
+      endpoint: '/api/reviews',
+      method: req.method,
+      query: req.query,
+    })
     res.status(500).json({ error: 'internal_error' })
   }
 }

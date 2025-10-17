@@ -17,7 +17,24 @@ export type SessionUser = {
   fullName: string
 }
 
-const COOKIE_NAME = 'session_token'
+const detectAppScope = (): 'admin' | 'public' => {
+  const explicit = process.env.SESSION_APP_SCOPE?.trim().toLowerCase()
+  if (explicit === 'admin' || explicit === 'public') {
+    return explicit
+  }
+  const normalizedCwd = process.cwd().replace(/\\/g, '/').toLowerCase()
+  if (normalizedCwd.includes('/admin-portal')) {
+    return 'admin'
+  }
+  return 'public'
+}
+
+const APP_SCOPE = detectAppScope()
+
+const COOKIE_NAME =
+  process.env.SESSION_COOKIE_NAME?.trim() ||
+  (APP_SCOPE === 'admin' ? 'admin_session_token' : 'session_token')
+
 const MAX_AGE_SECONDS = 60 * 60 * 12
 
 let inMemorySecret: string | null = null

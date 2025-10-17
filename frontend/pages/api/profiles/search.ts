@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 
 import db from '../../../lib/db'
+import { logServerError, serializeError } from '../../../lib/serverLogger'
 
 type SearchRow = {
   id: number
@@ -99,10 +100,11 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
     })
     res.status(200).json(results)
   } catch (error) {
-    console.error('Search profiles query failed', {
+    logServerError('Search profiles query failed', {
       query,
       state: stateFilter,
-      error,
+      endpoint: '/api/profiles/search',
+      error: serializeError(error),
     })
     res.status(500).json({ error: 'search_failed' })
   }
