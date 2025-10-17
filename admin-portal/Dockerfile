@@ -16,6 +16,7 @@ WORKDIR /workspace/admin-portal
 COPY --from=deps /workspace/admin-portal/node_modules ./node_modules
 COPY admin-portal ./
 COPY frontend ./../frontend
+COPY tooling ./../tooling
 RUN npm run build
 
 FROM node:20-alpine AS runner
@@ -30,6 +31,7 @@ COPY --from=builder /workspace/admin-portal/package.json ./package.json
 COPY --from=builder /workspace/admin-portal/next.config.js ./next.config.js
 COPY --from=builder /workspace/admin-portal/tsconfig.json ./tsconfig.json
 COPY --from=builder /workspace/frontend ./../frontend
+COPY --from=builder /workspace/tooling ./../tooling
 RUN mkdir -p ../frontend/data
 EXPOSE 4300
 CMD ["npm", "run", "start"]

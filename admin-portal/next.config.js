@@ -1,3 +1,7 @@
+const { loadEnv } = require('../tooling/load-env')
+
+loadEnv({ startDir: __dirname })
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
