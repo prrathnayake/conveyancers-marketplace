@@ -200,15 +200,114 @@ struct Message {
   std::string sent_at;
 };
 
+struct DocumentVersion {
+  int version = 1;
+  std::string uploaded_at;
+  std::string uploaded_by;
+  std::string content_type;
+  std::string storage_path;
+  std::string checksum;
+  bool encrypted = true;
+  bool scanned = false;
+  std::string signed_off_at;
+};
+
 struct Document {
   std::string id;
   std::string name;
   std::string status;
   std::string signed_url;
   bool requires_signature;
-  bool scanned = false;
   bool is_signed = false;
+  std::string encryption_key_id;
+  std::string storage_bucket;
+  std::vector<std::string> access_roles;
+  std::vector<DocumentVersion> versions;
 };
+
+std::string ComposeDocumentStoragePath(const std::string &bucket, const std::string &document_id,
+                                       int version) {
+  return bucket + "/" + document_id + "/v" + std::to_string(version);
+}
+
+std::string ComposeDocumentSignedUrl(const std::string &job_id, const std::string &document_id,
+                                     int version) {
+  std::ostringstream oss;
+  oss << "https://files.example.com/" << job_id << '/' << document_id << "/v" << version
+      << "?token="
+      << security::DeriveScopedToken("doc_url", job_id + ':' + document_id + ":v" + std::to_string(version));
+  return oss.str();
+}
+
+std::string GenerateDocumentChecksum(const std::string &job_id, const std::string &document_id,
+                                     int version) {
+  return security::DeriveScopedToken("doc_checksum",
+                                     job_id + ':' + document_id + ":v" + std::to_string(version));
+}
+
+std::vector<std::string> NormaliseAccessRoles(std::vector<std::string> roles) {
+  if (roles.empty()) {
+    roles = {"buyer", "seller", "conveyancer"};
+  }
+  if (std::find(roles.begin(), roles.end(), "admin") == roles.end()) {
+    roles.push_back("admin");
+  }
+  std::sort(roles.begin(), roles.end());
+  roles.erase(std::unique(roles.begin(), roles.end()), roles.end());
+  return roles;
+}
+
+bool DocumentAllowsRole(const Document &document, std::string_view role) {
+  if (role == "admin") {
+    return true;
+  }
+  if (document.access_roles.empty()) {
+    return true;
+  }
+  return std::find(document.access_roles.begin(), document.access_roles.end(), role) !=
+         document.access_roles.end();
+}
+
+Document BuildSeedDocument(const std::string &job_id, const std::string &document_id,
+                           const std::string &name, const std::string &content_type,
+                           bool requires_signature, bool is_signed,
+                           const std::string &uploaded_by, const std::string &uploaded_at,
+                           const std::vector<std::string> &roles,
+                           const std::string &status_override = std::string{}) {
+  Document document;
+  document.id = document_id;
+  document.name = name;
+  document.requires_signature = requires_signature;
+  document.is_signed = is_signed;
+  document.storage_bucket = "jobs-" + job_id;
+  document.encryption_key_id = security::DeriveScopedToken("doc_key", job_id + ':' + document_id);
+  document.access_roles = NormaliseAccessRoles(roles);
+
+  DocumentVersion version;
+  version.version = 1;
+  version.uploaded_at = uploaded_at;
+  version.uploaded_by = uploaded_by;
+  version.content_type = content_type;
+  version.encrypted = true;
+  version.scanned = true;
+  version.storage_path = ComposeDocumentStoragePath(document.storage_bucket, document.id, version.version);
+  version.checksum = GenerateDocumentChecksum(job_id, document.id, version.version);
+  if (is_signed) {
+    version.signed_off_at = uploaded_at;
+  }
+  document.versions.push_back(version);
+
+  if (!status_override.empty()) {
+    document.status = status_override;
+  } else if (requires_signature) {
+    document.status = is_signed ? "signed" : "awaiting_signature";
+  } else {
+    document.status = is_signed ? "signed" : "available";
+  }
+
+  document.signed_url = ComposeDocumentSignedUrl(job_id, document.id, version.version);
+  return document;
+}
 
 struct Dispute {
   std::string id;
@@ -474,7 +573,10 @@ class JobStore {
   }
 
   std::optional<Document> AddDocument(const std::string &job_id, const std::string &name,
-                                      bool requires_signature, const std::string &content_type) {
+                                      bool requires_signature, const std::string &content_type,
+                                      const std::string &uploaded_by,
+                                      const std::vector<std::string> &access_roles,
+                                      const std::string &checksum, bool encrypted) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = jobs_.find(job_id);
     if (it == jobs_.end()) {
@@ -483,14 +585,31 @@ class JobStore {
     Document document;
     document.id = GenerateId("doc_");
     document.name = name;
-    document.status = "processing";
     document.requires_signature = requires_signature;
-    document.signed_url = "https://files.example.com/" + job_id + "/" + document.id + "?ct=" + content_type;
-    document.scanned = true;
     document.is_signed = false;
+    document.storage_bucket = "jobs-" + job_id;
+    document.encryption_key_id = security::DeriveScopedToken("doc_key", job_id + ':' + document.id);
+    document.access_roles = NormaliseAccessRoles(access_roles);
+
+    DocumentVersion version;
+    version.version = 1;
+    version.uploaded_at = NowIso8601();
+    version.uploaded_by = uploaded_by;
+    version.content_type = content_type;
+    version.encrypted = encrypted;
+    version.scanned = true;
+    version.storage_path = ComposeDocumentStoragePath(document.storage_bucket, document.id, version.version);
+    version.checksum = checksum.empty()
+                            ? GenerateDocumentChecksum(job_id, document.id, version.version)
+                            : checksum;
+
+    document.versions.push_back(version);
+    document.status = requires_signature ? "awaiting_signature" : "available";
+    document.signed_url = ComposeDocumentSignedUrl(job_id, document.id, version.version);
+
     it->second.documents.push_back(document);
-    it->second.last_activity_at = NowIso8601();
-    return document;
+    it->second.last_activity_at = version.uploaded_at;
+    return it->second.documents.back();
   }
 
   bool MarkDocumentSigned(const std::string &job_id, const std::string &document_id,
@@ -505,12 +624,63 @@ class JobStore {
         if (document.requires_signature) {
           document.is_signed = signed_flag;
           document.status = signed_flag ? "signed" : "awaiting_signature";
+          if (!document.versions.empty()) {
+            document.versions.back().signed_off_at = signed_flag ? NowIso8601() : std::string{};
+          }
         }
         it->second.last_activity_at = NowIso8601();
         return true;
       }
     }
     return false;
+  }
+
+  std::optional<Document> AppendDocumentVersion(const std::string &job_id, const std::string &document_id,
+                                                const std::string &uploaded_by,
+                                                const std::string &content_type,
+                                                const std::string &checksum, bool encrypted) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = jobs_.find(job_id);
+    if (it == jobs_.end()) {
+      return std::nullopt;
+    }
+    for (auto &document : it->second.documents) {
+      if (document.id == document_id) {
+        DocumentVersion version;
+        version.version = document.versions.empty() ? 1 : document.versions.back().version + 1;
+        version.uploaded_at = NowIso8601();
+        version.uploaded_by = uploaded_by;
+        version.content_type = content_type;
+        version.encrypted = encrypted;
+        version.scanned = true;
+        version.storage_path =
+            ComposeDocumentStoragePath(document.storage_bucket, document.id, version.version);
+        version.checksum = checksum.empty()
+                                ? GenerateDocumentChecksum(job_id, document.id, version.version)
+                                : checksum;
+        document.versions.push_back(version);
+        document.is_signed = false;
+        document.status = document.requires_signature ? "awaiting_signature" : "available";
+        document.signed_url = ComposeDocumentSignedUrl(job_id, document.id, version.version);
+        it->second.last_activity_at = version.uploaded_at;
+        return document;
+      }
+    }
+    return std::nullopt;
+  }
+
+  std::optional<Document> GetDocument(const std::string &job_id, const std::string &document_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = jobs_.find(job_id);
+    if (it == jobs_.end()) {
+      return std::nullopt;
+    }
+    for (const auto &document : it->second.documents) {
+      if (document.id == document_id) {
+        return document;
+      }
+    }
+    return std::nullopt;
   }
 
   std::optional<Dispute> CreateDispute(const std::string &job_id, const std::string &type,
@@ -790,20 +960,13 @@ class JobStore {
                       "2024-02-18T08:42:00+11:00"},
                      {"msg_2", "Sydney Settlements", "Searches lodged with LPI.",
                       "2024-02-20T14:10:00+11:00"}};
-    job1.documents = {{"doc_1",
-                       "Contract of sale",
-                       "available",
-                       "https://files.example.com/job_2001/contract.pdf",
-                       false,
-                       true,
-                       true},
-                      {"doc_2",
-                       "Identification verification",
-                       "awaiting_signature",
-                       "https://files.example.com/job_2001/vois.pdf",
-                       true,
-                       true,
-                       false}};
+    job1.documents = {
+        BuildSeedDocument(job1.id, "doc_1", "Contract of sale", "application/pdf", false, true,
+                          job1.conveyancer_id, "2024-02-05T00:00:00Z",
+                          {"buyer", "seller", "conveyancer"}),
+        BuildSeedDocument(job1.id, "doc_2", "Identification verification", "application/pdf", true,
+                          false, job1.conveyancer_id, "2024-02-12T00:00:00Z",
+                          {"buyer", "seller", "conveyancer"})};
     job1.compliance_notes = "KYC complete for both parties";
     job1.contact_policy = GenerateContactPolicy(job1.id, job1.conveyancer_id,
                                                 "emily.carter@propertymail.example", "+61400987654",
@@ -835,13 +998,9 @@ class JobStore {
     job2.buyer_name = "Oliver Bennett";
     job2.seller_name = "Southbank Developments";
     job2.opened_at = "2024-01-10T01:00:00Z";
-    job2.documents = {{"doc_1",
-                       "Disclosure statement",
-                       "in_review",
-                       "https://files.example.com/job_2002/disclosure.pdf",
-                       false,
-                       true,
-                       false}};
+    job2.documents = {BuildSeedDocument(job2.id, "doc_1", "Disclosure statement", "application/pdf",
+                                        false, false, job2.conveyancer_id, "2024-01-10T00:00:00Z",
+                                        {"buyer", "seller", "conveyancer"}, "in_review")};
     job2.contact_policy = GenerateContactPolicy(job2.id, job2.conveyancer_id,
                                                 "oliver.bennett@buyers.example", "+61415555510",
                                                 "developer@vendor.example", "+61295550123");
@@ -917,14 +1076,50 @@ json MessageToJson(const Message &message) {
               {"sent_at", message.sent_at}};
 }
 
-json DocumentToJson(const Document &document) {
-  return json{{"id", document.id},
-              {"name", document.name},
-              {"status", document.status},
-              {"signed_url", document.signed_url},
-              {"requires_signature", document.requires_signature},
-              {"scanned", document.scanned},
-              {"signed", document.is_signed}};
+json DocumentVersionToJson(const DocumentVersion &version) {
+  json payload{{"version", version.version},
+               {"uploaded_at", version.uploaded_at},
+               {"uploaded_by", version.uploaded_by},
+               {"content_type", version.content_type},
+               {"storage_path", version.storage_path},
+               {"checksum", version.checksum},
+               {"encrypted", version.encrypted},
+               {"scanned", version.scanned}};
+  if (!version.signed_off_at.empty()) {
+    payload["signed_off_at"] = version.signed_off_at;
+  }
+  return payload;
+}
+
+json DocumentToJson(const Document &document, bool include_signed_url) {
+  const int current_version = document.versions.empty() ? 0 : document.versions.back().version;
+  const bool encrypted =
+      document.versions.empty() ? false : document.versions.back().encrypted;
+  const std::string latest_checksum =
+      document.versions.empty() ? std::string{} : document.versions.back().checksum;
+
+  json payload{{"id", document.id},
+               {"name", document.name},
+               {"status", document.status},
+               {"requires_signature", document.requires_signature},
+               {"signed", document.is_signed},
+               {"current_version", current_version},
+               {"encrypted", encrypted},
+               {"latest_checksum", latest_checksum},
+               {"access_roles", document.access_roles},
+               {"encryption", json{{"bucket", document.storage_bucket},
+                                     {"key_id", document.encryption_key_id}}}};
+
+  payload["versions"] = json::array();
+  for (const auto &version : document.versions) {
+    payload["versions"].push_back(DocumentVersionToJson(version));
+  }
+
+  if (include_signed_url && !document.signed_url.empty()) {
+    payload["signed_url"] = document.signed_url;
+  }
+
+  return payload;
 }
 
 json DisputeToJson(const Dispute &dispute) {
@@ -1027,7 +1222,8 @@ json JobSummaryToJson(const Job &job) {
   return summary;
 }
 
-json JobDetailToJson(const Job &job, bool reveal_contact, bool include_internal) {
+json JobDetailToJson(const Job &job, bool reveal_contact, bool include_internal,
+                     std::string_view actor_role) {
   json payload = JobSummaryToJson(job);
   payload["milestones"] = json::array();
   for (const auto &milestone : job.milestones) {
@@ -1039,7 +1235,10 @@ json JobDetailToJson(const Job &job, bool reveal_contact, bool include_internal)
   }
   payload["documents"] = json::array();
   for (const auto &document : job.documents) {
-    payload["documents"].push_back(DocumentToJson(document));
+    if (!DocumentAllowsRole(document, actor_role)) {
+      continue;
+    }
+    payload["documents"].push_back(DocumentToJson(document, true));
   }
   payload["disputes"] = json::array();
   for (const auto &dispute : job.disputes) {
@@ -1157,7 +1356,8 @@ int main() {
     const bool include_internal = role == "admin" || role == "finance_admin";
     const bool reveal_contact = include_internal || job->contact_policy.unlocked;
     res.status = 201;
-    res.set_content(JobDetailToJson(*job, reveal_contact, include_internal).dump(), "application/json");
+    res.set_content(JobDetailToJson(*job, reveal_contact, include_internal, role).dump(),
+                    "application/json");
   });
 
   server.Get(R"(/jobs/([\w_-]+))", [](const httplib::Request &req, httplib::Response &res) {
@@ -1173,7 +1373,8 @@ int main() {
       const auto role = req.get_header_value("X-Actor-Role");
       const bool include_internal = role == "admin" || role == "finance_admin";
       const bool reveal_contact = include_internal || job->contact_policy.unlocked;
-      res.set_content(JobDetailToJson(*job, reveal_contact, include_internal).dump(), "application/json");
+      res.set_content(JobDetailToJson(*job, reveal_contact, include_internal, role).dump(),
+                      "application/json");
       return;
     }
     res.status = 404;
@@ -1314,9 +1515,13 @@ int main() {
     }
     const auto job_id = req.matches[1].str();
     if (auto job = Store().Get(job_id)) {
+      const auto role = req.get_header_value("X-Actor-Role");
       json response = json::array();
       for (const auto &document : job->documents) {
-        response.push_back(DocumentToJson(document));
+        if (!DocumentAllowsRole(document, role)) {
+          continue;
+        }
+        response.push_back(DocumentToJson(document, true));
       }
       res.set_content(response.dump(), "application/json");
       return;
@@ -1337,14 +1542,27 @@ int main() {
     if (res.status == 400 && !res.body.empty()) {
       return;
     }
-    if (!RequireFields(payload, res, {"name", "requires_signature", "content_type"})) {
+    if (!RequireFields(payload, res,
+                       {"name", "requires_signature", "content_type", "uploaded_by"})) {
       return;
     }
+    std::vector<std::string> access_roles;
+    if (payload.contains("access_roles") && payload["access_roles"].is_array()) {
+      for (const auto &entry : payload["access_roles"]) {
+        if (entry.is_string()) {
+          access_roles.push_back(entry.get<std::string>());
+        }
+      }
+    }
+    const auto checksum = payload.value("checksum", std::string{});
+    const bool encrypted = payload.value("encrypted", true);
     if (auto document = Store().AddDocument(job_id, payload["name"].get<std::string>(),
                                             payload["requires_signature"].get<bool>(),
-                                            payload["content_type"].get<std::string>())) {
+                                            payload["content_type"].get<std::string>(),
+                                            payload["uploaded_by"].get<std::string>(), access_roles,
+                                            checksum, encrypted)) {
       res.status = 201;
-      res.set_content(DocumentToJson(*document).dump(), "application/json");
+      res.set_content(DocumentToJson(*document, true).dump(), "application/json");
       return;
     }
     res.status = 404;
@@ -1369,6 +1587,50 @@ int main() {
                 const auto signed_flag = payload.value("signed", true);
                 if (Store().MarkDocumentSigned(job_id, document_id, signed_flag)) {
                   res.set_content(R"({"ok":true})", "application/json");
+                  return;
+                }
+                res.status = 404;
+                res.set_content(R"({"error":"document_not_found"})", "application/json");
+              });
+
+  server.Post(R"(/jobs/([\w_-]+)/documents/([\w_-]+)/versions)",
+              [](const httplib::Request &req, httplib::Response &res) {
+                if (!security::Authorize(req, res, "jobs")) {
+                  return;
+                }
+                if (!security::RequireRole(req, res, {"conveyancer", "admin"}, "jobs",
+                                             "document_new_version")) {
+                  return;
+                }
+                const auto job_id = req.matches[1].str();
+                const auto document_id = req.matches[2].str();
+                const auto role = req.get_header_value("X-Actor-Role");
+                if (auto existing = Store().GetDocument(job_id, document_id)) {
+                  if (!DocumentAllowsRole(*existing, role)) {
+                    res.status = 403;
+                    res.set_content(R"({"error":"forbidden"})", "application/json");
+                    return;
+                  }
+                } else {
+                  res.status = 404;
+                  res.set_content(R"({"error":"document_not_found"})", "application/json");
+                  return;
+                }
+
+                auto payload = ParseJson(req, res);
+                if (res.status == 400 && !res.body.empty()) {
+                  return;
+                }
+                if (!RequireFields(payload, res, {"uploaded_by", "content_type"})) {
+                  return;
+                }
+                const auto checksum = payload.value("checksum", std::string{});
+                const bool encrypted = payload.value("encrypted", true);
+                if (auto updated = Store().AppendDocumentVersion(job_id, document_id,
+                                                                 payload["uploaded_by"].get<std::string>(),
+                                                                 payload["content_type"].get<std::string>(), checksum,
+                                                                 encrypted)) {
+                  res.set_content(DocumentToJson(*updated, true).dump(), "application/json");
                   return;
                 }
                 res.status = 404;
@@ -1699,7 +1961,8 @@ int main() {
       const auto role = req.get_header_value("X-Actor-Role");
       const bool include_internal = role == "admin";
       const bool reveal_contact = include_internal || job->contact_policy.unlocked;
-      res.set_content(JobDetailToJson(*job, reveal_contact, include_internal).dump(), "application/json");
+      res.set_content(JobDetailToJson(*job, reveal_contact, include_internal, role).dump(),
+                      "application/json");
       return;
     }
     res.status = 404;

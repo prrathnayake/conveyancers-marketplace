@@ -410,7 +410,7 @@ class InvoiceLedger {
     int tax = 0;
     for (const auto &line : invoice.lines) {
       subtotal += line.amount_cents;
-      tax += static_cast<int>(line.amount_cents * line.tax_rate);
+      tax += static_cast<int>(std::llround(line.amount_cents * line.tax_rate));
     }
     invoice.subtotal_cents = subtotal;
     invoice.tax_cents = tax;
