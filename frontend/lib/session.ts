@@ -29,12 +29,6 @@ const jwtSecret = (): string => {
   }
 
   if (process.env.NODE_ENV !== 'production') {
-    const fallback = process.env.PROFILE_FALLBACK_SECRET
-    if (fallback && fallback.length > 0) {
-      console.warn('JWT_SECRET is not set. Falling back to PROFILE_FALLBACK_SECRET for development use only.')
-      return fallback
-    }
-
     if (!inMemorySecret) {
       inMemorySecret = crypto.randomBytes(32).toString('hex')
       console.warn('JWT_SECRET is not set. Generated ephemeral secret for development use only.')

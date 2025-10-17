@@ -30,73 +30,7 @@ const deserializeFeatures = (payload: string): string[] => {
   return []
 }
 
-const seedCatalogue = () => {
-  const count = db.prepare('SELECT COUNT(1) as count FROM service_catalogue').get() as { count: number }
-  if (count.count > 0) {
-    return
-  }
-  const defaults: CatalogueEntry[] = [
-    {
-      slug: 'residential-settlements',
-      title: 'Residential settlements',
-      summary: 'Streamlined conveyancing for first home buyers and seasoned investors.',
-      audience: 'Buyers & sellers',
-      previewMarkdown: 'Coordinate disbursements, settlement statements and compliance in a single workspace.',
-      features: [
-        'Digital contract reviews with tracked amendments',
-        'Identity verification with secure document vault',
-        'Milestone alerts synchronised with finance approvals',
-      ],
-    },
-    {
-      slug: 'commercial-transfers',
-      title: 'Commercial transfers',
-      summary: 'Specialist support for lease assignments, company restructures and trust acquisitions.',
-      audience: 'Developers & SMEs',
-      previewMarkdown: 'Layered approvals and complex stakeholder communication without the email chaos.',
-      features: [
-        'Multi-party task boards with delegated responsibilities',
-        'Automated escrow drawdowns tied to milestone evidence',
-        'Dispute resolution workflows with evidence collection',
-      ],
-    },
-    {
-      slug: 'off-the-plan',
-      title: 'Off-the-plan projects',
-      summary: 'Monitor presales, cooling-off windows and settlement capacity in real time.',
-      audience: 'Developers & project marketers',
-      previewMarkdown: 'Surface stuck lots, finance fall-throughs and compliance exposures before they bite.',
-      features: [
-        'API feeds for developer CRMs and trust accounting packages',
-        'Bulk document execution with eSignature status dashboards',
-        'KPI analytics for conversions, clawbacks and outstanding deposits',
-      ],
-    },
-  ]
-
-  const insert = db.prepare(
-    `INSERT INTO service_catalogue (slug, title, summary, audience, preview_markdown, features, updated_at)
-     VALUES (@slug, @title, @summary, @audience, @preview_markdown, @features, CURRENT_TIMESTAMP)`
-  )
-
-  const tx = db.transaction((entries: CatalogueEntry[]) => {
-    for (const entry of entries) {
-      insert.run({
-        slug: entry.slug,
-        title: entry.title,
-        summary: entry.summary,
-        audience: entry.audience,
-        preview_markdown: entry.previewMarkdown,
-        features: JSON.stringify(entry.features),
-      })
-    }
-  })
-
-  tx(defaults)
-}
-
 const listCatalogue = (): CatalogueEntry[] => {
-  seedCatalogue()
   const rows = db
     .prepare(
       `SELECT slug, title, summary, audience, preview_markdown, features
