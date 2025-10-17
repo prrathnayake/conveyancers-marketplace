@@ -106,25 +106,22 @@ Before you begin, make sure your local environment has the following tools insta
 The quickest way to experience the stack locally is via Docker Compose.
 
 ```bash
-# 1. Configure shared infrastructure environment variables
-cp infra/env/.env.example infra/env/.env
+# 1. Create the shared environment file used by every component
+cp .env.example .env
 
 # 2. Generate self-signed TLS certificates for the local nginx proxy
 bash infra/tls/dev_certs.sh
 
 # 3. Build and start the full stack (frontend, backend, and infra)
-docker compose -f infra/docker-compose.yml up -d --build
+docker compose --env-file .env -f infra/docker-compose.yml up -d --build
 
-# 4. (Optional) Prepare the frontend environment file for local overrides
-cp frontend/.env.example frontend/.env.local
-
-# 5. (Optional) Install dependencies if you plan to run the Next.js dev server locally
+# 4. (Optional) Install dependencies if you plan to run the Next.js dev server locally
 (cd frontend && npm install)
 
-# 6. Seed sample data using the admin UI (optional but recommended)
+# 5. Seed sample data using the admin UI (optional but recommended)
 # Start the admin portal locally (see the Admin portal workflow below) to access the seeding shortcuts and dashboards
 
-# 7. Access the stack
+# 6. Access the stack
 # Frontend: https://localhost
 # Admin portal: http://localhost:5300
 # Grafana:  https://localhost/grafana (admin / admin)
@@ -144,8 +141,8 @@ docker compose -f infra/docker-compose.yml down --remove-orphans
 
 | File | Purpose |
 |------|---------|
-| `infra/env/.env` | Shared credentials and connection strings for the infrastructure stack (DB, Redis, MinIO, monitoring). |
-| `frontend/.env.local` | Frontend runtime configuration (API base URL, WebSocket URL, third-party tokens). |
+| `.env` | Central configuration for frontend, admin portal, backend services, and Docker Compose. |
+| `.env.local` | Optional developer-specific overrides loaded after the shared `.env`. |
 | `backend/services/*/.env.example` | Service-specific overrides (PSP API keys, KYC provider IDs, DocuSign credentials). |
 
 All example files are safe defaults. Replace placeholders before deploying to a shared environment. Never commit secrets—use your platform’s secret store.

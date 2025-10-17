@@ -73,8 +73,8 @@ services:
     depends_on: [prom, loki]
   frontend:
     build:
-      context: ../frontend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: frontend/Dockerfile
     environment:
       NODE_ENV: production
       NEXT_TELEMETRY_DISABLED: '1'

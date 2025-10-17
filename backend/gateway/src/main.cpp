@@ -3,6 +3,7 @@
 #include <sstream>
 #include <string>
 
+#include "../common/env_loader.h"
 #include "../common/security.h"
 #include "httplib.h"
 
@@ -44,6 +45,7 @@ std::string ForwardQueryString(const httplib::Params &params) {
 }  // namespace
 
 int main() {
+  env::LoadEnvironment();
   httplib::Server svr;
   security::AttachStandardHandlers(svr, "gateway");
   security::ExposeMetrics(svr, "gateway");

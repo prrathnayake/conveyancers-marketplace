@@ -13,6 +13,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "../../common/env_loader.h"
 #include "../../common/security.h"
 #include "../../third_party/httplib.h"
 #include "../../third_party/json.hpp"
@@ -807,6 +808,7 @@ bool RequireFields(const json &payload, httplib::Response &res,
 }  // namespace
 
 int main() {
+  env::LoadEnvironment();
   httplib::Server server;
 
   security::AttachStandardHandlers(server, "identity");
