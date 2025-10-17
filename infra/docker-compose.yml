@@ -83,7 +83,10 @@ services:
       ADMIN_SEED_EMAIL: ${ADMIN_SEED_EMAIL:-admin@example.com}
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:-super-secure-password}
       ADMIN_SEED_PASSWORD_HASH: ${ADMIN_SEED_PASSWORD_HASH:-}
+      PLATFORM_DATA_DIR: /workspace/data
     depends_on: [gateway]
+    volumes:
+      - ../data:/workspace/data
   admin-portal:
     build:
       context: ..
@@ -97,10 +100,11 @@ services:
       ADMIN_SEED_EMAIL: ${ADMIN_SEED_EMAIL:-admin@example.com}
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:-super-secure-password}
       ADMIN_SEED_PASSWORD_HASH: ${ADMIN_SEED_PASSWORD_HASH:-}
+      PLATFORM_DATA_DIR: /workspace/data
     depends_on: [gateway]
     ports: ["4300:4300"]
     volumes:
-      - ../frontend/data:/workspace/frontend/data
+      - ../data:/workspace/data
       - ../logs:/workspace/logs:ro
   gateway:
     build:

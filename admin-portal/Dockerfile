@@ -32,6 +32,6 @@ COPY --from=builder /workspace/admin-portal/next.config.js ./next.config.js
 COPY --from=builder /workspace/admin-portal/tsconfig.json ./tsconfig.json
 COPY --from=builder /workspace/frontend ./../frontend
 COPY --from=builder /workspace/tooling ./../tooling
-RUN mkdir -p ../frontend/data
+RUN mkdir -p ../data
 EXPOSE 4300
 CMD ["npm", "run", "start"]

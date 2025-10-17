@@ -4,23 +4,37 @@ import path from 'path'
 
 const findRepositoryRoot = (): string => {
   const markers = ['frontend', 'admin-portal']
-  let current = process.cwd()
-  const filesystemRoot = path.parse(current).root
+  const candidates = [process.env.PLATFORM_REPOSITORY_ROOT, process.cwd(), __dirname]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => path.resolve(value))
 
-  while (true) {
-    const hasAllMarkers = markers.every((marker) =>
-      fs.existsSync(path.join(current, marker))
-    )
-    if (hasAllMarkers) {
-      return current
+  const visited = new Set<string>()
+
+  for (const start of candidates) {
+    let current = start
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      if (visited.has(current)) {
+        break
+      }
+      visited.add(current)
+
+      const hasAllMarkers = markers.every((marker) =>
+        fs.existsSync(path.join(current, marker))
+      )
+      if (hasAllMarkers) {
+        return current
+      }
+
+      const parent = path.dirname(current)
+      if (parent === current) {
+        break
+      }
+      current = parent
     }
-
-    if (current === filesystemRoot) {
-      return process.cwd()
-    }
-
-    current = path.dirname(current)
   }
+
+  return path.resolve(process.cwd())
 }
 
 const resolveDatabaseLocation = (): { directory: string; file: string } => {
@@ -60,7 +74,7 @@ const resolveDatabaseLocation = (): { directory: string; file: string } => {
     }
   }
 
-  const directory = path.join(repositoryRoot, 'frontend', 'data')
+  const directory = path.join(repositoryRoot, 'data')
   return { directory, file: path.join(directory, 'app.db') }
 }
 
