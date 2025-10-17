@@ -788,6 +788,32 @@ select {
   transition: border-color var(--admin-transition), box-shadow var(--admin-transition);
 }
 
+.password-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-field__input {
+  padding-right: 3.25rem;
+}
+
+.password-field__toggle {
+  position: absolute;
+  right: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border: none;
+  background: none;
+  color: var(--admin-brand-accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.password-field__toggle:hover,
+.password-field__toggle:focus-visible {
+  text-decoration: underline;
+}
+
 .admin-input:focus,
 .admin-textarea:focus,
 .admin-select:focus {

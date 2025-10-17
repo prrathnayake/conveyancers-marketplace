@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs'
 
-import db from './db'
+import db, { ensureSchema } from './db'
 
 let seeded = false
 
@@ -17,6 +17,7 @@ const resolvePasswordHash = (plain: string | undefined, hash: string | undefined
 }
 
 export const ensureAdminSeeded = (): void => {
+  ensureSchema()
   if (seeded) {
     return
   }

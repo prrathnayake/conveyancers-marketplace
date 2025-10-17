@@ -48,6 +48,7 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
     verified: false,
   })
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [status, setStatus] = useState<'idle' | 'saving' | 'loading'>('idle')
   const [error, setError] = useState<string | null>(null)
 
@@ -78,6 +79,7 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
       const { rating, reviewCount, id, ...rest } = selectedRecord
       setFormState(rest)
       setPassword('')
+      setShowPassword(false)
     }
   }, [selectedRecord])
 
@@ -99,6 +101,7 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
       verified: false,
     })
     setPassword('')
+    setShowPassword(false)
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -349,15 +352,27 @@ const AdminConveyancers = ({ user }: AdminConveyancersProps): JSX.Element => {
             {!selectedId ? (
               <label className="admin-form__label">
                 Temporary password
-                <input
-                  className="admin-input"
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Min 12 characters"
-                  minLength={12}
-                  required
-                />
+                <div className="password-field">
+                  <input
+                    className="admin-input password-field__input"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="Min 12 characters"
+                    minLength={12}
+                    required
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    className="password-field__toggle"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    aria-pressed={showPassword}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
               </label>
             ) : null}
             <label className="admin-form__label admin-form__label--span">

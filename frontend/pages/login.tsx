@@ -11,6 +11,7 @@ const LoginPage = (): JSX.Element => {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<'idle' | 'loading'>('idle')
+  const [showPassword, setShowPassword] = useState(false)
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -60,16 +61,27 @@ const LoginPage = (): JSX.Element => {
             <label htmlFor="password" className="field-label">
               Password
             </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="input"
-              required
-              autoComplete="current-password"
-              minLength={8}
-            />
+            <div className="password-field">
+              <input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="input password-field__input"
+                required
+                autoComplete="current-password"
+                minLength={8}
+              />
+              <button
+                type="button"
+                className="password-field__toggle"
+                onClick={() => setShowPassword((prev) => !prev)}
+                aria-pressed={showPassword}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
             <button type="submit" className="cta-primary" disabled={status === 'loading'}>
               {status === 'loading' ? 'Signing in…' : 'Sign in securely'}
             </button>
