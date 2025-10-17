@@ -4,33 +4,29 @@ import type { FC, ReactNode } from 'react'
 import { useEffect, useMemo, useState, useId } from 'react'
 import ThemeToggle from './ThemeToggle'
 import UserMenu from './UserMenu'
+import { useAuth } from '../context/AuthContext'
 
 type PrimaryNavItem = {
   href: string
   label: string
-  description: string
 }
 
 const mainNav: PrimaryNavItem[] = [
   {
     href: '/',
-    label: 'Platform overview',
-    description: 'Digitise every settlement milestone with audit-ready controls',
+    label: 'Platform Overview',
   },
   {
     href: '/search',
     label: 'Marketplace',
-    description: 'Match with verified conveyancers and property law specialists',
   },
   {
-    href: '/conveyancer',
-    label: 'For conveyancers',
-    description: 'Grow your practice with ready-to-brief developer mandates',
+    href: '/contact-us',
+    label: 'Contact us',
   },
   {
-    href: '/chat',
-    label: 'Client workspace',
-    description: 'Collaborate securely with lenders, buyers, and allied professionals',
+    href: '/about-us',
+    label: 'About us',
   },
 ]
 
@@ -40,6 +36,7 @@ type LayoutProps = {
 
 const Layout: FC<LayoutProps> = ({ children }) => {
   const router = useRouter()
+  const { user } = useAuth()
   const activeMain = useMemo(() => {
     const prefixed = mainNav.find((item) => item.href !== '/' && router.pathname.startsWith(item.href))
     if (prefixed) {
@@ -158,7 +155,6 @@ const Layout: FC<LayoutProps> = ({ children }) => {
                         onClick={handleNavLinkClick}
                       >
                         <span className="site-nav__label">{item.label}</span>
-                        <span className="site-nav__description">{item.description}</span>
                       </Link>
                     </li>
                   )
@@ -167,11 +163,14 @@ const Layout: FC<LayoutProps> = ({ children }) => {
             </div>
           </nav>
           <div className="site-header__actions">
-            <Link href="/signup" className="site-nav__cta">
-              Book a demo
-            </Link>
             <ThemeToggle />
-            <UserMenu />
+            {user ? (
+              <UserMenu />
+            ) : (
+              <Link href="/login" className="site-nav__action">
+                Log in
+              </Link>
+            )}
           </div>
         </div>
       </header>
