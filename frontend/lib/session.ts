@@ -15,6 +15,7 @@ export type SessionUser = {
   email: string
   role: JwtSession['role']
   fullName: string
+  status: 'active' | 'suspended' | 'invited'
 }
 
 const detectAppScope = (): 'admin' | 'public' => {
@@ -110,11 +111,12 @@ const mapUser = (row: any): SessionUser | null => {
     email: row.email as string,
     role: row.role as SessionUser['role'],
     fullName: row.full_name as string,
+    status: (row.status as SessionUser['status']) ?? 'active',
   }
 }
 
 export const getUserById = (id: number): SessionUser | null => {
-  const stmt = db.prepare('SELECT id, email, role, full_name FROM users WHERE id = ?')
+  const stmt = db.prepare('SELECT id, email, role, full_name, status FROM users WHERE id = ?')
   return mapUser(stmt.get(id))
 }
 
@@ -149,7 +151,7 @@ export const requireRole = (
   roles: SessionUser['role'][]
 ): SessionUser | null => {
   const user = getSessionFromRequest(req)
-  if (!user || !roles.includes(user.role)) {
+  if (!user || !roles.includes(user.role) || user.status !== 'active') {
     res.status(403).json({ error: 'forbidden' })
     return null
   }
@@ -158,7 +160,7 @@ export const requireRole = (
 
 export const requireAuth = (req: RequestWithCookies, res: ResponseWithJson): SessionUser | null => {
   const user = getSessionFromRequest(req)
-  if (!user) {
+  if (!user || user.status !== 'active') {
     res.status(401).json({ error: 'unauthorized' })
     return null
   }

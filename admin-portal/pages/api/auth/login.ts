@@ -20,10 +20,19 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
     return
   }
 
-  const stmt = db.prepare('SELECT id, password_hash, role FROM users WHERE email = ?')
-  const user = stmt.get(email.trim().toLowerCase()) as { id: number; password_hash: string; role: string } | undefined
+  const stmt = db.prepare(
+    'SELECT id, password_hash, role, status FROM users WHERE email = ?'
+  )
+  const user = stmt.get(email.trim().toLowerCase()) as
+    | { id: number; password_hash: string; role: string; status: string }
+    | undefined
   if (!user) {
     res.status(401).json({ error: 'invalid_credentials' })
+    return
+  }
+
+  if (user.status !== 'active') {
+    res.status(403).json({ error: 'account_inactive' })
     return
   }
 
@@ -34,6 +43,7 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
   }
 
   const cookie = createSessionCookie({ sub: user.id, role: user.role as 'buyer' | 'seller' | 'conveyancer' | 'admin' })
+  db.prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?').run(user.id)
   res.setHeader('Set-Cookie', cookie)
   res.status(200).json({ ok: true })
 }

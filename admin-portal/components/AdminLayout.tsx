@@ -9,6 +9,7 @@ const navItems = [
   { href: '/', label: 'Overview' },
   { href: '/dashboard', label: 'Operations' },
   { href: '/conveyancers', label: 'Conveyancers' },
+  { href: '/users', label: 'Customers' },
   { href: '/reviews', label: 'Reviews' },
   { href: '/enquiries', label: 'Enquiries' },
   { href: '/catalogue', label: 'Service catalogue' },
