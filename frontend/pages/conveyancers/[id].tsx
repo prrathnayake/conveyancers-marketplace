@@ -26,6 +26,20 @@ type ConveyancerProfile = {
   contactPhone: string | null
   hasContactAccess: boolean
   jurisdictionRestricted: boolean
+  jobHistory: Array<{
+    matterType: string
+    completedAt: string
+    location: string
+    summary: string
+    clients: string
+  }>
+  documentBadges: Array<{
+    label: string
+    status: 'valid' | 'expiring' | 'expired'
+    reference: string
+    lastVerified: string
+    expiresAt: string | null
+  }>
 }
 
 type ConveyancerProfilePageProps = {
@@ -36,6 +50,27 @@ type ConveyancerProfilePageProps = {
 const renderStars = (rating: number): string => {
   const rounded = Math.round(rating)
   return '★'.repeat(rounded).padEnd(5, '☆')
+}
+
+const formatDateOnly = (value: string | null | undefined): string => {
+  if (!value) {
+    return '—'
+  }
+  try {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) {
+      return value
+    }
+    return date.toLocaleDateString()
+  } catch {
+    return value
+  }
+}
+
+const formatBadgeStatus = (status: ConveyancerProfile['documentBadges'][number]['status']): string => {
+  if (status === 'valid') return 'Valid'
+  if (status === 'expiring') return 'Expiring soon'
+  return 'Expired'
 }
 
 const ConveyancerProfilePage = ({ profile, viewer }: ConveyancerProfilePageProps): JSX.Element => {
@@ -147,6 +182,58 @@ const ConveyancerProfilePage = ({ profile, viewer }: ConveyancerProfilePageProps
                   </div>
                 </dl>
               </div>
+              <section aria-label="Recent matters" className="profile-history">
+                <h3>Recent matters delivered</h3>
+                {profile.jobHistory.length > 0 ? (
+                  <ul>
+                    {profile.jobHistory.map((item, index) => (
+                      <li key={`${item.matterType}-${item.completedAt}-${index}`} className="profile-history__item">
+                        <header className="profile-history__header">
+                          <h4>{item.matterType}</h4>
+                          <span>
+                            {formatDateOnly(item.completedAt)} · {item.location}
+                          </span>
+                        </header>
+                        <p>{item.summary}</p>
+                        <p className="profile-history__clients">Clients: {item.clients}</p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="profile-card__empty">No matters published yet.</p>
+                )}
+              </section>
+              <section aria-label="Compliance badges" className="profile-badges">
+                <h3>Document badges</h3>
+                {profile.documentBadges.length > 0 ? (
+                  <ul>
+                    {profile.documentBadges.map((badge) => (
+                      <li key={badge.reference} className={`profile-badge profile-badge--${badge.status}`}>
+                        <div>
+                          <h4>{badge.label}</h4>
+                          <p className="profile-badge__reference">Reference: {badge.reference}</p>
+                        </div>
+                        <dl>
+                          <div>
+                            <dt>Status</dt>
+                            <dd>{formatBadgeStatus(badge.status)}</dd>
+                          </div>
+                          <div>
+                            <dt>Last verified</dt>
+                            <dd>{formatDateOnly(badge.lastVerified)}</dd>
+                          </div>
+                          <div>
+                            <dt>Expires</dt>
+                            <dd>{formatDateOnly(badge.expiresAt)}</dd>
+                          </div>
+                        </dl>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="profile-card__empty">No document evidence submitted yet.</p>
+                )}
+              </section>
             </div>
             <aside className="profile-card__sidebar" aria-label="Engagement options">
               <div className="profile-contact">
@@ -217,7 +304,14 @@ const ConveyancerProfilePage = ({ profile, viewer }: ConveyancerProfilePageProps
 }
 
 export const getServerSideProps: GetServerSideProps<ConveyancerProfilePageProps> = async ({ req, res, params }) => {
-  const { parseId, findConveyancerProfile, buildConveyancerProfile, isJurisdictionRestricted } = await import(
+  const {
+    parseId,
+    findConveyancerProfile,
+    buildConveyancerProfile,
+    isJurisdictionRestricted,
+    getConveyancerJobHistory,
+    getConveyancerDocumentBadges,
+  } = await import(
     '../api/profiles/[id]'
   )
   const viewer = getSessionFromRequest(req)
@@ -242,7 +336,9 @@ export const getServerSideProps: GetServerSideProps<ConveyancerProfilePageProps>
     return { notFound: true }
   }
 
-  const profile = buildConveyancerProfile(row, viewer)
+  const history = getConveyancerJobHistory(id)
+  const badges = getConveyancerDocumentBadges(id)
+  const profile = buildConveyancerProfile(row, viewer, history, badges)
   return { props: { profile, viewer } }
 }
 

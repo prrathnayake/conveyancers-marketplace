@@ -41,6 +41,8 @@ struct Review {
 struct ComplianceStatus {
   bool kyc_verified = false;
   std::string kyc_reference;
+  std::string kyc_provider;
+  std::string kyc_checked_at;
   bool licence_verified = false;
   std::string licence_number;
   std::string insurance_provider;
@@ -135,9 +137,102 @@ struct SupportSession {
   std::string reason;
 };
 
+struct KycCheckResult {
+  std::string reference;
+  bool approved = false;
+  std::string provider;
+  std::string checked_at;
+};
+
+std::string FormatIso8601Timestamp(std::chrono::system_clock::time_point point) {
+  const auto time = std::chrono::system_clock::to_time_t(point);
+  std::tm tm;
+#ifdef _WIN32
+  gmtime_s(&tm, &time);
+#else
+  gmtime_r(&time, &tm);
+#endif
+  char buffer[32];
+  std::strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &tm);
+  return buffer;
+}
+
+std::string CurrentIso8601Timestamp() {
+  return FormatIso8601Timestamp(std::chrono::system_clock::now());
+}
+
+class KycProviderSimulator {
+ public:
+  KycCheckResult Verify(const std::string &profile_id, const json &payload) {
+    const auto document_number = payload.value("documentNumber", std::string{});
+    const auto given_name = payload.value("givenName", std::string{});
+    const auto family_name = payload.value("familyName", std::string{});
+    const auto date_of_birth = payload.value("dateOfBirth", std::string{});
+
+    if (document_number.empty() || given_name.empty() || family_name.empty() || date_of_birth.empty()) {
+      throw std::runtime_error("invalid_payload");
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto cache_key = profile_id + ":" + document_number + ":" + date_of_birth;
+    if (auto it = cache_.find(cache_key); it != cache_.end()) {
+      return it->second;
+    }
+
+    const auto risk_score = CalculateRiskScore(document_number, date_of_birth);
+    const bool approved = risk_score < 65;
+    KycCheckResult result;
+    result.approved = approved;
+    result.reference = BuildReference(document_number, date_of_birth);
+    result.provider = "AUSID Verify Sandbox";
+    result.checked_at = CurrentIso8601Timestamp();
+    cache_.emplace(cache_key, result);
+    return result;
+  }
+
+ private:
+  static int CalculateRiskScore(const std::string &document, const std::string &dob) {
+    int score = 0;
+    for (char ch : document) {
+      if (std::isdigit(static_cast<unsigned char>(ch))) {
+        score += (ch - '0');
+      } else if (std::isalpha(static_cast<unsigned char>(ch))) {
+        score += 3;
+      }
+    }
+    for (char ch : dob) {
+      if (std::isdigit(static_cast<unsigned char>(ch))) {
+        score += (ch - '0');
+      }
+    }
+    return score % 100;
+  }
+
+  static std::string BuildReference(const std::string &document, const std::string &dob) {
+    std::string suffix = document;
+    suffix.erase(std::remove_if(suffix.begin(), suffix.end(), [](unsigned char ch) {
+                   return !std::isalnum(ch);
+                 }),
+                 suffix.end());
+    if (suffix.size() > 4) {
+      suffix = suffix.substr(suffix.size() - 4);
+    }
+    std::string year = dob.size() >= 4 ? dob.substr(0, 4) : "0000";
+    return "AUSID-" + year + suffix;
+  }
+
+  std::mutex mutex_;
+  std::unordered_map<std::string, KycCheckResult> cache_;
+};
+
+KycProviderSimulator &SimulatedKycProvider() {
+  static KycProviderSimulator instance;
+  return instance;
+}
+
 class IdentityStore {
  public:
- IdentityStore() {
+  IdentityStore() {
     const auto ninety_days = FormatDateOnly(std::chrono::system_clock::now() + std::chrono::hours(24 * 90));
     const auto one_eighty_days =
         FormatDateOnly(std::chrono::system_clock::now() + std::chrono::hours(24 * 180));
@@ -340,7 +435,8 @@ class IdentityStore {
   }
 
   bool UpdateKycStatus(const std::string &profile_id, const std::string &reference,
-                       bool approved) {
+                       bool approved, const std::string &provider,
+                       const std::string &checked_at) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = profiles_.find(profile_id);
     if (it == profiles_.end()) {
@@ -348,11 +444,16 @@ class IdentityStore {
     }
     it->second.compliance.kyc_verified = approved;
     it->second.compliance.kyc_reference = reference;
+    it->second.compliance.kyc_provider = provider;
+    it->second.compliance.kyc_checked_at = checked_at;
     if (approved) {
       it->second.verified = it->second.compliance.licence_verified;
     }
     RecordAudit(it->second.account_id, "kyc_update", "profile",
-                json{{"profile_id", profile_id}, {"approved", approved}});
+                json{{"profile_id", profile_id},
+                     {"approved", approved},
+                     {"provider", provider},
+                     {"checked_at", checked_at}});
     return true;
   }
 
@@ -482,6 +583,8 @@ class IdentityStore {
                  {"compliance",
                   json{{"kyc_verified", profile.compliance.kyc_verified},
                        {"kyc_reference", profile.compliance.kyc_reference},
+                       {"kyc_provider", profile.compliance.kyc_provider},
+                       {"kyc_checked_at", profile.compliance.kyc_checked_at},
                        {"licence_verified", profile.compliance.licence_verified},
                        {"licence_number", profile.compliance.licence_number},
                        {"insurance_provider", profile.compliance.insurance_provider},
@@ -757,13 +860,16 @@ class IdentityStore {
     }
     it->second.compliance.kyc_verified = approved;
     it->second.compliance.kyc_reference = reference;
+    it->second.compliance.kyc_provider = "Manual override";
+    it->second.compliance.kyc_checked_at = CurrentIso8601Timestamp();
     if (approved) {
       it->second.verified = it->second.compliance.licence_verified;
     }
     RecordAudit(actor_account_id, "support_kyc_override", "profile",
                 json{{"profile_id", profile_id},
                      {"approved", approved},
-                     {"notes", notes}});
+                     {"notes", notes},
+                     {"provider", "Manual override"}});
     return true;
   }
 
@@ -1326,17 +1432,44 @@ int main() {
     if (res.status == 400 && !res.body.empty()) {
       return;
     }
+    if (payload.contains("documentNumber")) {
+      try {
+        const auto result = SimulatedKycProvider().Verify(profile_id, payload);
+        if (!Store().UpdateKycStatus(profile_id, result.reference, result.approved, result.provider,
+                                     result.checked_at)) {
+          res.status = 404;
+          res.set_content(R"({"error":"profile_not_found"})", "application/json");
+          return;
+        }
+        json body{{"ok", result.approved},
+                  {"reference", result.reference},
+                  {"provider", result.provider},
+                  {"checkedAt", result.checked_at}};
+        res.set_content(body.dump(), "application/json");
+        return;
+      } catch (const std::exception &ex) {
+        res.status = 400;
+        res.set_content(json{{"error", ex.what()}}.dump(), "application/json");
+        return;
+      }
+    }
     if (!RequireFields(payload, res, {"reference", "approved"})) {
       return;
     }
     const auto reference = payload["reference"].get<std::string>();
     const auto approved = payload["approved"].get<bool>();
-    if (!Store().UpdateKycStatus(profile_id, reference, approved)) {
+    const auto provider = payload.value("provider", std::string{"Manual update"});
+    const auto checked_at = payload.value("checkedAt", CurrentIso8601Timestamp());
+    if (!Store().UpdateKycStatus(profile_id, reference, approved, provider, checked_at)) {
       res.status = 404;
       res.set_content(R"({"error":"profile_not_found"})", "application/json");
       return;
     }
-    res.set_content(R"({"ok":true})", "application/json");
+    json body{{"ok", approved},
+              {"reference", reference},
+              {"provider", provider},
+              {"checkedAt", checked_at}};
+    res.set_content(body.dump(), "application/json");
   });
 
   server.Post(R"(/profiles/([\w_-]+)/verification)",
