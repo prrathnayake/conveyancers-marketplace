@@ -5,6 +5,7 @@ import db from '../../../lib/db'
 import { requireAuth } from '../../../lib/session'
 import { encryptBuffer, encryptText } from '../../../lib/secure'
 import { ensureParticipant, getOrCreateConversation } from '../../../lib/conversations'
+import { assertFileIsSafe, FileScanError } from '../../../lib/fileScanning'
 
 export const config = {
   api: {
@@ -67,6 +68,17 @@ const handler = async (req: NextApiRequest, res: NextApiResponse): Promise<void>
   }
 
   const data = fs.readFileSync(file.filepath)
+  try {
+    assertFileIsSafe(data, { filename: file.originalFilename ?? null, mimeType: file.mimetype ?? null })
+  } catch (error) {
+    fs.unlink(file.filepath, () => {})
+    if (error instanceof FileScanError) {
+      res.status(400).json({ error: error.code, detail: error.message })
+      return
+    }
+    res.status(400).json({ error: 'scan_failed' })
+    return
+  }
   const messagePayload = encryptText('Secure file shared')
   const insertMessage = db.prepare(
     'INSERT INTO messages (conversation_id, sender_id, iv, auth_tag, ciphertext) VALUES (?, ?, ?, ?, ?)'

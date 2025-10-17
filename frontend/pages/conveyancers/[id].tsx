@@ -25,6 +25,7 @@ type ConveyancerProfile = {
   reviewCount: number
   contactPhone: string | null
   hasContactAccess: boolean
+  jurisdictionRestricted: boolean
 }
 
 type ConveyancerProfilePageProps = {
@@ -113,6 +114,11 @@ const ConveyancerProfilePage = ({ profile, viewer }: ConveyancerProfilePageProps
           </header>
           <section className="profile-card__body">
             <div className="profile-card__primary">
+              {profile.jurisdictionRestricted ? (
+                <p className="profile-card__note" role="note">
+                  This listing is hidden from buyers and sellers until ConveySafe verification is completed.
+                </p>
+              ) : null}
               <h2>About</h2>
               <p>{profile.bio || 'This conveyancer is finalising their compliance bio.'}</p>
               <h3>Specialties</h3>
@@ -211,7 +217,9 @@ const ConveyancerProfilePage = ({ profile, viewer }: ConveyancerProfilePageProps
 }
 
 export const getServerSideProps: GetServerSideProps<ConveyancerProfilePageProps> = async ({ req, res, params }) => {
-  const { parseId, findConveyancerProfile, buildConveyancerProfile } = await import('../api/profiles/[id]')
+  const { parseId, findConveyancerProfile, buildConveyancerProfile, isJurisdictionRestricted } = await import(
+    '../api/profiles/[id]'
+  )
   const viewer = getSessionFromRequest(req)
   const id = parseId(params?.id)
 
@@ -223,6 +231,13 @@ export const getServerSideProps: GetServerSideProps<ConveyancerProfilePageProps>
   const row = findConveyancerProfile(id)
 
   if (!row) {
+    res.statusCode = 404
+    return { notFound: true }
+  }
+
+  const restricted = isJurisdictionRestricted(row)
+  const canBypassRestriction = Boolean(viewer && (viewer.role === 'admin' || viewer.id === row.id))
+  if (restricted && !canBypassRestriction) {
     res.statusCode = 404
     return { notFound: true }
   }

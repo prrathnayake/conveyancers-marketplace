@@ -137,6 +137,18 @@ const applySchema = (): void => {
       FOREIGN KEY(actor_id) REFERENCES users(id) ON DELETE SET NULL
     );
 
+    CREATE TRIGGER IF NOT EXISTS admin_audit_log_prevent_update
+    BEFORE UPDATE ON admin_audit_log
+    BEGIN
+      SELECT RAISE(ABORT, 'admin_audit_log_immutable');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS admin_audit_log_prevent_delete
+    BEFORE DELETE ON admin_audit_log
+    BEGIN
+      SELECT RAISE(ABORT, 'admin_audit_log_immutable');
+    END;
+
     CREATE TABLE IF NOT EXISTS conversations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       participant_a INTEGER NOT NULL,

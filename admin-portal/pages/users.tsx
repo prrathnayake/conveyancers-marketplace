@@ -51,11 +51,22 @@ const emptyForm: UserFormState = {
   password: '',
 }
 
-const roleOptions: Array<{ value: ManagedUser['role']; label: string }> = [
+const roleFormOptions: Array<{ value: ManagedUser['role']; label: string }> = [
   { value: 'buyer', label: 'Buyer' },
   { value: 'seller', label: 'Seller' },
   { value: 'conveyancer', label: 'Conveyancer' },
   { value: 'admin', label: 'Administrator' },
+]
+
+const roleLabelMap = roleFormOptions.reduce<Record<ManagedUser['role'], string>>((acc, option) => {
+  acc[option.value] = option.label
+  return acc
+}, {} as Record<ManagedUser['role'], string>)
+
+const roleFilterOptions: Array<{ value: 'all' | 'customer' | ManagedUser['role']; label: string }> = [
+  { value: 'all', label: 'All roles' },
+  { value: 'customer', label: 'Customers (buyers & sellers)' },
+  ...roleFormOptions,
 ]
 
 const statusOptions: Array<{ value: ManagedUser['status']; label: string }> = [
@@ -86,7 +97,7 @@ const resolveErrorMessage = (code: unknown, fallback: string): string => {
 
 const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
   const [records, setRecords] = useState<ManagedUser[]>([])
-  const [filters, setFilters] = useState<{ role: 'all' | ManagedUser['role']; status: 'all' | ManagedUser['status'] }>(
+  const [filters, setFilters] = useState<{ role: 'all' | 'customer' | ManagedUser['role']; status: 'all' | ManagedUser['status'] }>(
     {
       role: 'all',
       status: 'all',
@@ -316,8 +327,7 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
               value={filters.role}
               onChange={(event) => setFilters((prev) => ({ ...prev, role: event.target.value as typeof prev.role }))}
             >
-              <option value="all">All roles</option>
-              {roleOptions.map((option) => (
+              {roleFilterOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -367,7 +377,7 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
                   <tr key={record.id}>
                     <td>{record.fullName}</td>
                     <td>{record.email}</td>
-                    <td>{record.role}</td>
+                    <td>{roleLabelMap[record.role]}</td>
                     <td>
                       <span className={`admin-pill ${record.status === 'active' ? 'admin-pill--success' : ''}`}>
                         {record.status}
@@ -441,7 +451,7 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
                 }
                 required
               >
-                {roleOptions.map((option) => (
+                {roleFormOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
