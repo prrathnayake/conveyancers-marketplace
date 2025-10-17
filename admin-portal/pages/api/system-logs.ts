@@ -49,7 +49,77 @@ const listServices = async (directory: string): Promise<string[]> => {
   }
 }
 
-const parseLogLine = (line: string): SystemLogEntry => {
+const composePrefixPattern = /^[A-Za-z0-9_.-]+\s+\|\s+/
+
+const stripComposePrefix = (line: string): string => line.replace(composePrefixPattern, '')
+
+const monthMap: Record<string, string> = {
+  Jan: '01',
+  Feb: '02',
+  Mar: '03',
+  Apr: '04',
+  May: '05',
+  Jun: '06',
+  Jul: '07',
+  Aug: '08',
+  Sep: '09',
+  Oct: '10',
+  Nov: '11',
+  Dec: '12',
+}
+
+const toIsoFromNginxTimestamp = (value: string): string | null => {
+  const match =
+    /^(?<day>\d{2})\/(?<month>[A-Za-z]{3})\/(?<year>\d{4}):(?<hour>\d{2}):(?<minute>\d{2}):(?<second>\d{2}) (?<tz>[+-]\d{4})$/.exec(
+      value,
+    )
+  if (!match?.groups) {
+    return null
+  }
+
+  const { day, month, year, hour, minute, second, tz } = match.groups
+  const monthNumber = monthMap[month]
+  if (!monthNumber) {
+    return null
+  }
+
+  const timezone = `${tz.slice(0, 3)}:${tz.slice(3)}`
+  return `${year}-${monthNumber}-${day}T${hour}:${minute}:${second}${timezone}`
+}
+
+const parseNginxAccessLog = (line: string): SystemLogEntry | null => {
+  const cleaned = stripComposePrefix(line)
+  const match =
+    /^(?<remoteAddr>\S+)\s+\S+\s+\S+\s+\[(?<time>[^\]]+)]\s+"(?<request>.*?)"\s+(?<status>\d{3})\s+(?<bytes>\S+)\s+"(?<referrer>.*?)"\s+"(?<userAgent>.*?)"/.exec(
+      cleaned,
+    )
+  if (!match?.groups) {
+    return null
+  }
+
+  const { remoteAddr, time, request, status, bytes, referrer, userAgent } = match.groups
+
+  const isoTimestamp = toIsoFromNginxTimestamp(time) ?? new Date().toISOString()
+
+  const baseEntry: SystemLogEntry = {
+    timestamp: isoTimestamp,
+    category: 'nginx.access',
+    message: `${remoteAddr} → ${status} (${request || '-'})`,
+    context: `bytes=${bytes} referrer=${referrer || '-'} ua=${userAgent || '-'}`,
+  }
+
+  if (request.startsWith('\\x16\\x03')) {
+    return {
+      ...baseEntry,
+      category: 'nginx.tls_handshake',
+      message: `TLS handshake payload received on HTTP listener from ${remoteAddr} (status ${status})`,
+    }
+  }
+
+  return baseEntry
+}
+
+const parseJsonLogLine = (line: string): SystemLogEntry | null => {
   try {
     const parsed = JSON.parse(line) as Partial<SystemLogEntry>
     const timestamp = typeof parsed.timestamp === 'string' && parsed.timestamp.length > 0 ? parsed.timestamp : new Date().toISOString()
@@ -61,11 +131,25 @@ const parseLogLine = (line: string): SystemLogEntry => {
     }
     return entry
   } catch {
-    return {
-      timestamp: new Date().toISOString(),
-      category: 'unparsed',
-      message: line,
-    }
+    return null
+  }
+}
+
+const parseLogLine = (line: string): SystemLogEntry => {
+  const jsonEntry = parseJsonLogLine(line)
+  if (jsonEntry) {
+    return jsonEntry
+  }
+
+  const nginxEntry = parseNginxAccessLog(line)
+  if (nginxEntry) {
+    return nginxEntry
+  }
+
+  return {
+    timestamp: new Date().toISOString(),
+    category: 'unparsed',
+    message: line,
   }
 }
 
