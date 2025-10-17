@@ -30,7 +30,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-convey}
       POSTGRES_USER: ${POSTGRES_USER:-app}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ../backend/sql/1_schema.sql:/docker-entrypoint-initdb.d/1_schema.sql:ro
@@ -44,7 +44,7 @@ services:
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me}
     volumes: [ "miniodata:/data" ]
     ports: ["9000:9000","9001:9001"]
   clamav:
@@ -68,7 +68,7 @@ services:
   grafana:
     image: grafana/grafana:10.4.3
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-change-me}
     ports: ["3000:3000"]
     depends_on: [prom, loki]
   frontend:
@@ -91,7 +91,7 @@ services:
       NODE_ENV: production
       NEXT_TELEMETRY_DISABLED: '1'
       NEXT_PUBLIC_MAIN_APP_URL: ${NEXT_PUBLIC_MAIN_APP_URL:-https://localhost}
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:-change-me}
       LOG_DIRECTORY: /workspace/logs
       ADMIN_SEED_EMAIL: ${ADMIN_SEED_EMAIL:-admin@example.com}
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:-super-secure-password}
@@ -106,14 +106,14 @@ services:
       context: ../backend
       dockerfile: gateway/Dockerfile
     environment:
-      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
+      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-change-me}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minio}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-      JWT_SECRET: ${JWT_SECRET}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-change-me}
+      JWT_SECRET: ${JWT_SECRET:-change-me}
       PSP_PROVIDER: ${PSP_PROVIDER:-sandbox}
-      PSP_SECRET: ${PSP_SECRET}
+      PSP_SECRET: ${PSP_SECRET:-change-me}
     depends_on: [postgres, redis, minio, identity, jobs, payments]
     ports: ["8080:8080"]
   identity:
@@ -121,18 +121,18 @@ services:
       context: ../backend
       dockerfile: services/identity/Dockerfile
     environment:
-      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
-      JWT_SECRET: ${JWT_SECRET}
+      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-change-me}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
+      JWT_SECRET: ${JWT_SECRET:-change-me}
     depends_on: [postgres]
   jobs:
     build:
       context: ../backend
       dockerfile: services/jobs/Dockerfile
     environment:
-      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
+      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-change-me}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minio}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-change-me}
       CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
       CLAMAV_PORT: ${CLAMAV_PORT:-3310}
     depends_on: [postgres, minio, clamav]
@@ -142,9 +142,9 @@ services:
       context: ../backend
       dockerfile: services/payments/Dockerfile
     environment:
-      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
+      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-change-me}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
       PSP_PROVIDER: ${PSP_PROVIDER:-sandbox}
-      PSP_SECRET: ${PSP_SECRET}
+      PSP_SECRET: ${PSP_SECRET:-change-me}
     depends_on: [postgres]
 volumes:
   pgdata: {}

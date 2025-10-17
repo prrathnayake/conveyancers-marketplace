@@ -119,6 +119,7 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d --build
 (cd frontend && npm install)
 
 # 5. Sign in with the seeded administrator account using ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD
+#    (passwords shorter than 12 characters will be accepted for local use but will log a warning)
 
 # 6. Access the stack
 # Frontend: https://localhost

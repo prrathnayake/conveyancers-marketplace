@@ -6,13 +6,23 @@ let seeded = false
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase()
 
+const MIN_PASSWORD_LENGTH = 12
+
 const resolvePasswordHash = (plain: string | undefined, hash: string | undefined): string | null => {
   if (hash && hash.trim()) {
     return hash.trim()
   }
-  if (!plain || plain.length < 12) {
+
+  if (!plain) {
     return null
   }
+
+  if (plain.length < MIN_PASSWORD_LENGTH) {
+    console.warn(
+      `Administrator seed password is shorter than ${MIN_PASSWORD_LENGTH} characters; hashing anyway for local development`
+    )
+  }
+
   return bcrypt.hashSync(plain, 12)
 }
 
