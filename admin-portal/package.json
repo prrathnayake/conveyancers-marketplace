@@ -4,7 +4,8 @@
   "scripts": {
     "dev": "next dev -p 5300",
     "build": "next build",
-    "start": "next start -p 4300"
+    "start": "next start -p 4300",
+    "check:backend": "node scripts/check-backend-coverage.cjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
