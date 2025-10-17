@@ -1,4 +1,6 @@
 import Head from 'next/head'
+import Link from 'next/link'
+import { useRouter } from 'next/router'
 import type { FormEvent } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -51,6 +53,7 @@ const renderStars = (rating: number): string => {
 }
 
 const Search = (): JSX.Element => {
+  const router = useRouter()
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [query, setQuery] = useState('')
   const [stateFilter, setStateFilter] = useState('')
@@ -60,6 +63,8 @@ const Search = (): JSX.Element => {
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [chatLoadingId, setChatLoadingId] = useState<string | null>(null)
+  const [chatError, setChatError] = useState<{ id: string; message: string } | null>(null)
 
   const fetchProfiles = useCallback(async (params?: { q?: string; state?: string }) => {
     setLoading(true)
@@ -153,6 +158,42 @@ const Search = (): JSX.Element => {
     }
     return sorted
   }, [filteredProfiles, sortOption])
+
+  const extractUserId = (compositeId: string): number | null => {
+    const match = compositeId.match(/^(?:conveyancer_)?(\d+)$/)
+    if (!match) {
+      return null
+    }
+    return Number(match[1])
+  }
+
+  const handleStartChat = async (profileId: string) => {
+    const userId = extractUserId(profileId)
+    if (!userId) {
+      return
+    }
+    setChatLoadingId(profileId)
+    setChatError(null)
+    try {
+      const response = await fetch('/api/chat/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partnerId: userId }),
+      })
+      if (response.status === 401) {
+        await router.push(`/login?next=${encodeURIComponent(`/chat?partnerId=${userId}`)}`)
+        return
+      }
+      if (!response.ok) {
+        throw new Error('Unable to open secure chat')
+      }
+      await router.push(`/chat?partnerId=${userId}`)
+    } catch (err) {
+      setChatError({ id: profileId, message: err instanceof Error ? err.message : 'Unexpected error' })
+    } finally {
+      setChatLoadingId(null)
+    }
+  }
 
   return (
     <>
@@ -326,13 +367,23 @@ const Search = (): JSX.Element => {
                   </ul>
                 </div>
                 <div className={styles.cardActions}>
-                  <button type="button" className={styles.ghostPrimary}>
-                    Request introduction
-                  </button>
-                  <button type="button" className={styles.ghostSecondary}>
-                    Save to shortlist
+                  <Link href={`/conveyancers/${profile.id}`} className={styles.ghostPrimary}>
+                    View profile
+                  </Link>
+                  <button
+                    type="button"
+                    className={styles.ghostSecondary}
+                    onClick={() => void handleStartChat(profile.id)}
+                    disabled={chatLoadingId === profile.id}
+                  >
+                    {chatLoadingId === profile.id ? 'Opening chat…' : 'Start secure chat'}
                   </button>
                   {profile.remoteFriendly && <span className={styles.pill}>Works remotely</span>}
+                  {chatError?.id === profile.id ? (
+                    <p className={styles.cardError} role="alert">
+                      {chatError.message}
+                    </p>
+                  ) : null}
                 </div>
               </li>
             ))}
@@ -351,6 +402,7 @@ const Search = (): JSX.Element => {
                   <th scope="col">Specialties</th>
                   <th scope="col">Remote</th>
                   <th scope="col">Status</th>
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -365,6 +417,22 @@ const Search = (): JSX.Element => {
                     <td data-label="Specialties">{profile.specialties.join(', ')}</td>
                     <td data-label="Remote">{profile.remoteFriendly ? 'Yes' : 'No'}</td>
                     <td data-label="Status">{profile.verified ? 'Verified' : 'Pending'}</td>
+                    <td data-label="Actions" className={styles.tableActions}>
+                      <Link href={`/conveyancers/${profile.id}`} className={styles.ghostPrimary}>
+                        Profile
+                      </Link>
+                      <button
+                        type="button"
+                        className={styles.ghostSecondary}
+                        onClick={() => void handleStartChat(profile.id)}
+                        disabled={chatLoadingId === profile.id}
+                      >
+                        {chatLoadingId === profile.id ? 'Opening…' : 'Secure chat'}
+                      </button>
+                      {chatError?.id === profile.id ? (
+                        <span className={styles.inlineError}>{chatError.message}</span>
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>

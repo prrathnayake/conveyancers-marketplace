@@ -117,6 +117,39 @@ const applySchema = (): void => {
       FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS chat_invoices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id INTEGER NOT NULL,
+      creator_id INTEGER NOT NULL,
+      recipient_id INTEGER NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'AUD',
+      description TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sent','accepted','released','cancelled')),
+      service_fee_cents INTEGER DEFAULT 0,
+      escrow_cents INTEGER DEFAULT 0,
+      refunded_cents INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      accepted_at DATETIME,
+      released_at DATETIME,
+      cancelled_at DATETIME,
+      FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY(creator_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_invoice_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoice_id INTEGER NOT NULL,
+      actor_id INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      payload TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(invoice_id) REFERENCES chat_invoices(id) ON DELETE CASCADE,
+      FOREIGN KEY(actor_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS platform_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
@@ -160,6 +193,7 @@ export const ensureSchema = (): void => {
   ensureColumn('service_catalogue', 'audience', "audience TEXT DEFAULT ''")
   ensureColumn('service_catalogue', 'preview_markdown', "preview_markdown TEXT DEFAULT ''")
   ensureColumn('service_catalogue', 'features', "features TEXT DEFAULT '[]'")
+  ensureColumn('chat_invoices', 'refunded_cents', 'refunded_cents INTEGER DEFAULT 0')
   schemaInitialized = true
 }
 

@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import db from '../../../frontend/lib/db'
 import { requireRole } from '../../../frontend/lib/session'
 
-const allowedKeys = new Set(['supportEmail', 'statusBanner'])
+const allowedKeys = new Set(['supportEmail', 'statusBanner', 'serviceFeeRate', 'escrowAccountName'])
 
 const handler = (req: NextApiRequest, res: NextApiResponse): void => {
   const user = requireRole(req, res, ['admin'])

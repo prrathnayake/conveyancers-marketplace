@@ -28,7 +28,7 @@ const LoginPage = (): JSX.Element => {
         throw new Error(payload?.error ?? 'login_failed')
       }
       await refresh()
-      await router.push('/account')
+      await router.push('/chat')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unexpected error')
     } finally {

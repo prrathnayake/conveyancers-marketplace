@@ -12,6 +12,7 @@ const navItems = [
   { href: '/safety', label: 'Safety & ML' },
   { href: '/audit-log', label: 'Audit log' },
   { href: '/system-logs', label: 'System logs' },
+  { href: '/settings', label: 'Platform settings' },
 ]
 
 type AdminLayoutProps = {

@@ -39,6 +39,24 @@ type StoredMessage = {
   created_at: string
 }
 
+type InvoiceRow = {
+  id: number
+  conversation_id: number
+  creator_id: number
+  recipient_id: number
+  amount_cents: number
+  currency: string
+  description: string
+  status: string
+  service_fee_cents: number
+  escrow_cents: number
+  refunded_cents: number
+  created_at: string
+  accepted_at: string | null
+  released_at: string | null
+  cancelled_at: string | null
+}
+
 const PAGE_SIZE_DEFAULT = 20
 const PAGE_SIZE_MAX = 50
 
@@ -57,6 +75,15 @@ const listMessages = (conversationId: number, beforeId?: number | null, limit?: 
   const stmt = db.prepare(sql)
   const rows = stmt.all(...params) as StoredMessage[]
   return rows
+}
+
+const listInvoices = (conversationId: number): InvoiceRow[] => {
+  const stmt = db.prepare(
+    `SELECT id, conversation_id, creator_id, recipient_id, amount_cents, currency, description, status,
+            service_fee_cents, escrow_cents, refunded_cents, created_at, accepted_at, released_at, cancelled_at
+       FROM chat_invoices WHERE conversation_id = ? ORDER BY created_at ASC`
+  )
+  return stmt.all(conversationId) as InvoiceRow[]
 }
 
 const handler = (req: NextApiRequest, res: NextApiResponse): void => {
@@ -122,7 +149,25 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
       hasMore = Boolean(older)
     }
 
-    res.status(200).json({ conversationId: conversation.id, messages, hasMore, nextCursor })
+    const invoices = listInvoices(conversation.id).map((invoice) => ({
+      id: invoice.id,
+      conversationId: invoice.conversation_id,
+      creatorId: invoice.creator_id,
+      recipientId: invoice.recipient_id,
+      amountCents: invoice.amount_cents,
+      currency: invoice.currency,
+      description: invoice.description,
+      status: invoice.status,
+      serviceFeeCents: invoice.service_fee_cents,
+      escrowCents: invoice.escrow_cents,
+      refundedCents: invoice.refunded_cents,
+      createdAt: invoice.created_at,
+      acceptedAt: invoice.accepted_at,
+      releasedAt: invoice.released_at,
+      cancelledAt: invoice.cancelled_at,
+    }))
+
+    res.status(200).json({ conversationId: conversation.id, messages, hasMore, nextCursor, invoices })
     return
   }
 

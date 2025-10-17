@@ -1,6 +1,7 @@
 import Head from 'next/head'
+import { useRouter } from 'next/router'
 import type { GetServerSideProps } from 'next'
-import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionUser } from '../lib/session'
 import { getSessionFromRequest } from '../lib/session'
 
@@ -22,16 +23,38 @@ type Message = {
   attachments: Array<{ id: number; filename: string; mimeType: string }>
 }
 
+type Invoice = {
+  id: number
+  conversationId: number
+  creatorId: number
+  recipientId: number
+  amountCents: number
+  currency: string
+  description: string
+  status: string
+  serviceFeeCents: number
+  escrowCents: number
+  refundedCents: number
+  createdAt: string
+  acceptedAt: string | null
+  releasedAt: string | null
+  cancelledAt: string | null
+}
+
 type MessageResponse = {
+  conversationId: number
   messages: Message[]
   hasMore: boolean
   nextCursor: number | null
+  invoices: Invoice[]
 }
 
 const ChatPage = ({ user }: ChatProps): JSX.Element => {
+  const router = useRouter()
   const [partners, setPartners] = useState<Partner[]>([])
   const [selected, setSelected] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [invoices, setInvoices] = useState<Invoice[]>([])
   const [hasMore, setHasMore] = useState(false)
   const [cursor, setCursor] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -39,24 +62,58 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
   const [input, setInput] = useState('')
   const [status, setStatus] = useState<'idle' | 'sending'>('idle')
   const [policyWarning, setPolicyWarning] = useState<string | null>(null)
+  const [settings, setSettings] = useState<{ serviceFeeRate: number; escrowAccountName: string }>({
+    serviceFeeRate: 0.05,
+    escrowAccountName: 'ConveySafe Trust Account',
+  })
+  const [showInvoiceComposer, setShowInvoiceComposer] = useState(false)
+  const [invoiceAmount, setInvoiceAmount] = useState('')
+  const [invoiceDescription, setInvoiceDescription] = useState('')
+  const [invoiceStatus, setInvoiceStatus] = useState<'idle' | 'submitting' | 'error'>('idle')
+  const [invoiceError, setInvoiceError] = useState<string | null>(null)
+  const [pendingInvoiceId, setPendingInvoiceId] = useState<number | null>(null)
+  const [invoiceActionError, setInvoiceActionError] = useState<{ id: number; message: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const threadRef = useRef<HTMLDivElement | null>(null)
 
+  const fetchPartners = useCallback(async (): Promise<Partner[]> => {
+    const response = await fetch('/api/chat/partners')
+    if (!response.ok) {
+      return []
+    }
+    const payload = (await response.json()) as { partners: Partner[] }
+    setPartners(payload.partners)
+    return payload.partners
+  }, [])
+
   useEffect(() => {
-    const controller = new AbortController()
-    const loadPartners = async () => {
-      const response = await fetch('/api/chat/partners', { signal: controller.signal })
-      if (!response.ok) {
-        return
-      }
-      const payload = (await response.json()) as { partners: Partner[] }
-      setPartners(payload.partners)
-      if (payload.partners.length > 0) {
-        setSelected(payload.partners[0].id)
+    const load = async () => {
+      const partnersList = await fetchPartners()
+      if (partnersList.length > 0) {
+        setSelected((current) => current ?? partnersList[0].id)
       }
     }
-    void loadPartners()
-    return () => controller.abort()
+    void load()
+  }, [fetchPartners])
+
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const response = await fetch('/api/platform/settings')
+        if (!response.ok) {
+          return
+        }
+        const payload = (await response.json()) as { settings?: Record<string, string> }
+        const rate = Number(payload.settings?.serviceFeeRate ?? 0.05)
+        setSettings({
+          serviceFeeRate: Number.isFinite(rate) ? rate : 0.05,
+          escrowAccountName: payload.settings?.escrowAccountName ?? 'ConveySafe Trust Account',
+        })
+      } catch (error) {
+        console.error(error)
+      }
+    }
+    void loadSettings()
   }, [])
 
   const scrollToBottom = useCallback(() => {
@@ -82,6 +139,7 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
         }
         const payload = (await response.json()) as MessageResponse
         setMessages(payload.messages)
+        setInvoices(payload.invoices ?? [])
         setHasMore(payload.hasMore)
         setCursor(payload.nextCursor ?? null)
         if (!silent) {
@@ -110,9 +168,13 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
   useEffect(() => {
     if (!selected) {
       setMessages([])
+      setInvoices([])
       setHasMore(false)
       setCursor(null)
       setPolicyWarning(null)
+      setShowInvoiceComposer(false)
+      setInvoiceActionError(null)
+      setPendingInvoiceId(null)
       return
     }
     const controller = new AbortController()
@@ -183,6 +245,7 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
       }
       const payload = (await response.json()) as MessageResponse
       setMessages((prev) => [...payload.messages, ...prev])
+      setInvoices(payload.invoices ?? [])
       setHasMore(payload.hasMore)
       setCursor(payload.nextCursor ?? null)
       setTimeout(() => {
@@ -199,6 +262,133 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
   }
 
   const partner = partners.find((item) => item.id === selected) ?? null
+
+  const threadItems = useMemo(() => {
+    const mappedMessages = messages.map((message) => ({
+      kind: 'message' as const,
+      id: `message-${message.id}`,
+      createdAt: message.createdAt,
+      message,
+    }))
+    const mappedInvoices = invoices.map((invoice) => ({
+      kind: 'invoice' as const,
+      id: `invoice-${invoice.id}`,
+      createdAt: invoice.createdAt,
+      invoice,
+    }))
+    return [...mappedMessages, ...mappedInvoices].sort((a, b) => {
+      const aTime = new Date(a.createdAt).getTime()
+      const bTime = new Date(b.createdAt).getTime()
+      return aTime - bTime
+    })
+  }, [invoices, messages])
+
+  const formatCurrency = useCallback((amountCents: number, currency: string) => {
+    try {
+      return new Intl.NumberFormat('en-AU', { style: 'currency', currency }).format(amountCents / 100)
+    } catch {
+      return `$${(amountCents / 100).toFixed(2)}`
+    }
+  }, [])
+
+  const handleInvoiceSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!selected) {
+      return
+    }
+    setInvoiceStatus('submitting')
+    setInvoiceError(null)
+    const amountValue = Number(invoiceAmount)
+    if (!Number.isFinite(amountValue) || amountValue <= 0) {
+      setInvoiceError('Enter a valid amount greater than zero')
+      setInvoiceStatus('error')
+      return
+    }
+    try {
+      const response = await fetch('/api/chat/invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partnerId: selected, amount: amountValue, description: invoiceDescription }),
+      })
+      if (!response.ok) {
+        throw new Error('Unable to create invoice')
+      }
+      setInvoiceStatus('idle')
+      setInvoiceAmount('')
+      setInvoiceDescription('')
+      setShowInvoiceComposer(false)
+      await loadConversation({ silent: true })
+      await fetchPartners()
+    } catch (error) {
+      console.error(error)
+      setInvoiceStatus('error')
+      setInvoiceError(error instanceof Error ? error.message : 'Unexpected error')
+    }
+  }
+
+  const handleInvoiceAction = async (invoiceId: number, action: 'accept' | 'cancel' | 'release') => {
+    setPendingInvoiceId(invoiceId)
+    setInvoiceActionError(null)
+    try {
+      const response = await fetch('/api/chat/invoices', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId, action }),
+      })
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null
+        throw new Error(payload?.error ?? 'Unable to update invoice')
+      }
+      await loadConversation({ silent: true })
+    } catch (error) {
+      console.error(error)
+      const message = error instanceof Error ? error.message : 'Unable to update invoice'
+      setInvoiceActionError({ id: invoiceId, message })
+    } finally {
+      setPendingInvoiceId(null)
+    }
+  }
+
+  useEffect(() => {
+    if (!router.isReady) {
+      return
+    }
+    const partnerParam = router.query.partnerId
+    const partnerId = Array.isArray(partnerParam) ? Number(partnerParam[0]) : Number(partnerParam)
+    if (!partnerParam || Number.isNaN(partnerId)) {
+      return
+    }
+    const ensureConversation = async () => {
+      try {
+        await fetch('/api/chat/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ partnerId }),
+        })
+      } catch (error) {
+        console.error(error)
+      } finally {
+        await fetchPartners()
+        setSelected(partnerId)
+      }
+    }
+    void ensureConversation()
+  }, [fetchPartners, router.isReady, router.query.partnerId])
+
+  const renderInvoiceStatus = (invoice: Invoice): string => {
+    switch (invoice.status) {
+      case 'sent':
+        return 'Awaiting acceptance'
+      case 'accepted':
+        return `Funds held in ${settings.escrowAccountName}`
+      case 'released':
+        return 'Funds released to conveyancer'
+      case 'cancelled':
+        return invoice.refundedCents > 0 ? 'Cancelled – refund initiated' : 'Cancelled'
+      default:
+        return invoice.status
+    }
+  }
 
   return (
     <>
@@ -243,12 +433,58 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
                       className="sr-only"
                       onChange={handleFileUpload}
                     />
+                    {user.role === 'conveyancer' || user.role === 'admin' ? (
+                      <button
+                        type="button"
+                        className="cta-secondary"
+                        onClick={() => setShowInvoiceComposer((prev) => !prev)}
+                      >
+                        {showInvoiceComposer ? 'Close invoice' : 'Issue invoice'}
+                      </button>
+                    ) : null}
                   </div>
                 </header>
                 {policyWarning ? (
                   <div className="chat-policy-banner" role="status">
                     <strong>ConveySafe reminder:</strong> {policyWarning}
                   </div>
+                ) : null}
+                {showInvoiceComposer ? (
+                  <form className="chat-invoice-composer" onSubmit={handleInvoiceSubmit}>
+                    <div className="chat-invoice-composer__row">
+                      <label htmlFor="invoice-amount">Amount (AUD)</label>
+                      <input
+                        id="invoice-amount"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={invoiceAmount}
+                        onChange={(event) => setInvoiceAmount(event.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="chat-invoice-composer__row">
+                      <label htmlFor="invoice-description">Summary</label>
+                      <textarea
+                        id="invoice-description"
+                        rows={2}
+                        value={invoiceDescription}
+                        onChange={(event) => setInvoiceDescription(event.target.value)}
+                        placeholder="e.g. Contract review and settlement prep"
+                      />
+                    </div>
+                    <p className="chat-invoice-composer__meta">
+                      Platform service fee of {(settings.serviceFeeRate * 100).toFixed(1)}% is withheld on acceptance.
+                    </p>
+                    <div className="chat-invoice-composer__actions">
+                      <button type="submit" className="cta-primary" disabled={invoiceStatus === 'submitting'}>
+                        {invoiceStatus === 'submitting' ? 'Creating…' : 'Send invoice'}
+                      </button>
+                      {invoiceStatus === 'error' && invoiceError ? (
+                        <span className="chat-invoice-composer__error">{invoiceError}</span>
+                      ) : null}
+                    </div>
+                  </form>
                 ) : null}
                 <div className="chat-thread" ref={threadRef}>
                   {hasMore ? (
@@ -273,29 +509,115 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
                       No messages yet. Start the conversation with a secure note.
                     </div>
                   ) : null}
-                  {messages.map((message) => (
-                    <article
-                      key={message.id}
-                      className={`chat-message ${message.senderId === user.id ? 'chat-message--mine' : ''}`}
-                    >
-                      <div className="chat-meta">
-                        <span>{message.senderId === user.id ? 'You' : partner.fullName}</span>
-                        <time dateTime={message.createdAt}>
-                          {new Date(message.createdAt).toLocaleString()}
-                        </time>
-                      </div>
-                      <p>{message.body}</p>
-                      {message.attachments.length ? (
-                        <ul className="attachment-list">
-                          {message.attachments.map((attachment) => (
-                            <li key={attachment.id}>
-                              <a href={`/api/chat/download?id=${attachment.id}`}>{attachment.filename}</a>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </article>
-                  ))}
+                  {threadItems.map((item) => {
+                    if (item.kind === 'message') {
+                      const message = item.message
+                      return (
+                        <article
+                          key={item.id}
+                          className={`chat-message ${message.senderId === user.id ? 'chat-message--mine' : ''}`}
+                        >
+                          <div className="chat-meta">
+                            <span>{message.senderId === user.id ? 'You' : partner.fullName}</span>
+                            <time dateTime={message.createdAt}>
+                              {new Date(message.createdAt).toLocaleString()}
+                            </time>
+                          </div>
+                          <p>{message.body}</p>
+                          {message.attachments.length ? (
+                            <ul className="attachment-list">
+                              {message.attachments.map((attachment) => (
+                                <li key={attachment.id}>
+                                  <a href={`/api/chat/download?id=${attachment.id}`}>{attachment.filename}</a>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </article>
+                      )
+                    }
+                    const invoice = item.invoice
+                    const isCreator = invoice.creatorId === user.id
+                    const isRecipient = invoice.recipientId === user.id
+                    const canAccept = invoice.status === 'sent' && isRecipient
+                    const canCancel = (invoice.status === 'sent' || invoice.status === 'accepted') && (isCreator || isRecipient || user.role === 'admin')
+                    const canRelease = invoice.status === 'accepted' && (isCreator || user.role === 'admin')
+                    return (
+                      <article key={item.id} className="chat-invoice" aria-live="polite">
+                        <header className="chat-invoice__header">
+                          <div>
+                            <h3>Invoice {invoice.id}</h3>
+                            <p>{invoice.description || 'Matter invoice'}</p>
+                          </div>
+                          <div className="chat-invoice__figure">
+                            <strong>{formatCurrency(invoice.amountCents, invoice.currency)}</strong>
+                            <span>{renderInvoiceStatus(invoice)}</span>
+                          </div>
+                        </header>
+                        <dl className="chat-invoice__details">
+                          <div>
+                            <dt>Issued</dt>
+                            <dd>{new Date(invoice.createdAt).toLocaleString()}</dd>
+                          </div>
+                          {invoice.serviceFeeCents > 0 ? (
+                            <div>
+                              <dt>Service fee</dt>
+                              <dd>{formatCurrency(invoice.serviceFeeCents, invoice.currency)}</dd>
+                            </div>
+                          ) : null}
+                          {invoice.escrowCents > 0 ? (
+                            <div>
+                              <dt>Escrow hold</dt>
+                              <dd>{formatCurrency(invoice.escrowCents, invoice.currency)}</dd>
+                            </div>
+                          ) : null}
+                          {invoice.refundedCents > 0 ? (
+                            <div>
+                              <dt>Refunded</dt>
+                              <dd>{formatCurrency(invoice.refundedCents, invoice.currency)}</dd>
+                            </div>
+                          ) : null}
+                        </dl>
+                        <div className="chat-invoice__actions">
+                          {canAccept ? (
+                            <button
+                              type="button"
+                              className="cta-primary"
+                              onClick={() => void handleInvoiceAction(invoice.id, 'accept')}
+                              disabled={pendingInvoiceId === invoice.id}
+                            >
+                              {pendingInvoiceId === invoice.id ? 'Accepting…' : 'Accept & hold funds'}
+                            </button>
+                          ) : null}
+                          {canRelease ? (
+                            <button
+                              type="button"
+                              className="cta-secondary"
+                              onClick={() => void handleInvoiceAction(invoice.id, 'release')}
+                              disabled={pendingInvoiceId === invoice.id}
+                            >
+                              {pendingInvoiceId === invoice.id ? 'Releasing…' : 'Release funds'}
+                            </button>
+                          ) : null}
+                          {canCancel ? (
+                            <button
+                              type="button"
+                              className="cta-secondary"
+                              onClick={() => void handleInvoiceAction(invoice.id, 'cancel')}
+                              disabled={pendingInvoiceId === invoice.id}
+                            >
+                              {pendingInvoiceId === invoice.id ? 'Updating…' : 'Cancel invoice'}
+                            </button>
+                          ) : null}
+                        </div>
+                        {invoiceActionError?.id === invoice.id ? (
+                          <p className="chat-invoice__error" role="alert">
+                            {invoiceActionError.message}
+                          </p>
+                        ) : null}
+                      </article>
+                    )
+                  })}
                 </div>
                 <form className="chat-composer" onSubmit={handleSend}>
                   <label htmlFor="message" className="sr-only">
