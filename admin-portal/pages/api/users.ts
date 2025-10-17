@@ -13,6 +13,7 @@ const allowedRoles = new Set(['buyer', 'seller', 'conveyancer', 'admin'])
 const customerRoles: ManagedUser['role'][] = ['buyer', 'seller']
 const allowedQueryRoles = new Set([...allowedRoles, 'customer'])
 const allowedStatuses = new Set(['active', 'suspended', 'invited'])
+const customerContactMethods: Array<'email' | 'phone' | 'sms'> = ['email', 'phone', 'sms']
 
 type DbUser = {
   id: number
@@ -32,20 +33,43 @@ type ManagedUser = {
   status: 'active' | 'suspended' | 'invited'
   createdAt: string
   lastLoginAt: string | null
+  customerProfile: null | {
+    preferredContactMethod: 'email' | 'phone' | 'sms'
+    notes: string
+  }
 }
 
 const sanitizeEmail = (value: string): string => value.trim().toLowerCase()
 const sanitizeFullName = (value: string): string => value.replace(/\s+/g, ' ').trim()
 
-const mapUser = (row: DbUser): ManagedUser => ({
-  id: row.id,
-  email: row.email,
-  fullName: row.full_name,
-  role: row.role as ManagedUser['role'],
-  status: (row.status as ManagedUser['status']) ?? 'active',
-  createdAt: row.created_at,
-  lastLoginAt: row.last_login_at,
-})
+const mapUser = (row: DbUser & {
+  preferred_contact_method?: string | null
+  notes?: string | null
+}): ManagedUser => {
+  const base: ManagedUser = {
+    id: row.id,
+    email: row.email,
+    fullName: row.full_name,
+    role: row.role as ManagedUser['role'],
+    status: (row.status as ManagedUser['status']) ?? 'active',
+    createdAt: row.created_at,
+    lastLoginAt: row.last_login_at,
+    customerProfile: null,
+  }
+
+  if (base.role === 'buyer' || base.role === 'seller') {
+    const normalized = (row.preferred_contact_method ?? 'email').toLowerCase()
+    const method = customerContactMethods.includes(normalized as (typeof customerContactMethods)[number])
+      ? (normalized as (typeof customerContactMethods)[number])
+      : 'email'
+    base.customerProfile = {
+      preferredContactMethod: method,
+      notes: row.notes ?? '',
+    }
+  }
+
+  return base
+}
 
 const generatePassword = (): string => {
   let candidate = crypto.randomBytes(16).toString('base64').replace(/[^A-Za-z0-9]/g, '')
@@ -65,6 +89,18 @@ const ensureConveyancerProfile = (userId: number) => {
 
 const deleteConveyancerProfile = (userId: number) => {
   db.prepare('DELETE FROM conveyancer_profiles WHERE user_id = ?').run(userId)
+}
+
+const ensureCustomerProfile = (userId: number, role: 'buyer' | 'seller') => {
+  db.prepare(
+    `INSERT INTO customer_profiles (user_id, role, preferred_contact_method, notes)
+     VALUES (?, ?, 'email', '')
+     ON CONFLICT(user_id) DO UPDATE SET role = excluded.role`
+  ).run(userId, role)
+}
+
+const deleteCustomerProfile = (userId: number) => {
+  db.prepare('DELETE FROM customer_profiles WHERE user_id = ?').run(userId)
 }
 
 const countActiveAdmins = (): number => {
@@ -93,22 +129,35 @@ const listUsers = (filters: { role?: string; status?: string }): ManagedUser[] =
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
   const rows = db
     .prepare(
-      `SELECT id, email, full_name, role, status, created_at, last_login_at
-         FROM users
+      `SELECT u.id,
+              u.email,
+              u.full_name,
+              u.role,
+              u.status,
+              u.created_at,
+              u.last_login_at,
+              cp.preferred_contact_method,
+              cp.notes
+         FROM users u
+    LEFT JOIN customer_profiles cp ON cp.user_id = u.id
         ${where}
-     ORDER BY created_at DESC`
+     ORDER BY u.created_at DESC`
     )
-    .all(...params) as DbUser[]
+    .all(...params) as Array<DbUser & { preferred_contact_method?: string | null; notes?: string | null }>
   return rows.map(mapUser)
 }
 
 const createUser = (payload: any, actor: SessionUser): { id: number; notify: string } => {
-  const { email, fullName, role, password, status } = payload as {
+  const { email, fullName, role, password, status, customerProfile } = payload as {
     email?: string
     fullName?: string
     role?: string
     password?: string
     status?: string
+    customerProfile?: {
+      preferredContactMethod?: string
+      notes?: string
+    }
   }
 
   if (!email || !fullName || !role || !password) {
@@ -143,12 +192,23 @@ const createUser = (payload: any, actor: SessionUser): { id: number; notify: str
   const tx = db.transaction(() => {
     const info = db
       .prepare(
-        'INSERT INTO users (email, password_hash, role, full_name, status) VALUES (?, ?, ?, ?, ?)' 
+        'INSERT INTO users (email, password_hash, role, full_name, status) VALUES (?, ?, ?, ?, ?)'
       )
       .run(normalizedEmail, bcrypt.hashSync(password, 12), role, normalizedFullName, desiredStatus)
     const userId = Number(info.lastInsertRowid)
     if (role === 'conveyancer') {
       ensureConveyancerProfile(userId)
+    } else if (role === 'buyer' || role === 'seller') {
+      ensureCustomerProfile(userId, role)
+    }
+    if (customerProfile && (role === 'buyer' || role === 'seller')) {
+      const contactMethod = (customerProfile.preferredContactMethod ?? 'email').toLowerCase()
+      const method = customerContactMethods.includes(contactMethod as (typeof customerContactMethods)[number])
+        ? (contactMethod as (typeof customerContactMethods)[number])
+        : 'email'
+      db.prepare(
+        `UPDATE customer_profiles SET preferred_contact_method = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`
+      ).run(method, (customerProfile.notes ?? '').trim(), userId)
     }
     return userId
   })
@@ -162,7 +222,7 @@ const updateUser = (
   payload: any,
   actor: SessionUser
 ): { id: number; password?: string; notify?: string } => {
-  const { id, email, fullName, role, status, password, resetPassword } = payload as {
+  const { id, email, fullName, role, status, password, resetPassword, customerProfile } = payload as {
     id?: number
     email?: string
     fullName?: string
@@ -170,6 +230,10 @@ const updateUser = (
     status?: string
     password?: string
     resetPassword?: boolean
+    customerProfile?: {
+      preferredContactMethod?: string
+      notes?: string
+    }
   }
 
   if (!id || typeof id !== 'number') {
@@ -177,8 +241,15 @@ const updateUser = (
   }
 
   const row = db
-    .prepare('SELECT email, full_name, role, status FROM users WHERE id = ?')
-    .get(id) as { email: string; full_name: string; role: string; status: string } | undefined
+    .prepare(
+      `SELECT u.email, u.full_name, u.role, u.status, cp.preferred_contact_method, cp.notes
+         FROM users u
+    LEFT JOIN customer_profiles cp ON cp.user_id = u.id
+        WHERE u.id = ?`
+    )
+    .get(id) as
+    | { email: string; full_name: string; role: string; status: string; preferred_contact_method?: string | null; notes?: string | null }
+    | undefined
 
   if (!row) {
     throw new Error('not_found')
@@ -278,6 +349,23 @@ const updateUser = (
         ensureConveyancerProfile(id)
       } else if (row.role === 'conveyancer') {
         deleteConveyancerProfile(id)
+      }
+      if (nextRole === 'buyer' || nextRole === 'seller') {
+        ensureCustomerProfile(id, nextRole)
+      } else if (row.role === 'buyer' || row.role === 'seller') {
+        deleteCustomerProfile(id)
+      }
+    }
+    if (nextRole === 'buyer' || nextRole === 'seller') {
+      ensureCustomerProfile(id, nextRole)
+      if (customerProfile) {
+        const contactMethod = (customerProfile.preferredContactMethod ?? 'email').toLowerCase()
+        const method = customerContactMethods.includes(contactMethod as (typeof customerContactMethods)[number])
+          ? (contactMethod as (typeof customerContactMethods)[number])
+          : 'email'
+        db.prepare(
+          `UPDATE customer_profiles SET preferred_contact_method = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`
+        ).run(method, (customerProfile.notes ?? '').trim(), id)
       }
     }
   })()

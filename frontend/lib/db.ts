@@ -116,6 +116,15 @@ const applySchema = (): void => {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS customer_profiles (
+      user_id INTEGER PRIMARY KEY,
+      role TEXT NOT NULL CHECK (role IN ('buyer','seller')),
+      preferred_contact_method TEXT NOT NULL DEFAULT 'email',
+      notes TEXT DEFAULT '',
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS conveyancer_reviews (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       conveyancer_id INTEGER NOT NULL,
@@ -241,6 +250,36 @@ const applySchema = (): void => {
       features TEXT DEFAULT '[]',
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS conveyancer_job_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conveyancer_id INTEGER NOT NULL,
+      matter_type TEXT NOT NULL,
+      completed_at DATETIME NOT NULL,
+      location TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      clients TEXT DEFAULT '',
+      FOREIGN KEY(conveyancer_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS conveyancer_document_badges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conveyancer_id INTEGER NOT NULL,
+      label TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('valid','expiring','expired')),
+      reference TEXT NOT NULL,
+      last_verified DATETIME NOT NULL,
+      expires_at DATETIME,
+      FOREIGN KEY(conveyancer_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS content_pages (
+      slug TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      meta_description TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `)
 }
 
@@ -279,5 +318,149 @@ export const ensureSchema = (): void => {
 }
 
 ensureSchema()
+
+const seedArtifacts = (): void => {
+  const seedCustomerProfiles = db.transaction(() => {
+    const users = db
+      .prepare("SELECT id, role FROM users WHERE role IN ('buyer','seller')")
+      .all() as Array<{ id: number; role: 'buyer' | 'seller' }>
+    const insert = db.prepare(
+      `INSERT OR IGNORE INTO customer_profiles (user_id, role)
+       VALUES (@id, @role)`
+    )
+    for (const user of users) {
+      insert.run({ id: user.id, role: user.role })
+    }
+  })
+
+  const seedConveyancerArtifacts = db.transaction(() => {
+    const conveyancers = db
+      .prepare('SELECT user_id FROM conveyancer_profiles')
+      .all() as Array<{ user_id: number }>
+
+    const countHistory = db.prepare(
+      'SELECT COUNT(1) AS total FROM conveyancer_job_history WHERE conveyancer_id = ?'
+    )
+    const insertHistory = db.prepare(
+      `INSERT INTO conveyancer_job_history (conveyancer_id, matter_type, completed_at, location, summary, clients)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    const countBadges = db.prepare(
+      'SELECT COUNT(1) AS total FROM conveyancer_document_badges WHERE conveyancer_id = ?'
+    )
+    const insertBadge = db.prepare(
+      `INSERT INTO conveyancer_document_badges (conveyancer_id, label, status, reference, last_verified, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+
+    const now = new Date()
+    const iso = (offsetDays: number): string => {
+      const copy = new Date(now.getTime())
+      copy.setDate(copy.getDate() - offsetDays)
+      return copy.toISOString()
+    }
+    const expires = (offsetDays: number): string => {
+      const copy = new Date(now.getTime())
+      copy.setDate(copy.getDate() + offsetDays)
+      return copy.toISOString()
+    }
+
+    for (const { user_id: conveyancerId } of conveyancers) {
+      const historyCount = countHistory.get(conveyancerId) as { total?: number }
+      if (!historyCount?.total) {
+        insertHistory.run(
+          conveyancerId,
+          'Residential purchase',
+          iso(30),
+          'Melbourne, VIC',
+          'Coordinated finance approval and title registration within 21 days.',
+          'Buyer & lender'
+        )
+        insertHistory.run(
+          conveyancerId,
+          'Off-the-plan settlement',
+          iso(75),
+          'Brisbane, QLD',
+          'Managed variation deeds and final inspection issues before settlement.',
+          'Developer & purchaser'
+        )
+      }
+
+      const badgeCount = countBadges.get(conveyancerId) as { total?: number }
+      if (!badgeCount?.total) {
+        insertBadge.run(
+          conveyancerId,
+          'Professional indemnity insurance',
+          'valid',
+          `PI-${conveyancerId}`,
+          iso(14),
+          expires(180)
+        )
+        insertBadge.run(
+          conveyancerId,
+          'National police check',
+          'valid',
+          `NPC-${conveyancerId}`,
+          iso(30),
+          expires(365)
+        )
+      }
+    }
+  })
+
+  const seedContentPages = db.transaction(() => {
+    const upsert = db.prepare(
+      `INSERT INTO content_pages (slug, title, body, meta_description)
+       VALUES (@slug, @title, @body, @meta_description)
+       ON CONFLICT(slug) DO UPDATE SET
+         title = excluded.title,
+         body = excluded.body,
+         meta_description = excluded.meta_description,
+         updated_at = CURRENT_TIMESTAMP`
+    )
+
+    upsert.run({
+      slug: 'about-us',
+      title: 'About Conveyancers Marketplace',
+      body:
+        '## About us\nConveyancers Marketplace unites licenced professionals, buyers, sellers, and lenders in one settlement workspace.\n\n### Our mission\nDeliver compliant, collaborative settlements that keep every milestone visible.\n\n### How we work\nWe partner with firms across Australia to align regulatory guardrails with client experience.\n\n### Where we operate\nSydney and Melbourne hubs with practitioners servicing every state and territory.\n\n### Join the team\nContact careers@conveyancers.market to explore current opportunities.',
+      meta_description:
+        'Discover the Conveyancers Marketplace team and how the ConveySafe assurance network supports compliant settlements.',
+    })
+
+    upsert.run({
+      slug: 'contact-us',
+      title: 'Talk with the ConveySafe team',
+      body:
+        '## Contact us\nWe are available 7 days a week to help buyers, sellers, conveyancers, and partners.\n\n- **Email:** support@conveyancers.market\n- **Phone:** 1300 555 019 (8am – 8pm AEST)\n- **Compliance escalation:** compliance@conveysafe.au\n\nLooking for press enquiries? Reach out to press@conveyancers.market.',
+      meta_description:
+        'Reach the ConveySafe operations and compliance teams for settlement assistance, partnership opportunities, or media enquiries.',
+    })
+
+    upsert.run({
+      slug: 'home',
+      title: 'Conveyancers Marketplace',
+      body: 'Homepage content is managed within the application.',
+      meta_description:
+        'Conveyancers Marketplace connects buyers, sellers, and licenced professionals with ConveySafe compliance, escrow, and collaboration tools.',
+    })
+  })
+
+  seedCustomerProfiles()
+  seedConveyancerArtifacts()
+  seedContentPages()
+}
+
+let artifactsSeeded = false
+
+export const ensureSeedData = (): void => {
+  if (artifactsSeeded) {
+    return
+  }
+  seedArtifacts()
+  artifactsSeeded = true
+}
+
+ensureSeedData()
 
 export default db

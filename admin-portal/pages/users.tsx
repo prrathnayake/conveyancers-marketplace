@@ -14,6 +14,10 @@ type ManagedUser = {
   status: 'active' | 'suspended' | 'invited'
   createdAt: string
   lastLoginAt: string | null
+  customerProfile: null | {
+    preferredContactMethod: 'email' | 'phone' | 'sms'
+    notes: string
+  }
 }
 
 type UserFormState = {
@@ -22,6 +26,8 @@ type UserFormState = {
   role: SessionUser['role']
   status: 'active' | 'suspended' | 'invited'
   password: string
+  preferredContactMethod: 'email' | 'phone' | 'sms'
+  customerNotes: string
 }
 
 type AdminUsersProps = {
@@ -49,6 +55,8 @@ const emptyForm: UserFormState = {
   role: 'buyer',
   status: 'active',
   password: '',
+  preferredContactMethod: 'email',
+  customerNotes: '',
 }
 
 const roleFormOptions: Array<{ value: ManagedUser['role']; label: string }> = [
@@ -73,6 +81,12 @@ const statusOptions: Array<{ value: ManagedUser['status']; label: string }> = [
   { value: 'active', label: 'Active' },
   { value: 'suspended', label: 'Suspended' },
   { value: 'invited', label: 'Invited' },
+]
+
+const contactMethodOptions: Array<{ value: UserFormState['preferredContactMethod']; label: string }> = [
+  { value: 'email', label: 'Email' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'sms', label: 'SMS' },
 ]
 
 const errorMessages: Record<string, string> = {
@@ -157,6 +171,8 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
         role: selectedUser.role,
         status: selectedUser.status,
         password: '',
+        preferredContactMethod: selectedUser.customerProfile?.preferredContactMethod ?? 'email',
+        customerNotes: selectedUser.customerProfile?.notes ?? '',
       })
       setShowPassword(false)
     } else {
@@ -188,6 +204,12 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
           }
           payload.password = formState.password
         }
+        if (formState.role === 'buyer' || formState.role === 'seller') {
+          payload.customerProfile = {
+            preferredContactMethod: formState.preferredContactMethod,
+            notes: formState.customerNotes,
+          }
+        }
         const response = await fetch('/api/users', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -214,6 +236,13 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
             role: formState.role,
             password: formState.password,
             status: formState.status,
+            customerProfile:
+              formState.role === 'buyer' || formState.role === 'seller'
+                ? {
+                    preferredContactMethod: formState.preferredContactMethod,
+                    notes: formState.customerNotes,
+                  }
+                : undefined,
           }),
         })
         const result = (await response.json().catch(() => null)) as { error?: string } | null
@@ -362,6 +391,7 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
                 <th scope="col">Status</th>
                 <th scope="col">Last login</th>
                 <th scope="col">Created</th>
+                <th scope="col">Customer context</th>
                 <th scope="col">Actions</th>
               </tr>
             </thead>
@@ -385,6 +415,22 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
                     </td>
                     <td>{record.lastLoginAt ? formatDateTime(record.lastLoginAt) : 'Never'}</td>
                     <td>{formatDateTime(record.createdAt)}</td>
+                    <td>
+                      {record.customerProfile ? (
+                        <div className="admin-customer-context">
+                          <span className="admin-pill admin-pill--muted">
+                            Prefers {record.customerProfile.preferredContactMethod.toUpperCase()}
+                          </span>
+                          {record.customerProfile.notes ? (
+                            <p>{record.customerProfile.notes}</p>
+                          ) : (
+                            <p className="admin-table__hint">No notes captured</p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="admin-table__hint">—</span>
+                      )}
+                    </td>
                     <td>
                       <div className="admin-button-group">
                         <button
@@ -476,6 +522,41 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
                 ))}
               </select>
             </label>
+            {(formState.role === 'buyer' || formState.role === 'seller') && (
+              <>
+                <label className="admin-form__label">
+                  Preferred contact method
+                  <select
+                    className="admin-select"
+                    value={formState.preferredContactMethod}
+                    onChange={(event) =>
+                      setFormState((prev) => ({
+                        ...prev,
+                        preferredContactMethod: event.target.value as UserFormState['preferredContactMethod'],
+                      }))
+                    }
+                  >
+                    {contactMethodOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="admin-form__label">
+                  Customer notes
+                  <textarea
+                    className="admin-textarea"
+                    value={formState.customerNotes}
+                    onChange={(event) =>
+                      setFormState((prev) => ({ ...prev, customerNotes: event.target.value }))
+                    }
+                    rows={4}
+                    placeholder="Record onboarding context, expectations, or compliance considerations."
+                  />
+                </label>
+              </>
+            )}
             <label className="admin-form__label">
               {selectedId ? 'New password (optional)' : 'Temporary password'}
               <div className="password-field">

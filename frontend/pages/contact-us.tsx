@@ -1,75 +1,94 @@
 import Head from 'next/head'
-import Link from 'next/link'
+import type { GetServerSideProps } from 'next'
 
-const ContactUs = (): JSX.Element => {
+import type { ContentPage } from '../lib/cms'
+
+type ContactPageProps = {
+  content: ContentPage
+}
+
+const renderMarkdown = (body: string): JSX.Element[] => {
+  const nodes: JSX.Element[] = []
+  const lines = body.split(/\r?\n/)
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]?.trim() ?? ''
+    if (!line) {
+      i += 1
+      continue
+    }
+    if (line.startsWith('### ')) {
+      nodes.push(<h3 key={`h3-${i}`}>{line.slice(4)}</h3>)
+      i += 1
+      continue
+    }
+    if (line.startsWith('## ')) {
+      nodes.push(<h2 key={`h2-${i}`}>{line.slice(3)}</h2>)
+      i += 1
+      continue
+    }
+    if (line.startsWith('- ')) {
+      const items: string[] = []
+      while (i < lines.length && lines[i]?.trim().startsWith('- ')) {
+        items.push(lines[i].trim().slice(2))
+        i += 1
+      }
+      nodes.push(
+        <ul key={`ul-${i}`}>
+          {items.map((item, index) => (
+            <li key={index}>{item}</li>
+          ))}
+        </ul>
+      )
+      continue
+    }
+    nodes.push(<p key={`p-${i}`}>{line}</p>)
+    i += 1
+  }
+  return nodes
+}
+
+const ContactUs = ({ content }: ContactPageProps): JSX.Element => {
+  const nodes = renderMarkdown(content.body)
+  const candidateLead = nodes[0]
+  const lead = candidateLead && typeof candidateLead.type === 'string' && candidateLead.type === 'p' ? candidateLead : null
+  const rest = lead ? nodes.slice(1) : nodes
   return (
     <>
       <Head>
-        <title>Contact us | Conveyancers Marketplace</title>
-        <meta
-          name="description"
-          content="Speak with the Conveyancers Marketplace team about partnerships, product questions, or platform support."
-        />
+        <title>{content.title}</title>
+        <meta name="description" content={content.metaDescription} />
       </Head>
       <main className="page">
         <section className="page-section">
-          <h1 className="page-section__title">Contact us</h1>
-          <p className="page-section__lead">
-            Our team is ready to help—whether you are coordinating a development pipeline, looking for conveyancing partners, or
-            need support with your existing workspace.
-          </p>
+          <h1 className="page-section__title">{content.title}</h1>
+          {lead}
         </section>
-        <section className="page-section">
-          <div className="info-grid">
-            <div className="card" role="region" aria-labelledby="contact-sales">
-              <h2 id="contact-sales">Talk to sales</h2>
-              <p>
-                Learn how Conveyancers Marketplace can streamline settlements for your organisation and explore pricing tailored
-                to your portfolio.
-              </p>
-              <Link href="mailto:hello@conveyancers.market" className="cta-primary">
-                Email sales
-              </Link>
-            </div>
-            <div className="card" role="region" aria-labelledby="contact-support">
-              <h2 id="contact-support">Customer support</h2>
-              <p>
-                Already working with us? Reach out to the support desk for onboarding guidance, workspace configuration, or
-                urgent assistance.
-              </p>
-              <Link href="mailto:support@conveyancers.market" className="cta-secondary">
-                Contact support
-              </Link>
-            </div>
-            <div className="card" role="region" aria-labelledby="contact-media">
-              <h2 id="contact-media">Media &amp; partnerships</h2>
-              <p>
-                For press enquiries, partnership opportunities, and speaking engagements, connect with our communications team.
-              </p>
-              <Link href="mailto:press@conveyancers.market" className="cta-secondary">
-                Reach media team
-              </Link>
-            </div>
-            <div className="card" role="region" aria-labelledby="contact-office">
-              <h2 id="contact-office">Visit our offices</h2>
-              <p>
-                Level 8, 11 York Street, Sydney NSW 2000<br />
-                Monday to Friday, 8:30am–5:30pm AEST
-              </p>
-              <Link
-                href="https://maps.google.com/?q=Level+8,+11+York+Street,+Sydney+NSW+2000"
-                className="cta-secondary"
-                target="_blank"
-                rel="noreferrer noopener"
-              >
-                View on maps
-              </Link>
-            </div>
-          </div>
+        <section className="page-section" aria-label="Contact information">
+          <article className="card" role="article">
+            {rest.length > 0 ? rest : null}
+          </article>
         </section>
       </main>
     </>
   )
+}
+
+export const getServerSideProps: GetServerSideProps<ContactPageProps> = async () => {
+  const { getContentPage } = await import('../lib/cms')
+  const page = getContentPage('contact-us')
+
+  const fallback: ContentPage = {
+    slug: 'contact-us',
+    title: 'Contact Conveyancers Marketplace',
+    body:
+      '## Contact Conveyancers Marketplace\nEmail support@conveyancers.market for help with your workspace.\n- Phone: 1300 555 019\n- Compliance: compliance@conveysafe.au',
+    metaDescription:
+      'Get in touch with the Conveyancers Marketplace team for support, partnerships, or compliance enquiries.',
+    updatedAt: new Date().toISOString(),
+  }
+
+  return { props: { content: page ?? fallback } }
 }
 
 export default ContactUs

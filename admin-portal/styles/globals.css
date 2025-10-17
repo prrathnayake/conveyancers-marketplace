@@ -881,6 +881,17 @@ select {
   background: rgba(59, 130, 246, 0.14);
 }
 
+.admin-table__hint {
+  color: var(--admin-muted);
+  font-size: 0.875rem;
+}
+
+.admin-customer-context {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
 .admin-button {
   border: none;
   border-radius: var(--admin-radius-sm);

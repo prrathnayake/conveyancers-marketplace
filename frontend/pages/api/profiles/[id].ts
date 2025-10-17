@@ -39,6 +39,22 @@ export type ConveyancerProfileRow = {
   review_count: number
 }
 
+type ConveyancerJobHistoryRow = {
+  matter_type: string
+  completed_at: string
+  location: string
+  summary: string
+  clients: string
+}
+
+type ConveyancerDocumentBadgeRow = {
+  label: string
+  status: string
+  reference: string
+  last_verified: string
+  expires_at: string | null
+}
+
 export const isJurisdictionRestricted = (row: ConveyancerProfileRow): boolean => {
   return restrictedStates.has(row.state.toLowerCase()) && !row.verified
 }
@@ -79,6 +95,8 @@ const parseSpecialties = (value: string): string[] => {
 export const buildConveyancerProfile = (
   row: ConveyancerProfileRow,
   viewer: SessionUser | null,
+  history: ConveyancerJobHistoryRow[] = [],
+  badges: ConveyancerDocumentBadgeRow[] = [],
 ) => {
   const specialties = parseSpecialties(row.specialties)
   const restricted = isJurisdictionRestricted(row)
@@ -104,7 +122,52 @@ export const buildConveyancerProfile = (
     contactPhone: revealPhone ? row.phone : null,
     hasContactAccess: revealPhone,
     jurisdictionRestricted: restricted,
+    jobHistory: history.map((entry) => ({
+      matterType: entry.matter_type,
+      completedAt: entry.completed_at,
+      location: entry.location,
+      summary: entry.summary,
+      clients: entry.clients,
+    })),
+    documentBadges: badges.map((badge) => ({
+      label: badge.label,
+      status: badge.status,
+      reference: badge.reference,
+      lastVerified: badge.last_verified,
+      expiresAt: badge.expires_at,
+    })),
   }
+}
+
+const listJobHistory = (conveyancerId: number): ConveyancerJobHistoryRow[] => {
+  return db
+    .prepare(
+      `SELECT matter_type, completed_at, location, summary, clients
+         FROM conveyancer_job_history
+        WHERE conveyancer_id = ?
+     ORDER BY datetime(completed_at) DESC
+        LIMIT 10`
+    )
+    .all(conveyancerId) as ConveyancerJobHistoryRow[]
+}
+
+const listDocumentBadges = (conveyancerId: number): ConveyancerDocumentBadgeRow[] => {
+  return db
+    .prepare(
+      `SELECT label, status, reference, last_verified, expires_at
+         FROM conveyancer_document_badges
+        WHERE conveyancer_id = ?
+     ORDER BY datetime(last_verified) DESC`
+    )
+    .all(conveyancerId) as ConveyancerDocumentBadgeRow[]
+}
+
+export const getConveyancerJobHistory = (conveyancerId: number): ConveyancerJobHistoryRow[] => {
+  return listJobHistory(conveyancerId)
+}
+
+export const getConveyancerDocumentBadges = (conveyancerId: number): ConveyancerDocumentBadgeRow[] => {
+  return listDocumentBadges(conveyancerId)
 }
 
 const handler = (req: NextApiRequest, res: NextApiResponse): void => {
@@ -135,7 +198,10 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
     return
   }
 
-  res.status(200).json(buildConveyancerProfile(row, viewer))
+  const history = listJobHistory(conveyancerId)
+  const badges = listDocumentBadges(conveyancerId)
+
+  res.status(200).json(buildConveyancerProfile(row, viewer, history, badges))
 }
 
 export default handler

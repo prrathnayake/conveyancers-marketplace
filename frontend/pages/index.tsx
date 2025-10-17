@@ -2,6 +2,7 @@ import Head from 'next/head'
 import Link from 'next/link'
 import type { FC, ReactElement } from 'react'
 import { useMemo, useState } from 'react'
+import type { GetServerSideProps } from 'next'
 
 import styles from '../styles/home.module.css'
 
@@ -139,7 +140,11 @@ const faqs = [
   },
 ]
 
-const Home: FC = (): ReactElement => {
+type HomeProps = {
+  metaDescription: string
+}
+
+const Home: FC<HomeProps> = ({ metaDescription }): ReactElement => {
   const [persona, setPersona] = useState<PersonaKey>('buyer')
 
   const personaDetails = useMemo(() => personaCopy[persona], [persona])
@@ -148,6 +153,7 @@ const Home: FC = (): ReactElement => {
     <>
       <Head>
         <title>Conveyancers Marketplace</title>
+        <meta name="description" content={metaDescription} />
       </Head>
       <main className={styles.page}>
         <section className={styles.hero} aria-labelledby="hero-heading">
@@ -304,3 +310,16 @@ const Home: FC = (): ReactElement => {
 }
 
 export default Home
+
+export const getServerSideProps: GetServerSideProps<HomeProps> = async () => {
+  const { getContentPage } = await import('../lib/cms')
+  const page = getContentPage('home')
+
+  return {
+    props: {
+      metaDescription:
+        page?.metaDescription ??
+        'Discover licenced conveyancers and manage every settlement milestone with ConveySafe compliance and escrow controls.',
+    },
+  }
+}
