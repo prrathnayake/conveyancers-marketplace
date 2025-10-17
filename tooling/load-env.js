@@ -1,6 +1,8 @@
 const fs = require('node:fs')
 const path = require('node:path')
 
+let hasWarnedForMissingEnv = false
+
 function trim(value) {
   let start = 0
   let end = value.length
@@ -72,12 +74,17 @@ function applyEnvFile(filePath, { override } = { override: false }) {
   return true
 }
 
-function locateEnvBase(startDir) {
+function locateEnvRoot(startDir) {
   let dir = startDir
   for (let depth = 0; depth < 8; depth += 1) {
-    const candidate = path.join(dir, '.env')
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-      return candidate
+    const candidates = ['.env', `.env.${process.env.NODE_ENV ?? 'development'}`, '.env.local']
+    if (
+      candidates.some((file) => {
+        const candidate = path.join(dir, file)
+        return fs.existsSync(candidate) && fs.statSync(candidate).isFile()
+      })
+    ) {
+      return dir
     }
     const parent = path.dirname(dir)
     if (!parent || parent === dir) {
@@ -113,13 +120,25 @@ function loadEnv(options = {}) {
     return loaded
   }
 
-  const baseEnv = locateEnvBase(startDir)
-  if (baseEnv) {
+  const envRoot = locateEnvRoot(startDir)
+  if (envRoot) {
+    const baseEnv = path.join(envRoot, '.env')
     record(baseEnv, false)
-    const localEnv = `${baseEnv}.local`
+
+    const envSpecific = path.join(envRoot, `.env.${process.env.NODE_ENV ?? 'development'}`)
+    if (fs.existsSync(envSpecific) && fs.statSync(envSpecific).isFile()) {
+      record(envSpecific, true)
+    }
+
+    const localEnv = path.join(envRoot, '.env.local')
     if (fs.existsSync(localEnv) && fs.statSync(localEnv).isFile()) {
       record(localEnv, true)
     }
+  } else if (process.env.NODE_ENV !== 'test' && !hasWarnedForMissingEnv) {
+    console.warn(
+      `[load-env] No environment files were loaded for ${startDir}. Set CONVEYANCERS_ENV_FILE or create an .env file at the repository root.`,
+    )
+    hasWarnedForMissingEnv = true
   }
   return loaded
 }

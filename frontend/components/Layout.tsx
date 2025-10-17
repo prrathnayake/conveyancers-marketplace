@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import type { FC, ReactNode } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useId } from 'react'
 import ThemeToggle from './ThemeToggle'
 import UserMenu from './UserMenu'
 
@@ -50,6 +50,8 @@ const Layout: FC<LayoutProps> = ({ children }) => {
 
   const [banner, setBanner] = useState<string>('')
   const [isPageLoading, setIsPageLoading] = useState(false)
+  const [isNavOpen, setIsNavOpen] = useState(false)
+  const navPanelId = useId()
 
   useEffect(() => {
     const handleStart = () => {
@@ -57,6 +59,7 @@ const Layout: FC<LayoutProps> = ({ children }) => {
     }
     const handleStop = () => {
       setIsPageLoading(false)
+      setIsNavOpen(false)
     }
 
     router.events.on('routeChangeStart', handleStart)
@@ -69,6 +72,10 @@ const Layout: FC<LayoutProps> = ({ children }) => {
       router.events.off('routeChangeError', handleStop)
     }
   }, [router])
+
+  useEffect(() => {
+    setIsNavOpen(false)
+  }, [router.pathname])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -89,6 +96,23 @@ const Layout: FC<LayoutProps> = ({ children }) => {
     void loadBanner()
     return () => controller.abort()
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsNavOpen(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  const handleNavLinkClick = () => {
+    setIsNavOpen(false)
+  }
 
   return (
     <div className="app-shell">
@@ -111,20 +135,36 @@ const Layout: FC<LayoutProps> = ({ children }) => {
               <span className="site-logo__subtitle">Settlement workflows without friction</span>
             </span>
           </Link>
-          <nav aria-label="Primary" className="site-nav">
-            {mainNav.map((item) => {
-              const isActive = activeMain?.href === item.href
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`site-nav__item ${isActive ? 'site-nav__item--active' : ''}`}
-                >
-                  <span className="site-nav__label">{item.label}</span>
-                  <span className="site-nav__description">{item.description}</span>
-                </Link>
-              )
-            })}
+          <nav aria-label="Primary" className="site-nav" data-state={isNavOpen ? 'open' : 'closed'}>
+            <button
+              type="button"
+              className="site-nav__toggle"
+              aria-expanded={isNavOpen}
+              aria-controls={navPanelId}
+              onClick={() => setIsNavOpen((prev) => !prev)}
+            >
+              <span className="site-nav__toggle-icon" aria-hidden="true" />
+              <span className="site-nav__toggle-label">Menu</span>
+            </button>
+            <div className={`site-nav__panel ${isNavOpen ? 'site-nav__panel--open' : ''}`} id={navPanelId}>
+              <ul className="site-nav__list">
+                {mainNav.map((item) => {
+                  const isActive = activeMain?.href === item.href
+                  return (
+                    <li key={item.href} className="site-nav__item">
+                      <Link
+                        href={item.href}
+                        className={`site-nav__link ${isActive ? 'site-nav__link--active' : ''}`}
+                        onClick={handleNavLinkClick}
+                      >
+                        <span className="site-nav__label">{item.label}</span>
+                        <span className="site-nav__description">{item.description}</span>
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
           </nav>
           <div className="site-header__actions">
             <Link href="/signup" className="site-nav__cta">
