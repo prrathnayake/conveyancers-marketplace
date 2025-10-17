@@ -2,22 +2,69 @@ import Database from 'better-sqlite3'
 import fs from 'fs'
 import path from 'path'
 
-const resolveDataDirectory = (): string => {
-  if (process.env.PLATFORM_DATA_DIR) {
-    return path.resolve(process.cwd(), process.env.PLATFORM_DATA_DIR)
-  }
+const findRepositoryRoot = (): string => {
+  const markers = ['frontend', 'admin-portal']
+  let current = process.cwd()
+  const filesystemRoot = path.parse(current).root
 
-  const cwd = process.cwd()
-  const normalized = cwd.replace(/\\/g, '/')
-  if (normalized.includes('/admin-portal')) {
-    return path.resolve(cwd, '../frontend/data')
-  }
+  while (true) {
+    const hasAllMarkers = markers.every((marker) =>
+      fs.existsSync(path.join(current, marker))
+    )
+    if (hasAllMarkers) {
+      return current
+    }
 
-  return path.join(cwd, 'data')
+    if (current === filesystemRoot) {
+      return process.cwd()
+    }
+
+    current = path.dirname(current)
+  }
 }
 
-const databaseDirectory = resolveDataDirectory()
-const databasePath = path.join(databaseDirectory, 'app.db')
+const resolveDatabaseLocation = (): { directory: string; file: string } => {
+  const repositoryRoot = findRepositoryRoot()
+  const override = process.env.PLATFORM_DATA_DIR
+
+  if (override) {
+    const resolvedOverride = path.isAbsolute(override)
+      ? override
+      : path.resolve(repositoryRoot, override)
+
+    try {
+      const stats = fs.statSync(resolvedOverride)
+      if (stats.isFile()) {
+        return {
+          directory: path.dirname(resolvedOverride),
+          file: resolvedOverride,
+        }
+      }
+      if (stats.isDirectory()) {
+        return {
+          directory: resolvedOverride,
+          file: path.join(resolvedOverride, 'app.db'),
+        }
+      }
+    } catch {
+      if (resolvedOverride.endsWith('.db')) {
+        return {
+          directory: path.dirname(resolvedOverride),
+          file: resolvedOverride,
+        }
+      }
+      return {
+        directory: resolvedOverride,
+        file: path.join(resolvedOverride, 'app.db'),
+      }
+    }
+  }
+
+  const directory = path.join(repositoryRoot, 'frontend', 'data')
+  return { directory, file: path.join(directory, 'app.db') }
+}
+
+const { directory: databaseDirectory, file: databasePath } = resolveDatabaseLocation()
 
 if (!fs.existsSync(databaseDirectory)) {
   fs.mkdirSync(databaseDirectory, { recursive: true })
