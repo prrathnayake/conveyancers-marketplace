@@ -2,6 +2,8 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 
 import db from '../../../lib/db'
 import { logServerError, serializeError } from '../../../lib/serverLogger'
+import { getSessionFromRequest } from '../../../lib/session'
+import { restrictedStates } from './[id]'
 
 type SearchRow = {
   id: number
@@ -30,7 +32,7 @@ const parseSpecialties = (value: string): string[] => {
   return []
 }
 
-const searchProfiles = (q: string | undefined, state: string | undefined) => {
+const searchProfiles = (q: string | undefined, state: string | undefined, options: { includeRestricted: boolean }) => {
   const conditions: string[] = ['u.role = ?']
   const params: Array<string | number> = ['conveyancer']
 
@@ -62,10 +64,12 @@ const searchProfiles = (q: string | undefined, state: string | undefined) => {
     )
     .all(...params) as SearchRow[]
 
-  return rows.map((row) => ({
-    id: `conveyancer_${row.id}`,
-    name: row.firm_name || row.full_name,
-    state: row.state,
+  return rows
+    .filter((row) => options.includeRestricted || !restrictedStates.has(row.state.toLowerCase()) || Boolean(row.verified))
+    .map((row) => ({
+      id: `conveyancer_${row.id}`,
+      name: row.firm_name || row.full_name,
+      state: row.state,
     suburb: row.suburb,
     verified: Boolean(row.verified),
     rating: Number(row.rating ?? 0),
@@ -74,7 +78,7 @@ const searchProfiles = (q: string | undefined, state: string | undefined) => {
     specialties: parseSpecialties(row.specialties),
     remoteFriendly: Boolean(row.remote_friendly),
     responseTime: row.response_time,
-  }))
+    }))
 }
 
 const handler = (req: NextApiRequest, res: NextApiResponse): void => {
@@ -89,9 +93,12 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
   const stateFilter = typeof state === 'string' ? state.trim() : undefined
 
   try {
+    const viewer = getSessionFromRequest(req)
+    const includeRestricted = Boolean(viewer && viewer.role === 'admin')
     const results = searchProfiles(
       query && query.length > 0 ? query : undefined,
-      stateFilter && stateFilter.length > 0 ? stateFilter : undefined
+      stateFilter && stateFilter.length > 0 ? stateFilter : undefined,
+      { includeRestricted }
     )
     console.debug('Search profiles query completed', {
       query,

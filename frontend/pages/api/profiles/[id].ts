@@ -4,6 +4,8 @@ import db from '../../../lib/db'
 import type { SessionUser } from '../../../lib/session'
 import { getSessionFromRequest } from '../../../lib/session'
 
+export const restrictedStates = new Set(['qld', 'act'])
+
 export const parseId = (value: string | string[] | undefined): number | null => {
   if (!value) {
     return null
@@ -35,6 +37,10 @@ export type ConveyancerProfileRow = {
   verified: number
   rating: number
   review_count: number
+}
+
+export const isJurisdictionRestricted = (row: ConveyancerProfileRow): boolean => {
+  return restrictedStates.has(row.state.toLowerCase()) && !row.verified
 }
 
 export const findConveyancerProfile = (conveyancerId: number): ConveyancerProfileRow | null => {
@@ -75,7 +81,9 @@ export const buildConveyancerProfile = (
   viewer: SessionUser | null,
 ) => {
   const specialties = parseSpecialties(row.specialties)
-  const revealPhone = Boolean(viewer && (viewer.role === 'admin' || viewer.id === row.id))
+  const restricted = isJurisdictionRestricted(row)
+  const viewerCanBypass = Boolean(viewer && (viewer.role === 'admin' || viewer.id === row.id))
+  const revealPhone = !restricted || viewerCanBypass
 
   return {
     id: `conveyancer_${row.id}`,
@@ -95,6 +103,7 @@ export const buildConveyancerProfile = (
     reviewCount: Number(row.review_count ?? 0),
     contactPhone: revealPhone ? row.phone : null,
     hasContactAccess: revealPhone,
+    jurisdictionRestricted: restricted,
   }
 }
 
@@ -119,6 +128,13 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
   }
 
   const viewer = getSessionFromRequest(req)
+  const restricted = isJurisdictionRestricted(row)
+  const canAccessRestricted = Boolean(viewer && (viewer.role === 'admin' || viewer.id === row.id))
+  if (restricted && !canAccessRestricted) {
+    res.status(404).json({ error: 'not_found' })
+    return
+  }
+
   res.status(200).json(buildConveyancerProfile(row, viewer))
 }
 

@@ -10,6 +10,8 @@ import { logServerError, serializeError } from '../../../frontend/lib/serverLogg
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const allowedRoles = new Set(['buyer', 'seller', 'conveyancer', 'admin'])
+const customerRoles: ManagedUser['role'][] = ['buyer', 'seller']
+const allowedQueryRoles = new Set([...allowedRoles, 'customer'])
 const allowedStatuses = new Set(['active', 'suspended', 'invited'])
 
 type DbUser = {
@@ -75,9 +77,14 @@ const countActiveAdmins = (): number => {
 const listUsers = (filters: { role?: string; status?: string }): ManagedUser[] => {
   const conditions: string[] = []
   const params: Array<string> = []
-  if (filters.role && allowedRoles.has(filters.role)) {
-    conditions.push('role = ?')
-    params.push(filters.role)
+  if (filters.role && allowedQueryRoles.has(filters.role)) {
+    if (filters.role === 'customer') {
+      conditions.push(`role IN (${customerRoles.map(() => '?').join(', ')})`)
+      params.push(...customerRoles)
+    } else {
+      conditions.push('role = ?')
+      params.push(filters.role)
+    }
   }
   if (filters.status && allowedStatuses.has(filters.status)) {
     conditions.push('status = ?')
