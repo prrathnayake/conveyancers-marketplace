@@ -1,0 +1,14 @@
+# Ignore local build artifacts to prevent stale caches inside Docker builds
+build/
+**/build/
+**/CMakeCache.txt
+**/CMakeFiles/
+**/*.ninja
+**/*.o
+**/*.obj
+**/*.a
+**/*.so
+**/*.dylib
+**/*.dll
+**/*.exe
+**/*.log
