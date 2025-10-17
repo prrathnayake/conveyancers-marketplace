@@ -134,7 +134,7 @@ const AdminSystemLogs = ({ user }: SystemLogsPageProps): JSX.Element => {
   }, [services])
 
   return (
-    <AdminLayout>
+    <AdminLayout user={user}>
       <Head>
         <title>System logs</title>
       </Head>

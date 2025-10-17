@@ -33,7 +33,7 @@ const DashboardPage = ({ user, metrics, error }: DashboardProps): JSX.Element =>
   const checkoutStats = metrics?.checkouts ?? null
 
   return (
-    <AdminLayout>
+    <AdminLayout user={user}>
       <Head>
         <title>Operations dashboard</title>
       </Head>

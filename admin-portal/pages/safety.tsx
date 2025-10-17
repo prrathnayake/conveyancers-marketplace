@@ -111,7 +111,7 @@ const SafetyPage = ({ user, policies, insights, templates, error }: SafetyProps)
   const unlockedCount = useMemo(() => policies.filter((policy) => policy.unlocked).length, [policies])
 
   return (
-    <AdminLayout>
+    <AdminLayout user={user}>
       <Head>
         <title>Platform safeguards</title>
       </Head>

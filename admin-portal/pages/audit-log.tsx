@@ -45,7 +45,7 @@ const AdminAuditLog = ({ user }: AuditLogPageProps): JSX.Element => {
   }, [])
 
   return (
-    <AdminLayout>
+    <AdminLayout user={user}>
       <Head>
         <title>Audit activity</title>
       </Head>

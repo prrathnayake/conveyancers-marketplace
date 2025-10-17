@@ -66,7 +66,7 @@ const SettingsPage = ({ user, initialSettings }: SettingsPageProps): JSX.Element
   }
 
   return (
-    <AdminLayout>
+    <AdminLayout user={user}>
       <Head>
         <title>Platform settings</title>
       </Head>

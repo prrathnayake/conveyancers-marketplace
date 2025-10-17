@@ -102,7 +102,7 @@ const CatalogueManager = ({ user, initialEntries }: CatalogueManagerProps): JSX.
   }
 
   return (
-    <AdminLayout>
+    <AdminLayout user={user}>
       <Head>
         <title>Service catalogue</title>
       </Head>

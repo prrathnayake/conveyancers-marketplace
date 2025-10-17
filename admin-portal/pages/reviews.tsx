@@ -92,7 +92,7 @@ const AdminReviews = ({ user }: AdminReviewsProps): JSX.Element => {
   }
 
   return (
-    <AdminLayout>
+    <AdminLayout user={user}>
       <Head>
         <title>Manage reviews</title>
       </Head>
