@@ -1,6 +1,18 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next'
+type ApiRequestLike = {
+  method?: string | undefined
+  url?: string | null | undefined
+}
+
+type ApiResponseLike = {
+  status: (statusCode: number) => { json: (body: unknown) => void }
+}
+
+type ApiHandlerLike<
+  TRequest extends ApiRequestLike = ApiRequestLike,
+  TResponse extends ApiResponseLike = ApiResponseLike,
+> = (req: TRequest, res: TResponse) => unknown | Promise<unknown>
 
 type LogCategory = 'error' | 'info' | 'audit' | 'debug'
 
@@ -91,11 +103,14 @@ export const logServerEvent = (category: Exclude<LogCategory, 'error'>, message:
   writeLogEntry(category, message, context)
 }
 
-export const withErrorLogging = (
-  handler: NextApiHandler,
+export const withErrorLogging = <
+  TRequest extends ApiRequestLike,
+  TResponse extends ApiResponseLike,
+>(
+  handler: ApiHandlerLike<TRequest, TResponse>,
   message = 'Unhandled API route error'
-): NextApiHandler => {
-  return async (req: NextApiRequest, res: NextApiResponse) => {
+): ApiHandlerLike<TRequest, TResponse> => {
+  return async (req, res) => {
     try {
       await handler(req, res)
     } catch (error) {
