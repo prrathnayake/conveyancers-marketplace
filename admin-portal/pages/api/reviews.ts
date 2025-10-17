@@ -41,7 +41,7 @@ const createReview = (payload: any) => {
   }
 
   const exists = db
-    .prepare('SELECT 1 FROM users WHERE id = ? AND role = "conveyancer"')
+    .prepare("SELECT 1 FROM users WHERE id = ? AND role = 'conveyancer'")
     .get(conveyancerId)
   if (!exists) {
     throw new Error('missing_conveyancer')

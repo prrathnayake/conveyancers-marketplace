@@ -62,7 +62,7 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
     }
 
     const exists = db
-      .prepare('SELECT 1 FROM users WHERE id = ? AND role = "conveyancer"')
+      .prepare("SELECT 1 FROM users WHERE id = ? AND role = 'conveyancer'")
       .get(conveyancerId)
     if (!exists) {
       res.status(404).json({ error: 'missing_conveyancer' })
