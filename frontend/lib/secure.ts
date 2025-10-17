@@ -12,16 +12,29 @@ type BufferPayload = {
   ciphertext: Buffer
 }
 
+let generatedKey: Buffer | null = null
+
 const decodeKey = (): Buffer => {
-  const secret = process.env.CHAT_ENCRYPTION_KEY
-  if (!secret) {
-    throw new Error('CHAT_ENCRYPTION_KEY must be configured before encrypting chat payloads')
+  const secret = process.env.CHAT_ENCRYPTION_KEY?.trim()
+  if (secret && secret.length > 0) {
+    const buffer = Buffer.from(secret, 'base64')
+    if (buffer.length !== 32) {
+      throw new Error('CHAT_ENCRYPTION_KEY must be a 32-byte value encoded with base64')
+    }
+    return buffer
   }
-  const buffer = Buffer.from(secret, 'base64')
-  if (buffer.length !== 32) {
-    throw new Error('CHAT_ENCRYPTION_KEY must be a 32-byte value encoded with base64')
+
+  if (process.env.NODE_ENV !== 'production') {
+    if (!generatedKey) {
+      generatedKey = randomBytes(32)
+      console.warn(
+        'CHAT_ENCRYPTION_KEY is not set. Generated ephemeral key for development use only. Chats will be reset on restart.'
+      )
+    }
+    return generatedKey
   }
-  return buffer
+
+  throw new Error('CHAT_ENCRYPTION_KEY must be configured before encrypting chat payloads')
 }
 
 export const encryptText = (plaintext: string): EncryptedPayload => {

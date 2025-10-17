@@ -5,6 +5,7 @@ import { recordAuditEvent } from '../../../frontend/lib/audit'
 import db from '../../../frontend/lib/db'
 import { notifyAdminChange } from '../../../frontend/lib/notifications'
 import { requireRole } from '../../../frontend/lib/session'
+import { logServerError, serializeError } from '../../../frontend/lib/serverLogger'
 
 type ConveyancerRecord = {
   id: number
@@ -239,7 +240,13 @@ const handler = async (req: NextApiRequest, res: NextApiResponse) => {
       res.status(400).json({ error: 'invalid_payload' })
       return
     }
-    console.error('Admin conveyancer handler failed', error)
+    logServerError('Admin conveyancer handler failed', {
+      error: serializeError(error),
+      endpoint: '/api/conveyancers',
+      method: req.method,
+      body: req.body,
+      query: req.query,
+    })
     res.status(500).json({ error: 'internal_error' })
   }
 }
