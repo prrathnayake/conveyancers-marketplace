@@ -23,15 +23,15 @@ const parseSpecialties = (value: string): string[] => {
     if (Array.isArray(parsed)) {
       return parsed.filter((item): item is string => typeof item === 'string')
     }
-  } catch {
-    return []
+  } catch (error) {
+    console.warn('Failed to parse specialties JSON payload', { value, error })
   }
   return []
 }
 
 const searchProfiles = (q: string | undefined, state: string | undefined) => {
-  const conditions: string[] = ['u.role = "conveyancer"']
-  const params: Array<string | number> = []
+  const conditions: string[] = ['u.role = ?']
+  const params: Array<string | number> = ['conveyancer']
 
   if (q) {
     conditions.push('(LOWER(u.full_name) LIKE ? OR LOWER(cp.firm_name) LIKE ? OR LOWER(cp.suburb) LIKE ?)')
@@ -87,8 +87,25 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
   const query = typeof q === 'string' ? q.trim() : undefined
   const stateFilter = typeof state === 'string' ? state.trim() : undefined
 
-  const results = searchProfiles(query && query.length > 0 ? query : undefined, stateFilter && stateFilter.length > 0 ? stateFilter : undefined)
-  res.status(200).json(results)
+  try {
+    const results = searchProfiles(
+      query && query.length > 0 ? query : undefined,
+      stateFilter && stateFilter.length > 0 ? stateFilter : undefined
+    )
+    console.debug('Search profiles query completed', {
+      query,
+      state: stateFilter,
+      resultCount: results.length,
+    })
+    res.status(200).json(results)
+  } catch (error) {
+    console.error('Search profiles query failed', {
+      query,
+      state: stateFilter,
+      error,
+    })
+    res.status(500).json({ error: 'search_failed' })
+  }
 }
 
 export default handler

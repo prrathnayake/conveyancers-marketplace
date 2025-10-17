@@ -1,5 +1,6 @@
 import type { IncomingHttpHeaders } from 'http'
 import jwt, { type JwtPayload } from 'jsonwebtoken'
+import crypto from 'crypto'
 import * as cookie from 'cookie'
 import type { SerializeOptions } from 'cookie'
 import db from './db'
@@ -19,12 +20,30 @@ export type SessionUser = {
 const COOKIE_NAME = 'session_token'
 const MAX_AGE_SECONDS = 60 * 60 * 12
 
+let inMemorySecret: string | null = null
+
 const jwtSecret = (): string => {
   const secret = process.env.JWT_SECRET
-  if (!secret || secret.length === 0) {
-    throw new Error('JWT_SECRET environment variable is not configured')
+  if (secret && secret.length > 0) {
+    return secret
   }
-  return secret
+
+  if (process.env.NODE_ENV !== 'production') {
+    const fallback = process.env.PROFILE_FALLBACK_SECRET
+    if (fallback && fallback.length > 0) {
+      console.warn('JWT_SECRET is not set. Falling back to PROFILE_FALLBACK_SECRET for development use only.')
+      return fallback
+    }
+
+    if (!inMemorySecret) {
+      inMemorySecret = crypto.randomBytes(32).toString('hex')
+      console.warn('JWT_SECRET is not set. Generated ephemeral secret for development use only.')
+    }
+
+    return inMemorySecret
+  }
+
+  throw new Error('JWT_SECRET environment variable is not configured')
 }
 
 const serializeCookie = (value: string, options: SerializeOptions = {}): string => {
