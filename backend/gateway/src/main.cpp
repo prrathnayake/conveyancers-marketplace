@@ -54,14 +54,28 @@ int main() {
   });
   // Minimal facade endpoints
   svr.Post("/api/auth/login", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "gateway")) {
+    httplib::Client client(IdentityHost(), IdentityPort());
+    client.set_connection_timeout(1, 0);
+    client.set_read_timeout(1, 0);
+    client.set_write_timeout(1, 0);
+
+    httplib::Headers headers = {{"X-Request-Id", security::RequestId(req)}};
+    client.set_default_headers(headers);
+
+    const auto content_type = req.get_header_value("Content-Type");
+    const char *body_type = content_type.empty() ? "application/json" : content_type.c_str();
+    if (auto identity_res = client.Post("/auth/login", req.body, body_type)) {
+      res.status = identity_res->status;
+      std::string response_type = identity_res->get_header_value("Content-Type");
+      if (response_type.empty()) {
+        response_type = "application/json";
+      }
+      res.set_content(identity_res->body, response_type.c_str());
       return;
     }
-    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "gateway",
-                               "login")) {
-      return;
-    }
-    res.set_content("{\"token\":\"dev\"}", "application/json");
+
+    res.status = 503;
+    res.set_content(R"({"error":"identity_unavailable"})", "application/json");
   });
   svr.Get("/api/profiles/search", [](const httplib::Request &req, httplib::Response &res) {
     if (!security::Authorize(req, res, "gateway")) {

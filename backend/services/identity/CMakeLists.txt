@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(identity CXX)
 set(CMAKE_CXX_STANDARD 20)
+find_package(OpenSSL REQUIRED)
 add_executable(identity main.cpp)
 target_include_directories(identity PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party)
+target_link_libraries(identity PRIVATE OpenSSL::Crypto)
