@@ -31,7 +31,7 @@ This repository brings together a full-stack reference implementation spanning a
 - Server-side rendering (app router) optimised for SEO.
 - Tailwind CSS design system with DaisyUI components.
 - WebSocket-powered chat for real-time matter updates.
-- Admin console with data seeding helpers and feature toggles.
+- Admin console with feature toggles and operational tooling.
 - ConveySafe policy banners that detect off-platform contact attempts to preserve the evidentiary trail.
 
 ### Backend (Modern C++)
@@ -44,7 +44,7 @@ This repository brings together a full-stack reference implementation spanning a
 ### Infrastructure (Docker Compose)
 - Postgres, Redis, MinIO (S3-compatible object storage), ClamAV, Nginx reverse proxy with TLS termination.
 - Observability stack: OpenTelemetry Collector, Prometheus, Loki, Grafana (pre-configured dashboards).
-- Makefile helpers and shell scripts for bootstrapping certificates, migrations, and data seeds.
+- Makefile helpers and shell scripts for bootstrapping certificates and migrations.
 
 ---
 
@@ -118,8 +118,7 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d --build
 # 4. (Optional) Install dependencies if you plan to run the Next.js dev server locally
 (cd frontend && npm install)
 
-# 5. Seed sample data using the admin UI (optional but recommended)
-# Start the admin portal locally (see the Admin portal workflow below) to access the seeding shortcuts and dashboards
+# 5. Sign in with the seeded administrator account using ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD
 
 # 6. Access the stack
 # Frontend: https://localhost
