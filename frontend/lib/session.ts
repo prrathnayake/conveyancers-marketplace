@@ -37,7 +37,18 @@ const COOKIE_NAME =
 
 const MAX_AGE_SECONDS = 60 * 60 * 12
 
-let inMemorySecret: string | null = null
+declare global {
+  // eslint-disable-next-line no-var
+  var __conveyancersSessionSecret__: string | undefined
+}
+
+const resolveDevelopmentSecret = (): string => {
+  if (!globalThis.__conveyancersSessionSecret__) {
+    globalThis.__conveyancersSessionSecret__ = crypto.randomBytes(32).toString('hex')
+    console.warn('JWT_SECRET is not set. Generated ephemeral secret for development use only.')
+  }
+  return globalThis.__conveyancersSessionSecret__
+}
 
 const jwtSecret = (): string => {
   const secret = process.env.JWT_SECRET
@@ -46,12 +57,7 @@ const jwtSecret = (): string => {
   }
 
   if (process.env.NODE_ENV !== 'production') {
-    if (!inMemorySecret) {
-      inMemorySecret = crypto.randomBytes(32).toString('hex')
-      console.warn('JWT_SECRET is not set. Generated ephemeral secret for development use only.')
-    }
-
-    return inMemorySecret
+    return resolveDevelopmentSecret()
   }
 
   throw new Error('JWT_SECRET environment variable is not configured')
