@@ -95,6 +95,8 @@ const applySchema = (): void => {
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL CHECK (role IN ('buyer','seller','conveyancer','admin')),
       full_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','invited')),
+      last_login_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -251,6 +253,12 @@ export const ensureSchema = (): void => {
   ensureColumn('conveyancer_profiles', 'response_time', "response_time TEXT DEFAULT ''")
   ensureColumn('conveyancer_profiles', 'specialties', "specialties TEXT DEFAULT '[]'")
   ensureColumn('conveyancer_profiles', 'verified', 'verified INTEGER DEFAULT 0')
+  ensureColumn(
+    'users',
+    'status',
+    "status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','invited'))"
+  )
+  ensureColumn('users', 'last_login_at', 'last_login_at DATETIME')
   ensureColumn('service_catalogue', 'audience', "audience TEXT DEFAULT ''")
   ensureColumn('service_catalogue', 'preview_markdown', "preview_markdown TEXT DEFAULT ''")
   ensureColumn('service_catalogue', 'features', "features TEXT DEFAULT '[]'")

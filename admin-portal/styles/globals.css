@@ -1031,6 +1031,19 @@ select {
   flex-wrap: wrap;
 }
 
+.admin-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--admin-spacing-md);
+  margin-bottom: var(--admin-spacing-md);
+}
+
+.admin-button-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .admin-status {
   display: inline-flex;
   align-items: center;
