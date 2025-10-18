@@ -110,7 +110,18 @@ const countActiveAdmins = (): number => {
   return Number(row.total ?? 0)
 }
 
-const listUsers = (filters: { role?: string; status?: string }): ManagedUser[] => {
+const normalizeSearch = (value: string | undefined): string | undefined => {
+  if (!value) {
+    return undefined
+  }
+  const trimmed = value.trim()
+  if (trimmed.length === 0) {
+    return undefined
+  }
+  return trimmed.slice(0, 100)
+}
+
+const listUsers = (filters: { role?: string; status?: string; search?: string }): ManagedUser[] => {
   const conditions: string[] = []
   const params: Array<string> = []
   if (filters.role && allowedQueryRoles.has(filters.role)) {
@@ -125,6 +136,12 @@ const listUsers = (filters: { role?: string; status?: string }): ManagedUser[] =
   if (filters.status && allowedStatuses.has(filters.status)) {
     conditions.push('status = ?')
     params.push(filters.status)
+  }
+  const search = normalizeSearch(filters.search)
+  if (search) {
+    const like = `%${search.toLowerCase()}%`
+    conditions.push('(LOWER(u.full_name) LIKE ? OR LOWER(u.email) LIKE ? OR LOWER(cp.notes) LIKE ?)')
+    params.push(like, like, like)
   }
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
   const rows = db
@@ -417,7 +434,8 @@ const handler = async (req: NextApiRequest, res: NextApiResponse) => {
     if (req.method === 'GET') {
       const role = typeof req.query.role === 'string' ? req.query.role : undefined
       const status = typeof req.query.status === 'string' ? req.query.status : undefined
-      const users = listUsers({ role, status })
+      const search = typeof req.query.search === 'string' ? req.query.search : undefined
+      const users = listUsers({ role, status, search })
       res.status(200).json(users)
       return
     }
