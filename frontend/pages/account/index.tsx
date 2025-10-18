@@ -1,10 +1,11 @@
 import Head from 'next/head'
 import Link from 'next/link'
 import type { GetServerSideProps } from 'next'
-import { ChangeEvent, useEffect, useRef, useState } from 'react'
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import type { SessionUser } from '../../lib/session'
 import { getSessionFromRequest } from '../../lib/session'
+import type { VerificationSummary } from '../../lib/verification'
 
 interface AccountProps {
   user: SessionUser
@@ -15,7 +16,16 @@ const AccountPage = ({ user }: AccountProps): JSX.Element => {
   const effectiveUser = authUser ?? user
   const [fullName, setFullName] = useState(effectiveUser.fullName)
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const { verification } = effectiveUser
+  const [verificationSummary, setVerificationSummary] = useState<VerificationSummary>(effectiveUser.verification)
+  const [verificationMessage, setVerificationMessage] = useState<
+    | { channel: 'email' | 'phone'; tone: 'success' | 'error'; text: string }
+    | null
+  >(null)
+  const [verificationLoading, setVerificationLoading] = useState(false)
+  const [emailCode, setEmailCode] = useState('')
+  const [phoneCode, setPhoneCode] = useState('')
+  const [phoneInput, setPhoneInput] = useState(effectiveUser.phone ?? '')
+  const [devCodes, setDevCodes] = useState<{ email?: string; phone?: string }>({})
   const [profileImage, setProfileImage] = useState<string | null>(effectiveUser.profileImageUrl)
   const [photoStatus, setPhotoStatus] = useState<'idle' | 'uploading' | 'error' | 'success'>('idle')
   const [photoMessage, setPhotoMessage] = useState<string | null>(null)
@@ -24,7 +34,23 @@ const AccountPage = ({ user }: AccountProps): JSX.Element => {
   useEffect(() => {
     setFullName(effectiveUser.fullName)
     setProfileImage(effectiveUser.profileImageUrl)
-  }, [effectiveUser.fullName, effectiveUser.profileImageUrl])
+    setVerificationSummary(effectiveUser.verification)
+  }, [effectiveUser.fullName, effectiveUser.profileImageUrl, effectiveUser.verification])
+
+  useEffect(() => {
+    setPhoneInput(verificationSummary.phone.phoneNumber ?? '')
+  }, [verificationSummary.phone.phoneNumber])
+
+  const formatTimestamp = (value: string | null): string => {
+    if (!value) {
+      return 'Pending'
+    }
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) {
+      return value
+    }
+    return date.toLocaleString()
+  }
 
   const handleSave = async () => {
     setStatus('saving')
@@ -112,6 +138,103 @@ const AccountPage = ({ user }: AccountProps): JSX.Element => {
     }
   }
 
+  const handleVerificationRequest = async (channel: 'email' | 'phone') => {
+    if (verificationLoading) {
+      return
+    }
+    if (channel === 'phone') {
+      const trimmed = phoneInput.trim()
+      if (!trimmed) {
+        setVerificationMessage({
+          channel: 'phone',
+          tone: 'error',
+          text: 'Enter a mobile number before requesting a code.',
+        })
+        return
+      }
+    }
+    setVerificationLoading(true)
+    setVerificationMessage(null)
+    try {
+      const body: Record<string, string> = { channel }
+      if (channel === 'phone') {
+        body.phone = phoneInput.trim()
+      }
+      const response = await fetch('/api/verification/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const payload = (await response.json().catch(() => null)) as
+        | { ok?: boolean; verification?: VerificationSummary; debugCode?: string; error?: string }
+        | null
+      if (!response.ok || !payload?.ok || !payload.verification) {
+        const code = payload?.error ?? 'verification_issue_failed'
+        const friendly =
+          code === 'invalid_phone'
+            ? 'Enter a valid mobile number with country code.'
+            : code === 'rate_limited'
+            ? 'Please wait a moment before requesting another code.'
+            : 'Unable to send a new code right now.'
+        throw new Error(friendly)
+      }
+      setVerificationSummary(payload.verification)
+      if (process.env.NODE_ENV !== 'production' && payload.debugCode) {
+        setDevCodes((prev) => ({ ...prev, [channel]: payload.debugCode }))
+      }
+      setVerificationMessage({
+        channel,
+        tone: 'success',
+        text: channel === 'email' ? 'Email code sent. Check your inbox.' : 'SMS code sent to your mobile.',
+      })
+    } catch (error) {
+      console.error('Failed to request verification code', error)
+      setVerificationMessage({
+        channel,
+        tone: 'error',
+        text: error instanceof Error ? error.message : 'Unable to send a new code right now.',
+      })
+    } finally {
+      setVerificationLoading(false)
+    }
+  }
+
+  const handleVerificationSubmit = async (
+    event: FormEvent<HTMLFormElement>,
+    channel: 'email' | 'phone',
+    code: string,
+    reset: (value: string) => void
+  ) => {
+    event.preventDefault()
+    if (verificationLoading) {
+      return
+    }
+    setVerificationLoading(true)
+    setVerificationMessage(null)
+    try {
+      const response = await fetch('/api/verification/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel, code }),
+      })
+      const payload = (await response.json().catch(() => null)) as
+        | { ok?: boolean; verification?: VerificationSummary; error?: string }
+        | null
+      if (!response.ok || !payload?.ok || !payload.verification) {
+        throw new Error(payload?.error ?? 'verify_failed')
+      }
+      setVerificationSummary(payload.verification)
+      reset('')
+      setVerificationMessage({ channel, tone: 'success', text: 'Verification confirmed.' })
+      await refreshSession()
+    } catch (error) {
+      console.error('Failed to verify code', error)
+      setVerificationMessage({ channel, tone: 'error', text: 'Invalid or expired code. Request a new one.' })
+    } finally {
+      setVerificationLoading(false)
+    }
+  }
+
   return (
     <>
       <Head>
@@ -191,24 +314,140 @@ const AccountPage = ({ user }: AccountProps): JSX.Element => {
             <h2>Verification status</h2>
             <ul className="meta-list">
               <li>
-                Email: <strong>{verification.email.verified ? 'Verified' : 'Pending'}</strong>
+                Email: <strong>{verificationSummary.email.verified ? 'Verified' : 'Pending'}</strong>
+                {!verificationSummary.email.verified
+                  ? null
+                  : ` · ${formatTimestamp(verificationSummary.email.verifiedAt)}`}
               </li>
               <li>
-                Mobile: <strong>{verification.phone.verified ? 'Verified' : 'Pending'}</strong>
+                Mobile: <strong>{verificationSummary.phone.verified ? 'Verified' : 'Pending'}</strong>
+                {!verificationSummary.phone.verified
+                  ? null
+                  : ` · ${formatTimestamp(verificationSummary.phone.verifiedAt)}`}
               </li>
-              {verification.conveyancing.required ? (
+              {verificationSummary.conveyancing.required ? (
                 <li>
-                  Conveyancing licence: <strong>{verification.conveyancing.status}</strong>
+                  Conveyancing licence: <strong>{verificationSummary.conveyancing.status}</strong>
                 </li>
               ) : null}
             </ul>
-            {verification.overallVerified ? (
+            {verificationSummary.overallVerified ? (
               <p className="status status--success">Your account is fully verified.</p>
             ) : (
               <p className="status status--error">
                 Verification outstanding. <Link href="/account/verify">Complete verification now.</Link>
               </p>
             )}
+            <div className="verification-inline" aria-live="polite">
+              <section className="verification-inline__block">
+                <header className="verification-inline__header">
+                  <h3>Email verification</h3>
+                  <p className="meta">
+                    Status: {verificationSummary.email.verified ? 'Verified' : 'Pending'}
+                  </p>
+                </header>
+                {verificationSummary.email.verified ? (
+                  <p className="meta">Verified on {formatTimestamp(verificationSummary.email.verifiedAt)}</p>
+                ) : (
+                  <>
+                    <div className="verification-inline__actions">
+                      <button
+                        type="button"
+                        className="cta-secondary"
+                        onClick={() => void handleVerificationRequest('email')}
+                        disabled={verificationLoading}
+                      >
+                        Send email code
+                      </button>
+                    </div>
+                    <form
+                      className="verification-form verification-inline__form"
+                      onSubmit={(event) => handleVerificationSubmit(event, 'email', emailCode, setEmailCode)}
+                    >
+                      <label htmlFor="email-code" className="field-label">
+                        Enter 6-digit code
+                      </label>
+                      <input
+                        id="email-code"
+                        value={emailCode}
+                        onChange={(event) => setEmailCode(event.target.value)}
+                        className="input"
+                        pattern="[0-9]{6}"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        required
+                      />
+                      <button type="submit" className="cta-primary" disabled={verificationLoading}>
+                        Verify email
+                      </button>
+                    </form>
+                    {devCodes.email ? <p className="meta">Development code: {devCodes.email}</p> : null}
+                  </>
+                )}
+                {verificationMessage?.channel === 'email' ? (
+                  <p className={`status status--${verificationMessage.tone}`}>{verificationMessage.text}</p>
+                ) : null}
+              </section>
+              <section className="verification-inline__block">
+                <header className="verification-inline__header">
+                  <h3>Mobile verification</h3>
+                  <p className="meta">
+                    Status: {verificationSummary.phone.verified ? 'Verified' : 'Pending'}
+                  </p>
+                </header>
+                {verificationSummary.phone.verified ? (
+                  <p className="meta">Verified on {formatTimestamp(verificationSummary.phone.verifiedAt)}</p>
+                ) : (
+                  <>
+                    <label htmlFor="phone-number" className="field-label">
+                      Mobile number
+                    </label>
+                    <input
+                      id="phone-number"
+                      className="input"
+                      value={phoneInput}
+                      onChange={(event) => setPhoneInput(event.target.value)}
+                      placeholder="+61 400 000 000"
+                    />
+                    <div className="verification-inline__actions">
+                      <button
+                        type="button"
+                        className="cta-secondary"
+                        onClick={() => void handleVerificationRequest('phone')}
+                        disabled={verificationLoading}
+                      >
+                        Send SMS code
+                      </button>
+                    </div>
+                    <form
+                      className="verification-form verification-inline__form"
+                      onSubmit={(event) => handleVerificationSubmit(event, 'phone', phoneCode, setPhoneCode)}
+                    >
+                      <label htmlFor="phone-code" className="field-label">
+                        Enter 6-digit code
+                      </label>
+                      <input
+                        id="phone-code"
+                        value={phoneCode}
+                        onChange={(event) => setPhoneCode(event.target.value)}
+                        className="input"
+                        pattern="[0-9]{6}"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        required
+                      />
+                      <button type="submit" className="cta-primary" disabled={verificationLoading}>
+                        Verify mobile
+                      </button>
+                    </form>
+                    {devCodes.phone ? <p className="meta">Development code: {devCodes.phone}</p> : null}
+                  </>
+                )}
+                {verificationMessage?.channel === 'phone' ? (
+                  <p className={`status status--${verificationMessage.tone}`}>{verificationMessage.text}</p>
+                ) : null}
+              </section>
+            </div>
           </section>
         </section>
       </main>

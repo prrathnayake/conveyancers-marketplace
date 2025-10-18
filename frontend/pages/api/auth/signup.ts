@@ -7,6 +7,7 @@ import { logServerError, serializeError } from '../../../lib/serverLogger'
 import { issueVerificationCode } from '../../../lib/otp'
 import { recomputeVerificationStatus } from '../../../lib/verification'
 import { normalizePhoneNumber } from '../../../lib/phone'
+import { sendEmail, sendSms } from '../../../lib/notifications'
 
 const allowedRoles = new Set(['buyer', 'seller', 'conveyancer'])
 
@@ -18,7 +19,7 @@ type SignupRequest = {
   phone?: string
 }
 
-const handler = (req: NextApiRequest, res: NextApiResponse): void => {
+const handler = async (req: NextApiRequest, res: NextApiResponse): Promise<void> => {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST'])
     res.status(405).end('Method Not Allowed')
@@ -80,6 +81,22 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
 
     const emailCode = issueVerificationCode(userId, 'email', { metadata: { email: trimmedEmail } })
     const phoneCode = issueVerificationCode(userId, 'phone', { metadata: { phone: normalizedPhone } })
+
+    await Promise.allSettled([
+      sendEmail({
+        to: trimmedEmail,
+        subject: 'Verify your Conveyancers Marketplace account',
+        html: `
+          <p>Hi ${fullName.trim()},</p>
+          <p>Welcome to Conveyancers Marketplace. Use the verification code <strong>${emailCode.code}</strong> within the next 10 minutes to confirm your email address.</p>
+          <p>If you didn't create this account, you can ignore this message.</p>
+        `,
+      }),
+      sendSms({
+        to: normalizedPhone,
+        body: `Welcome to Conveyancers Marketplace. Your verification code is ${phoneCode.code}. It expires in 10 minutes.`,
+      }),
+    ])
     const verification = recomputeVerificationStatus(userId)
 
     const payload: Record<string, unknown> = {

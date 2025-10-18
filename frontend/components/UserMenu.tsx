@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 
 const roleLabels: Record<string, string> = {
@@ -14,13 +14,56 @@ const adminPortalUrl = process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL
 const UserMenu = (): JSX.Element | null => {
   const { user, logout } = useAuth()
   const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement | null>(null)
 
   if (!user) {
     return null
   }
 
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    const handlePointer = (event: MouseEvent | TouchEvent) => {
+      if (!menuRef.current || !(event.target instanceof Node)) {
+        return
+      }
+      if (!menuRef.current.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+
+    const handleFocus = (event: FocusEvent) => {
+      if (!menuRef.current || !(event.target instanceof Node)) {
+        return
+      }
+      if (!menuRef.current.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointer)
+    document.addEventListener('touchstart', handlePointer)
+    document.addEventListener('focusin', handleFocus)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointer)
+      document.removeEventListener('touchstart', handlePointer)
+      document.removeEventListener('focusin', handleFocus)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
+
   return (
-    <div className="user-menu" data-state={open ? 'open' : 'closed'}>
+    <div className="user-menu" data-state={open ? 'open' : 'closed'} ref={menuRef}>
       <button
         type="button"
         className="user-avatar-button"

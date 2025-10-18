@@ -44,6 +44,7 @@ const pruneExpired = (userId: number, channel: VerificationChannel) => {
 }
 
 export type IssuedCode = {
+  code: string
   expiresAt: string
   developmentCode?: string
 }
@@ -81,7 +82,7 @@ export const issueVerificationCode = (userId: number, channel: VerificationChann
   )
   stmt.run(userId, channel, codeHash, salt, metadata, MAX_CODE_ATTEMPTS, toIsoDate(expiresAt))
 
-  const payload: IssuedCode = { expiresAt: expiresAt.toISOString() }
+  const payload: IssuedCode = { code, expiresAt: expiresAt.toISOString() }
   if (process.env.NODE_ENV !== 'production') {
     payload.developmentCode = code
   }

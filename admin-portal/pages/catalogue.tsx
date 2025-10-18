@@ -35,6 +35,7 @@ const CatalogueManager = ({ user, initialEntries }: CatalogueManagerProps): JSX.
   const [draft, setDraft] = useState<DraftEntry>(entries[0] ?? emptyDraft())
   const [status, setStatus] = useState<'idle' | 'saving' | 'error' | 'success'>('idle')
   const [errorMessage, setErrorMessage] = useState('')
+  const [statusMessage, setStatusMessage] = useState('')
 
   useEffect(() => {
     if (!activeSlug) {
@@ -61,6 +62,7 @@ const CatalogueManager = ({ user, initialEntries }: CatalogueManagerProps): JSX.
   const handleSave = async () => {
     setStatus('saving')
     setErrorMessage('')
+    setStatusMessage('')
     try {
       const candidateSlug = draft.slug.startsWith('draft-')
         ? draft.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
@@ -83,14 +85,90 @@ const CatalogueManager = ({ user, initialEntries }: CatalogueManagerProps): JSX.
         throw new Error('Unable to save catalogue entry')
       }
       const data = (await response.json()) as { entries: CatalogueEntry[] }
-      setEntries(data.entries.map(createDraft))
-      setActiveSlug(payload.slug)
+      const mapped = data.entries.map(createDraft)
+      if (mapped.length === 0) {
+        const fallback = emptyDraft()
+        setEntries([fallback])
+        setActiveSlug(fallback.slug)
+        setDraft(fallback)
+      } else {
+        setEntries(mapped)
+        const nextActive = mapped.find((entry) => entry.slug === payload.slug) ?? mapped[0]
+        setActiveSlug(nextActive.slug)
+        setDraft(nextActive)
+      }
       setStatus('success')
+      setStatusMessage('Entry saved successfully.')
+      setTimeout(() => {
+        setStatus('idle')
+        setStatusMessage('')
+      }, 2500)
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unknown error')
       setStatus('error')
-    } finally {
-      setTimeout(() => setStatus('idle'), 2500)
+    }
+  }
+
+  const handleDelete = async (slug: string) => {
+    if (!slug) {
+      return
+    }
+    const isPersisted = !slug.startsWith('draft-')
+    const confirmation = isPersisted
+      ? 'Delete this catalogue entry? Buyers and sellers will no longer see it.'
+      : 'Discard this draft entry?'
+    if (!confirm(confirmation)) {
+      return
+    }
+    setStatus('saving')
+    setErrorMessage('')
+    setStatusMessage('')
+    try {
+      if (isPersisted) {
+        const response = await fetch(`/api/catalogue?slug=${encodeURIComponent(slug)}`, { method: 'DELETE' })
+        const data = (await response.json().catch(() => null)) as { entries?: CatalogueEntry[]; error?: string } | null
+        if (!response.ok || !data?.entries) {
+          throw new Error(data?.error ?? 'Unable to delete catalogue entry')
+        }
+        const mapped = data.entries.map(createDraft)
+        if (mapped.length === 0) {
+          const fallback = emptyDraft()
+          setEntries([fallback])
+          setActiveSlug(fallback.slug)
+          setDraft(fallback)
+        } else {
+          setEntries(mapped)
+          setActiveSlug(mapped[0].slug)
+          setDraft(mapped[0])
+        }
+        setStatus('success')
+        setStatusMessage('Entry deleted successfully.')
+        setTimeout(() => {
+          setStatus('idle')
+          setStatusMessage('')
+        }, 2500)
+      } else {
+        const remaining = entries.filter((entry) => entry.slug !== slug)
+        if (remaining.length === 0) {
+          const fallback = emptyDraft()
+          setEntries([fallback])
+          setActiveSlug(fallback.slug)
+          setDraft(fallback)
+        } else {
+          setEntries(remaining)
+          setActiveSlug(remaining[0].slug)
+          setDraft(remaining[0])
+        }
+        setStatus('success')
+        setStatusMessage('Draft entry discarded.')
+        setTimeout(() => {
+          setStatus('idle')
+          setStatusMessage('')
+        }, 1500)
+      }
+    } catch (error) {
+      setStatus('error')
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to delete catalogue entry')
     }
   }
 
@@ -99,6 +177,9 @@ const CatalogueManager = ({ user, initialEntries }: CatalogueManagerProps): JSX.
     setEntries((existing) => [...existing, fresh])
     setActiveSlug(fresh.slug)
     setDraft(fresh)
+    setStatus('idle')
+    setStatusMessage('')
+    setErrorMessage('')
   }
 
   return (
@@ -191,11 +272,21 @@ const CatalogueManager = ({ user, initialEntries }: CatalogueManagerProps): JSX.
                 />
                 <p className="catalogue-form__help">Each line becomes a bullet point in the customer preview.</p>
               </div>
-              <button className="admin-button admin-button--primary" type="submit" disabled={status === 'saving'}>
-                {status === 'saving' ? 'Saving…' : 'Save changes'}
-              </button>
-              {status === 'error' ? <p className="admin-error">{errorMessage}</p> : null}
-              {status === 'success' ? <p className="admin-success">Entry updated for {user.fullName}</p> : null}
+              <div className="catalogue-form__actions">
+                <button className="admin-button admin-button--primary" type="submit" disabled={status === 'saving'}>
+                  {status === 'saving' ? 'Saving…' : 'Save changes'}
+                </button>
+                <button
+                  className="admin-button admin-button--danger"
+                  type="button"
+                  onClick={() => void handleDelete(draft.slug)}
+                  disabled={status === 'saving'}
+                >
+                  {draft.slug.startsWith('draft-') ? 'Discard draft' : 'Delete entry'}
+                </button>
+              </div>
+              {status === 'error' && errorMessage ? <p className="admin-error">{errorMessage}</p> : null}
+              {status === 'success' && statusMessage ? <p className="admin-success">{statusMessage}</p> : null}
             </form>
           </div>
           <aside className="catalogue-grid__preview" aria-live="polite">

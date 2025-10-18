@@ -622,9 +622,21 @@ select {
   letter-spacing: 0.04em;
 }
 
+.admin-pill--success {
+  background: rgba(22, 163, 74, 0.2);
+  border-color: rgba(22, 163, 74, 0.35);
+  color: #bbf7d0;
+}
+
 .admin-pill--muted {
   background: var(--admin-pill-muted);
   color: var(--admin-text-soft);
+}
+
+.admin-pill--warning {
+  background: rgba(250, 204, 21, 0.22);
+  border-color: rgba(250, 204, 21, 0.35);
+  color: #fef3c7;
 }
 
 .admin-invoice-grid {
@@ -901,6 +913,68 @@ select {
 .admin-table__hint {
   color: var(--admin-muted);
   font-size: 0.875rem;
+}
+
+.admin-detail-card {
+  margin: var(--admin-spacing-lg) 0;
+  padding: var(--admin-spacing-lg);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius-lg);
+  background: var(--admin-surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  display: grid;
+  gap: var(--admin-spacing-md);
+}
+
+.admin-detail-card h2 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.admin-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--admin-spacing-md);
+}
+
+.admin-detail-grid div {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.admin-detail-grid dt {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--admin-text-soft);
+}
+
+.admin-detail-grid dd {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--admin-text);
+}
+
+.admin-detail-notes {
+  background: var(--admin-surface-muted);
+  border-radius: var(--admin-radius-md);
+  padding: var(--admin-spacing-md);
+  display: grid;
+  gap: 0.5rem;
+}
+
+.admin-detail-notes h3 {
+  margin: 0;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--admin-text-soft);
+}
+
+.admin-detail-empty {
+  margin: 0;
+  color: var(--admin-text-soft);
 }
 
 .admin-customer-context {
@@ -1504,6 +1578,13 @@ select {
 .catalogue-form {
   display: grid;
   gap: var(--admin-spacing-md);
+}
+
+.catalogue-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--admin-spacing-sm);
+  align-items: center;
 }
 
 .catalogue-form__group {
