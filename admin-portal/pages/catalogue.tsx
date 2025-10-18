@@ -3,7 +3,7 @@ import Head from 'next/head'
 import type { GetServerSideProps } from 'next'
 
 import AdminLayout from '../components/AdminLayout'
-import type { CatalogueEntry } from './api/catalogue'
+import type { CatalogueEntry } from '../../frontend/lib/catalogue'
 import type { SessionUser } from '../../frontend/lib/session'
 import { getSessionFromRequest } from '../../frontend/lib/session'
 

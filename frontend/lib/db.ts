@@ -379,6 +379,12 @@ const applySchema = (): void => {
       meta_description TEXT NOT NULL,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS homepage_sections (
+      key TEXT PRIMARY KEY,
+      content TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `)
 }
 
@@ -452,6 +458,13 @@ const seedArtifacts = (): void => {
       `INSERT INTO conveyancer_document_badges (conveyancer_id, label, status, reference, last_verified, expires_at)
        VALUES (?, ?, ?, ?, ?, ?)`
     )
+    const countReviews = db.prepare(
+      'SELECT COUNT(1) AS total FROM conveyancer_reviews WHERE conveyancer_id = ?'
+    )
+    const insertReview = db.prepare(
+      `INSERT INTO conveyancer_reviews (conveyancer_id, reviewer_name, rating, comment)
+       VALUES (?, ?, ?, ?)`
+    )
 
     const now = new Date()
     const iso = (offsetDays: number): string => {
@@ -505,6 +518,22 @@ const seedArtifacts = (): void => {
           expires(365)
         )
       }
+
+      const reviewCount = countReviews.get(conveyancerId) as { total?: number }
+      if (!reviewCount?.total) {
+        insertReview.run(
+          conveyancerId,
+          'Verified buyer',
+          5,
+          'Transparent milestones and proactive updates made the purchase straightforward.'
+        )
+        insertReview.run(
+          conveyancerId,
+          'Settlement partner',
+          4,
+          'Responsive communication and strong compliance hygiene across every step.'
+        )
+      }
     }
   })
 
@@ -546,9 +575,154 @@ const seedArtifacts = (): void => {
     })
   })
 
+  const seedHomepageSections = db.transaction(() => {
+    const upsert = db.prepare(
+      `INSERT INTO homepage_sections (key, content, updated_at)
+       VALUES (@key, @content, CURRENT_TIMESTAMP)
+       ON CONFLICT(key) DO UPDATE SET
+         content = excluded.content,
+         updated_at = CURRENT_TIMESTAMP`
+    )
+
+    const hero = {
+      badge: 'ConveySafe assurance network',
+      title: 'Settle property deals with clarity and control',
+      subtitle:
+        'Discover licenced conveyancers, orchestrate every milestone, and keep funds protected within the ConveySafe compliance perimeter.',
+      primaryCta: { label: 'Browse verified conveyancers', href: '/search' },
+      secondaryCta: { label: 'See how the workflow fits together', href: '#workflow' },
+    }
+
+    const personas = [
+      {
+        key: 'buyer',
+        label: "I'm buying",
+        headline: 'Remove the stress from settlement',
+        benefits: [
+          'Track every milestone, deposit, and ConveySafe badge from one dashboard.',
+          'Know exactly who to call with real-time messaging, policy reminders, and locked-in audit trails.',
+          'Escrow protects your funds until each ConveySafe milestone is satisfied.',
+        ],
+      },
+      {
+        key: 'seller',
+        label: "I'm selling",
+        headline: 'Close faster with proactive support',
+        benefits: [
+          'Automated reminders keep your buyer, lender, and conveyancer aligned inside the compliance guardrails.',
+          'Digitally collect, sign, and lodge documents with ConveySafe evidence logging.',
+          'Performance insights surface experts who specialise in complex titles with verified insurance.',
+        ],
+      },
+      {
+        key: 'conveyancer',
+        label: "I'm a conveyancer",
+        headline: 'Grow a reputation for trusted settlements',
+        benefits: [
+          'ConveySafe verification boosts your discoverability and showcases compliant licensing.',
+          'Built-in client onboarding, IDV hand-offs, and loyalty pricing reduce admin overhead.',
+          'Milestone-based billing flows into escrow with instant audit-grade statements.',
+        ],
+      },
+    ]
+
+    const workflow = [
+      {
+        step: '01',
+        title: 'Match with the right conveyancer',
+        copy:
+          'Search by state, speciality, property type, or response time. Our ranking blends compliance signals with real client feedback.',
+      },
+      {
+        step: '02',
+        title: 'Collaborate and approve milestones',
+        copy:
+          'Share documents, assign tasks, and approve releases from anywhere. Everything is logged automatically for audit-readiness.',
+      },
+      {
+        step: '03',
+        title: 'Settle with confidence',
+        copy:
+          'Trust the escrow engine, dispute guardrails, and automatic settlement statements when the job is done.',
+      },
+    ]
+
+    const copy = {
+      featuresHeading: 'Everything teams need to settle securely',
+      featuresDescription:
+        'Coordinate verified experts, compliance artefacts, and settlement workflows from one collaborative workspace.',
+      workflowHeading: 'See the entire conveyancing journey end-to-end',
+      workflowDescription:
+        'Conveyancers Marketplace centralises every task, milestone, and approval so property teams stay coordinated from listing to settlement.',
+      workflowCta: { label: 'Start by meeting your next conveyancer', href: '/search' },
+      testimonialsHeading: 'Trusted by conveyancing teams nationwide',
+      testimonialsDescription:
+        'Real reviews from verified settlements highlight operational excellence across the ConveySafe network.',
+      resourcesHeading: 'Guides for operational excellence',
+      resourcesDescription:
+        'Keep your team up to speed on compliance, stakeholder communication, and client reporting.',
+      faqHeading: 'Frequently asked questions',
+      faqDescription:
+        'Everything you need to know about security logging, access controls, and settlement visibility.',
+    }
+
+    const resources = [
+      {
+        title: 'Launch checklist: digitising conveyancing in Australia',
+        description: '20-point plan that aligns ARNECC guidelines with client experience wins.',
+        href: '/docs/DEPLOY.pdf',
+      },
+      {
+        title: 'Escrow dispute playbook',
+        description: 'Templates for communicating milestone adjustments with buyers and sellers.',
+        href: '/docs/compliance.pdf',
+      },
+      {
+        title: 'Operational metrics dashboard template',
+        description: 'Monitor turnaround times, licence renewals, and CSAT in a single view.',
+        href: '/docs/metrics.pdf',
+      },
+    ]
+
+    const faqs = [
+      {
+        question: 'How is access to sensitive data controlled?',
+        answer:
+          'Role-based access control enforces the least-privilege principle across buyer, seller, conveyancer, and admin personas. Every API call requires signed headers and is logged for audit readiness.',
+      },
+      {
+        question: 'Can we trace settlement activity end-to-end?',
+        answer:
+          'Yes. Each milestone, payment change, and document event is tagged with request identifiers that correlate with backend audit logs so issues can be replayed safely.',
+      },
+      {
+        question: 'What happens if a downstream service fails?',
+        answer:
+          'Automatic exception handling returns structured errors to the client while preserving observability context. Operators receive actionable signals without exposing stack traces.',
+      },
+    ]
+
+    const cta = {
+      title: 'Ready to modernise your conveyancing workflow?',
+      copy:
+        'Launch a branded client experience with escrow controls, ID verification, and automated reporting in under two weeks.',
+      primaryCta: { label: 'Explore conveyancers', href: '/search' },
+      secondaryCta: { label: 'Book a product tour', href: 'mailto:hello@conveymarket.au' },
+    }
+
+    upsert.run({ key: 'hero', content: JSON.stringify(hero) })
+    upsert.run({ key: 'personas', content: JSON.stringify(personas) })
+    upsert.run({ key: 'workflow', content: JSON.stringify(workflow) })
+    upsert.run({ key: 'resources', content: JSON.stringify(resources) })
+    upsert.run({ key: 'faqs', content: JSON.stringify(faqs) })
+    upsert.run({ key: 'copy', content: JSON.stringify(copy) })
+    upsert.run({ key: 'cta', content: JSON.stringify(cta) })
+  })
+
   seedCustomerProfiles()
   seedConveyancerArtifacts()
   seedContentPages()
+  seedHomepageSections()
 }
 
 let artifactsSeeded = false

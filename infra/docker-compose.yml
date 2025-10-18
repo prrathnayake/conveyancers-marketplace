@@ -1,6 +1,12 @@
 version: "3.9"
+
+x-common-env: &common-env
+  env_file:
+    - ../.env
+
 services:
   nginx:
+    <<: *common-env
     image: nginx:1.25-alpine
     container_name: nginx
     volumes:
@@ -26,132 +32,139 @@ services:
       '
     depends_on: [frontend, gateway]
   postgres:
+    <<: *common-env
     image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-convey}
-      POSTGRES_USER: ${POSTGRES_USER:-app}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ../backend/sql/1_schema.sql:/docker-entrypoint-initdb.d/1_schema.sql:ro
       - ../backend/sql/2_seed.sql:/docker-entrypoint-initdb.d/2_seed.sql:ro
     ports: ["5432:5432"]
   redis:
+    <<: *common-env
     image: redis:7-alpine
     ports: ["6379:6379"]
   minio:
+    <<: *common-env
     image: minio/minio:latest
     command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me}
     volumes: [ "miniodata:/data" ]
     ports: ["9000:9000","9001:9001"]
   clamav:
+    <<: *common-env
     image: clamav/clamav:1.2
     ports: ["3310:3310"]
   otel:
+    <<: *common-env
     image: otel/opentelemetry-collector:latest
     command: ["--config=/etc/otel-config.yaml"]
     volumes:
       - ./otel/otel-config.yaml:/etc/otel-config.yaml:ro
     ports: ["4317:4317"]
   loki:
+    <<: *common-env
     image: grafana/loki:2.9.8
     command: -config.file=/etc/loki/local-config.yaml
     ports: ["3100:3100"]
   prom:
+    <<: *common-env
     image: prom/prometheus:latest
     volumes:
       - ./prometheus/prom.yml:/etc/prometheus/prometheus.yml:ro
     ports: ["9090:9090"]
   grafana:
+    <<: *common-env
     image: grafana/grafana:10.4.3
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-change-me}
     ports: ["3000:3000"]
     depends_on: [prom, loki]
   frontend:
+    <<: *common-env
     build:
       context: ..
       dockerfile: frontend/Dockerfile
     environment:
-      NODE_ENV: production
-      NEXT_TELEMETRY_DISABLED: '1'
-      GATEWAY_ORIGIN: http://gateway:8080
-      JWT_SECRET: ${JWT_SECRET:-change-me}
-      ADMIN_SEED_EMAIL: ${ADMIN_SEED_EMAIL:-admin@example.com}
-      ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:-super-secure-password}
-      ADMIN_SEED_PASSWORD_HASH: ${ADMIN_SEED_PASSWORD_HASH:-}
-      PLATFORM_DATA_DIR: /workspace/data
+      NODE_ENV: ${NODE_ENV}
+      NEXT_TELEMETRY_DISABLED: ${NEXT_TELEMETRY_DISABLED}
+      GATEWAY_ORIGIN: ${GATEWAY_ORIGIN}
+      JWT_SECRET: ${JWT_SECRET}
+      CHAT_ENCRYPTION_KEY: ${CHAT_ENCRYPTION_KEY}
+      ADMIN_SEED_EMAIL: ${ADMIN_SEED_EMAIL}
+      ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD}
+      ADMIN_SEED_PASSWORD_HASH: ${ADMIN_SEED_PASSWORD_HASH}
+      PLATFORM_DATA_DIR: ${PLATFORM_DATA_DIR}
     depends_on: [gateway]
     volumes:
       - ../data:/workspace/data
   admin-portal:
+    <<: *common-env
     build:
       context: ..
       dockerfile: admin-portal/Dockerfile
     environment:
-      NODE_ENV: production
-      NEXT_TELEMETRY_DISABLED: '1'
-      NEXT_PUBLIC_MAIN_APP_URL: ${NEXT_PUBLIC_MAIN_APP_URL:-https://localhost}
-      JWT_SECRET: ${JWT_SECRET:-change-me}
-      LOG_DIRECTORY: /workspace/logs
-      ADMIN_SEED_EMAIL: ${ADMIN_SEED_EMAIL:-admin@example.com}
-      ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:-super-secure-password}
-      ADMIN_SEED_PASSWORD_HASH: ${ADMIN_SEED_PASSWORD_HASH:-}
-      PLATFORM_DATA_DIR: /workspace/data
+      NODE_ENV: ${NODE_ENV}
+      NEXT_TELEMETRY_DISABLED: ${NEXT_TELEMETRY_DISABLED}
+      NEXT_PUBLIC_MAIN_APP_URL: ${NEXT_PUBLIC_MAIN_APP_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      CHAT_ENCRYPTION_KEY: ${CHAT_ENCRYPTION_KEY}
+      LOG_DIRECTORY: ${LOG_DIRECTORY}
+      ADMIN_SEED_EMAIL: ${ADMIN_SEED_EMAIL}
+      ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD}
+      ADMIN_SEED_PASSWORD_HASH: ${ADMIN_SEED_PASSWORD_HASH}
+      PLATFORM_DATA_DIR: ${PLATFORM_DATA_DIR}
     depends_on: [gateway]
     ports: ["4300:4300"]
     volumes:
       - ../data:/workspace/data
       - ../logs:/workspace/logs:ro
   gateway:
+    <<: *common-env
     build:
       context: ../backend
       dockerfile: gateway/Dockerfile
     environment:
-      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-change-me}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minio}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-change-me}
-      JWT_SECRET: ${JWT_SECRET:-change-me}
-      IDENTITY_HOST: identity
-      IDENTITY_PORT: 7001
-      PSP_PROVIDER: ${PSP_PROVIDER:-sandbox}
-      PSP_SECRET: ${PSP_SECRET:-change-me}
+      DB_URL: ${DB_URL}
+      REDIS_URL: ${REDIS_URL}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      IDENTITY_HOST: ${IDENTITY_HOST}
+      IDENTITY_PORT: ${IDENTITY_PORT}
+      PSP_PROVIDER: ${PSP_PROVIDER}
+      PSP_SECRET: ${PSP_SECRET}
     depends_on: [postgres, redis, minio, identity, jobs, payments]
     ports: ["8080:8080"]
   identity:
+    <<: *common-env
     build:
       context: ../backend
       dockerfile: services/identity/Dockerfile
     environment:
-      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-change-me}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
-      JWT_SECRET: ${JWT_SECRET:-change-me}
+      DB_URL: ${DB_URL}
+      JWT_SECRET: ${JWT_SECRET}
     depends_on: [postgres]
   jobs:
+    <<: *common-env
     build:
       context: ../backend
       dockerfile: services/jobs/Dockerfile
     environment:
-      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-change-me}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minio}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-change-me}
-      CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
-      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
+      DB_URL: ${DB_URL}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      CLAMAV_HOST: ${CLAMAV_HOST}
+      CLAMAV_PORT: ${CLAMAV_PORT}
     depends_on: [postgres, minio, clamav]
     ports: ["9002:9002"]  # WebSocket chat
   payments:
+    <<: *common-env
     build:
       context: ../backend
       dockerfile: services/payments/Dockerfile
     environment:
-      DB_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-change-me}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-convey}
-      PSP_PROVIDER: ${PSP_PROVIDER:-sandbox}
-      PSP_SECRET: ${PSP_SECRET:-change-me}
+      DB_URL: ${DB_URL}
+      PSP_PROVIDER: ${PSP_PROVIDER}
+      PSP_SECRET: ${PSP_SECRET}
     depends_on: [postgres]
 volumes:
   pgdata: {}
