@@ -23,12 +23,24 @@ const LoginPage = (): JSX.Element => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       })
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string; verificationRequired?: boolean }
+        | null
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null
-        throw new Error(payload?.error ?? 'login_failed')
+        const message =
+          payload?.error === 'account_inactive'
+            ? 'Your account is not active. Contact support.'
+            : payload?.error === 'invalid_credentials'
+            ? 'Invalid email or password.'
+            : 'Unable to sign in. Please try again.'
+        throw new Error(message)
       }
       await refresh()
-      await router.push('/chat')
+      if (payload?.verificationRequired) {
+        await router.push('/account/verify')
+      } else {
+        await router.push('/chat')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unexpected error')
     } finally {

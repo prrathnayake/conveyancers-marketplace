@@ -4,6 +4,9 @@ import db from '../../../lib/db'
 import { createSessionCookie } from '../../../lib/session'
 import { ensureAdminSeeded } from '../../../lib/adminSeed'
 import { logServerError, serializeError } from '../../../lib/serverLogger'
+import { issueVerificationCode } from '../../../lib/otp'
+import { recomputeVerificationStatus } from '../../../lib/verification'
+import { normalizePhoneNumber } from '../../../lib/phone'
 
 const allowedRoles = new Set(['buyer', 'seller', 'conveyancer'])
 
@@ -12,6 +15,7 @@ type SignupRequest = {
   password?: string
   role?: string
   fullName?: string
+  phone?: string
 }
 
 const handler = (req: NextApiRequest, res: NextApiResponse): void => {
@@ -24,9 +28,9 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
   try {
     ensureAdminSeeded()
 
-    const { email, password, role, fullName } = req.body as SignupRequest
+    const { email, password, role, fullName, phone } = req.body as SignupRequest
 
-    if (!email || !password || !role || !fullName) {
+    if (!email || !password || !role || !fullName || !phone) {
       res.status(400).json({ error: 'missing_fields' })
       return
     }
@@ -47,11 +51,17 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
       return
     }
 
+    const normalizedPhone = normalizePhoneNumber(phone)
+    if (!normalizedPhone) {
+      res.status(400).json({ error: 'invalid_phone' })
+      return
+    }
+
     const passwordHash = bcrypt.hashSync(password, 12)
     const insert = db.prepare(
-      'INSERT INTO users (email, password_hash, role, full_name) VALUES (?, ?, ?, ?)'
+      'INSERT INTO users (email, password_hash, role, full_name, phone) VALUES (?, ?, ?, ?, ?)'
     )
-    const info = insert.run(trimmedEmail, passwordHash, trimmedRole, fullName.trim())
+    const info = insert.run(trimmedEmail, passwordHash, trimmedRole, fullName.trim(), normalizedPhone)
     const userId = Number(info.lastInsertRowid)
 
     if (trimmedRole === 'conveyancer') {
@@ -67,7 +77,23 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
       role: trimmedRole as 'buyer' | 'seller' | 'conveyancer',
     })
     res.setHeader('Set-Cookie', cookie)
-    res.status(201).json({ ok: true })
+
+    const emailCode = issueVerificationCode(userId, 'email', { metadata: { email: trimmedEmail } })
+    const phoneCode = issueVerificationCode(userId, 'phone', { metadata: { phone: normalizedPhone } })
+    const verification = recomputeVerificationStatus(userId)
+
+    const payload: Record<string, unknown> = {
+      ok: true,
+      verification,
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      payload.debugCodes = {
+        email: emailCode.developmentCode,
+        phone: phoneCode.developmentCode,
+      }
+    }
+
+    res.status(201).json(payload)
   } catch (error) {
     logServerError('Signup handler failed', {
       error: serializeError(error),

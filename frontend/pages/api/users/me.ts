@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import db from '../../../lib/db'
-import { requireAuth } from '../../../lib/session'
+import { getUserById, requireAuth } from '../../../lib/session'
 
 const handler = (req: NextApiRequest, res: NextApiResponse): void => {
   const user = requireAuth(req, res)
@@ -9,11 +9,12 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
   }
 
   if (req.method === 'GET') {
-    const profile = db.prepare('SELECT full_name, role FROM users WHERE id = ?').get(user.id) as {
-      full_name: string
-      role: string
+    const refreshed = getUserById(user.id)
+    if (!refreshed) {
+      res.status(404).json({ error: 'not_found' })
+      return
     }
-    res.status(200).json({ ...user, fullName: profile.full_name, role: profile.role })
+    res.status(200).json(refreshed)
     return
   }
 

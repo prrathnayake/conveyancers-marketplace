@@ -3,7 +3,16 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import db from '../../../frontend/lib/db'
 import { requireRole } from '../../../frontend/lib/session'
 
-const allowedKeys = new Set(['supportEmail', 'statusBanner', 'serviceFeeRate', 'escrowAccountName'])
+const allowedKeys = new Set([
+  'supportEmail',
+  'statusBanner',
+  'serviceFeeRate',
+  'escrowAccountName',
+  'organisationName',
+  'organisationTagline',
+  'organisationLogo',
+  'supportPhone',
+])
 
 const handler = (req: NextApiRequest, res: NextApiResponse): void => {
   const user = requireRole(req, res, ['admin'])
@@ -34,6 +43,12 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
       for (const [key, value] of Object.entries(settings)) {
         if (!allowedKeys.has(key)) {
           continue
+        }
+        if (key === 'organisationLogo' && value) {
+          const valid = /^data:image\/(png|jpeg|jpg|webp);base64,[a-z0-9+/=]+$/i.test(value)
+          if (!valid) {
+            continue
+          }
         }
         db.prepare(
           'INSERT INTO platform_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'

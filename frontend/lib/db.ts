@@ -115,6 +115,13 @@ const applySchema = (): void => {
       role TEXT NOT NULL CHECK (role IN ('buyer','seller','conveyancer','admin')),
       full_name TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','invited')),
+      phone TEXT DEFAULT '',
+      email_verified_at DATETIME,
+      phone_verified_at DATETIME,
+      is_verified INTEGER NOT NULL DEFAULT 0,
+      profile_image_data TEXT DEFAULT '',
+      profile_image_mime TEXT DEFAULT '',
+      profile_image_updated_at DATETIME,
       last_login_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -132,6 +139,10 @@ const applySchema = (): void => {
       response_time TEXT DEFAULT '',
       specialties TEXT DEFAULT '[]',
       verified INTEGER DEFAULT 0,
+      gov_status TEXT NOT NULL DEFAULT 'pending',
+      gov_check_reference TEXT DEFAULT '',
+      gov_verified_at DATETIME,
+      gov_denial_reason TEXT DEFAULT '',
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
@@ -383,6 +394,22 @@ const applySchema = (): void => {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS user_verification_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      channel TEXT NOT NULL CHECK (channel IN ('email','phone')),
+      code_hash TEXT NOT NULL,
+      code_salt TEXT NOT NULL,
+      metadata TEXT DEFAULT '{}',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 5,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_verification_lookup ON user_verification_codes(user_id, channel, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS service_catalogue (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       slug TEXT NOT NULL UNIQUE,
@@ -453,12 +480,23 @@ export const ensureSchema = (): void => {
   ensureColumn('conveyancer_profiles', 'response_time', "response_time TEXT DEFAULT ''")
   ensureColumn('conveyancer_profiles', 'specialties', "specialties TEXT DEFAULT '[]'")
   ensureColumn('conveyancer_profiles', 'verified', 'verified INTEGER DEFAULT 0')
+  ensureColumn('conveyancer_profiles', 'gov_status', "gov_status TEXT NOT NULL DEFAULT 'pending'")
+  ensureColumn('conveyancer_profiles', 'gov_check_reference', "gov_check_reference TEXT DEFAULT ''")
+  ensureColumn('conveyancer_profiles', 'gov_verified_at', 'gov_verified_at DATETIME')
+  ensureColumn('conveyancer_profiles', 'gov_denial_reason', "gov_denial_reason TEXT DEFAULT ''")
   ensureColumn(
     'users',
     'status',
     "status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','invited'))"
   )
   ensureColumn('users', 'last_login_at', 'last_login_at DATETIME')
+  ensureColumn('users', 'phone', "phone TEXT DEFAULT ''")
+  ensureColumn('users', 'email_verified_at', 'email_verified_at DATETIME')
+  ensureColumn('users', 'phone_verified_at', 'phone_verified_at DATETIME')
+  ensureColumn('users', 'is_verified', 'is_verified INTEGER NOT NULL DEFAULT 0')
+  ensureColumn('users', 'profile_image_data', "profile_image_data TEXT DEFAULT ''")
+  ensureColumn('users', 'profile_image_mime', "profile_image_mime TEXT DEFAULT ''")
+  ensureColumn('users', 'profile_image_updated_at', 'profile_image_updated_at DATETIME')
   ensureColumn('service_catalogue', 'audience', "audience TEXT DEFAULT ''")
   ensureColumn('service_catalogue', 'preview_markdown', "preview_markdown TEXT DEFAULT ''")
   ensureColumn('service_catalogue', 'features', "features TEXT DEFAULT '[]'")
