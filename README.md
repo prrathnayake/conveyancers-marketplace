@@ -4,24 +4,48 @@
 
 This repository brings together a full-stack reference implementation spanning a Next.js 14 frontend, a modern C++ services backend, and a Docker Compose infrastructure layer that mirrors an enterprise-ready topology. It is intended to give founders and platform teams a compliant baseline that they can extend with vendor integrations (PSP, KYC, e-signature, etc.) and bespoke product features.
 
+## Who is this starter for?
+
+- **Digital conveyancing startups** that need a production-quality baseline aligned with Australian regulation from day one.
+- **Innovation teams** inside established firms that want to prototype new customer journeys without rebuilding commodity capabilities.
+- **Delivery partners** or consultants who need a demo-ready environment to validate integrations and workflows before implementing them inside a client’s tenancy.
+
+If you are evaluating whether this starter is a fit, scan the [feature report](docs/feature-report.md) for an end-to-end capability checklist and the [system requirements](docs/System%20Requirements%20for%20Australian%20Conveyancer%20Marketplace.pdf) for infrastructure sizing guidance.
+
+## Tech stack at a glance
+
+| Layer | Primary tooling | Notable extras |
+|-------|-----------------|----------------|
+| Web experience | Next.js 14, TypeScript, Tailwind CSS | DaisyUI theme packs, real-time chat via WebSockets |
+| Operations UI | Next.js (separate admin portal) | Feature flags, operational log viewer, seeded admin account |
+| Services | C++20, gRPC, Protobuf | Shared validation middleware, adapter interfaces for PSP/KYC vendors |
+| Data & messaging | PostgreSQL, Redis, MinIO, ClamAV | Database migrations under `backend/sql`, document AV scanning, signed URLs |
+| Observability | OpenTelemetry Collector, Prometheus, Grafana, Loki | Prebuilt dashboards and alert exemplars |
+| Tooling | Docker Compose, CMake, npm workspaces | `tooling/load-env.js` helper for sourcing `.env` files |
+
+The architecture is intentionally modular: the admin portal and the public marketplace can be deployed independently, and the gRPC layer cleanly separates domain logic so additional surfaces (e.g. partner APIs or mobile applications) can be added without reworking core services.
+
 ---
 
 ## Table of contents
 
-1. [Solution highlights](#solution-highlights)
-2. [Architecture overview](#architecture-overview)
-3. [Repository layout](#repository-layout)
-4. [Quick start](#quick-start)
-5. [Environment configuration](#environment-configuration)
-6. [Developer workflows](#developer-workflows)
-7. [Testing strategy](#testing-strategy)
-8. [Compliance & data residency](#compliance--data-residency)
-9. [Operations & observability](#operations--observability)
-10. [Extending the platform](#extending-the-platform)
-11. [Documentation index](#documentation-index)
-12. [Contributing](#contributing)
-13. [Community & support](#community--support)
-14. [License](#license)
+1. [Who is this starter for?](#who-is-this-starter-for)
+2. [Tech stack at a glance](#tech-stack-at-a-glance)
+3. [Solution highlights](#solution-highlights)
+4. [Architecture overview](#architecture-overview)
+5. [Repository layout](#repository-layout)
+6. [Quick start](#quick-start)
+7. [Environment configuration](#environment-configuration)
+8. [Developer workflows](#developer-workflows)
+9. [Testing strategy](#testing-strategy)
+10. [Compliance & data residency](#compliance--data-residency)
+11. [Operations & observability](#operations--observability)
+12. [Troubleshooting & FAQ](#troubleshooting--faq)
+13. [Extending the platform](#extending-the-platform)
+14. [Documentation index](#documentation-index)
+15. [Contributing](#contributing)
+16. [Community & support](#community--support)
+17. [License](#license)
 
 ---
 
@@ -193,6 +217,13 @@ Run individual services locally by supplying the generated `.env` files or expor
 - `infra/docker-compose.yml` – runnable profile for local development.
 - `infra/migrate.sh` – helper for running database migrations inside the compose stack.
 
+### Local development tips
+
+- **Partial stack boot** – Use service profiles inside `infra/docker-compose.yml` (`gateway`, `identity`, `jobs`, `payments`) to start only what you are actively working on. Pair with `npm run dev` in the relevant frontend for faster feedback.
+- **Environment hydration** – Run `node tooling/load-env.js` to echo the merged environment values that will be injected into services. This mirrors how the compose stack loads shared secrets during container start.
+- **Database migrations** – After changing SQL files under `backend/sql`, rebuild the `backend-migrator` image (`docker compose build backend-migrator`) to ensure the container picks up the latest scripts before running `infra/migrate.sh`.
+- **Iterating on contracts** – Update shared DTOs and gRPC interfaces inside the relevant `backend/services/*` directories, then run `cmake --build build` to regenerate any generated code and keep the gateway aligned with the services.
+
 ---
 
 ## Testing strategy
@@ -228,6 +259,22 @@ Always engage local counsel before production launches and configure region-awar
 - **Health checks** exposed on `/healthz` for REST and gRPC services to integrate with orchestrators.
 
 See [`docs/DEPLOY.md`](docs/DEPLOY.md) for production hardening guidance (autoscaling, secret management, WAF, SSO, backups).
+
+---
+
+## Troubleshooting & FAQ
+
+**Services fail to start in Docker Compose**  
+Check for port collisions (`lsof -i :443`) and confirm your `.env` file has been created from `.env.example`. Compose will log missing variables during startup—run `docker compose --env-file .env -f infra/docker-compose.yml logs -f gateway` to tail service output in real time.
+
+**Certificates appear invalid in the browser**  
+Regenerate them with `bash infra/tls/dev_certs.sh` and import `infra/tls/rootCA.pem` into your system keychain. Browsers such as Chrome may require a full restart before trusting the new CA.
+
+**Backend changes are not reflected**  
+If you rebuilt locally without pruning old artifacts, clear the `build/` directory under `backend` or run `cmake --build build --target clean` before compiling again. When running inside Docker, add `--build` to your compose invocation to ensure the service image is refreshed.
+
+**Where do I find aggregated errors?**  
+Tail `logs/errors.log` for the cross-service error stream and use the admin portal’s “System logs” panel for a UI-first view when you do not have shell access.
 
 ---
 
