@@ -254,6 +254,22 @@ const applySchema = (): void => {
       FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS call_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'scheduled',
+      join_url TEXT NOT NULL,
+      access_token TEXT NOT NULL,
+      created_by INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_call_sessions_conversation
+      ON call_sessions (conversation_id, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS document_signatures (
       id TEXT PRIMARY KEY,
       job_id TEXT NOT NULL,

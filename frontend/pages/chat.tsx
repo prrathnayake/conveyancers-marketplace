@@ -4,6 +4,7 @@ import type { GetServerSideProps } from 'next'
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionUser } from '../lib/session'
 import { getSessionFromRequest } from '../lib/session'
+import { SENSITIVE_RISK_THRESHOLD } from '../lib/ml/sensitive'
 
 interface ChatProps {
   user: SessionUser
@@ -41,6 +42,17 @@ type Invoice = {
   cancelledAt: string | null
 }
 
+type CallSession = {
+  id: number
+  conversationId: number
+  type: 'voice' | 'video'
+  status: string
+  joinUrl: string
+  accessToken: string
+  createdBy: number
+  createdAt: string
+}
+
 type MessageResponse = {
   conversationId: number
   messages: Message[]
@@ -55,6 +67,7 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
   const [selected, setSelected] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [callSessions, setCallSessions] = useState<CallSession[]>([])
   const [hasMore, setHasMore] = useState(false)
   const [cursor, setCursor] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -62,6 +75,7 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
   const [input, setInput] = useState('')
   const [status, setStatus] = useState<'idle' | 'sending'>('idle')
   const [policyWarning, setPolicyWarning] = useState<string | null>(null)
+  const [mlAssessment, setMlAssessment] = useState<{ score: number; indicators: string[] } | null>(null)
   const [settings, setSettings] = useState<{ serviceFeeRate: number; escrowAccountName: string }>({
     serviceFeeRate: 0.05,
     escrowAccountName: 'ConveySafe Trust Account',
@@ -73,6 +87,8 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
   const [invoiceError, setInvoiceError] = useState<string | null>(null)
   const [pendingInvoiceId, setPendingInvoiceId] = useState<number | null>(null)
   const [invoiceActionError, setInvoiceActionError] = useState<{ id: number; message: string } | null>(null)
+  const [callStatus, setCallStatus] = useState<'idle' | 'creating'>('idle')
+  const [callError, setCallError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const threadRef = useRef<HTMLDivElement | null>(null)
 
@@ -172,15 +188,54 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
       setHasMore(false)
       setCursor(null)
       setPolicyWarning(null)
+      setMlAssessment(null)
       setShowInvoiceComposer(false)
       setInvoiceActionError(null)
       setPendingInvoiceId(null)
+      setCallSessions([])
+      setCallError(null)
       return
     }
     const controller = new AbortController()
     void loadConversation({ signal: controller.signal })
     return () => controller.abort()
   }, [loadConversation, selected])
+
+  const loadCallSessions = useCallback(
+    async ({ signal }: { signal?: AbortSignal } = {}) => {
+      if (!selected) {
+        return null
+      }
+      try {
+        setCallError(null)
+        const params = new URLSearchParams({ partnerId: selected.toString() })
+        const response = await fetch(`/api/chat/calls?${params.toString()}`, { signal })
+        if (!response.ok) {
+          throw new Error('failed_to_fetch_calls')
+        }
+        const payload = (await response.json()) as { callSessions: CallSession[] }
+        setCallSessions(payload.callSessions)
+        return payload
+      } catch (error) {
+        if (signal?.aborted) {
+          return null
+        }
+        console.error(error)
+        setCallError('Unable to load call history right now.')
+        return null
+      }
+    },
+    [selected]
+  )
+
+  useEffect(() => {
+    if (!selected) {
+      return
+    }
+    const controller = new AbortController()
+    void loadCallSessions({ signal: controller.signal })
+    return () => controller.abort()
+  }, [loadCallSessions, selected])
 
   const handleSend = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -197,9 +252,19 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
       if (!response.ok) {
         throw new Error('failed_to_send')
       }
-      const payload = (await response.json()) as { policyWarning?: string }
+      const payload = (await response.json()) as {
+        policyWarning?: string
+        mlRiskScore?: number
+        mlIndicators?: string[]
+      }
       setInput('')
       setPolicyWarning(payload.policyWarning ?? null)
+      const mlScore = Number(payload.mlRiskScore ?? 0)
+      if (Number.isFinite(mlScore) && mlScore >= SENSITIVE_RISK_THRESHOLD) {
+        setMlAssessment({ score: mlScore, indicators: payload.mlIndicators ?? [] })
+      } else {
+        setMlAssessment(null)
+      }
       await loadConversation({ silent: true })
     } catch (error) {
       console.error(error)
@@ -261,6 +326,36 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
     }
   }
 
+  const handleScheduleCall = async (type: 'voice' | 'video') => {
+    if (!selected || callStatus === 'creating') {
+      return
+    }
+    setCallStatus('creating')
+    setCallError(null)
+    try {
+      const response = await fetch('/api/chat/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partnerId: selected, type }),
+      })
+      const payload = (await response.json().catch(() => null)) as
+        | { callSession?: CallSession; error?: string }
+        | null
+      if (!response.ok || !payload?.callSession) {
+        throw new Error(payload?.error ?? 'Unable to create call session')
+      }
+      setCallSessions((prev) => {
+        const filtered = prev.filter((session) => session.id !== payload.callSession?.id)
+        return [payload.callSession as CallSession, ...filtered]
+      })
+    } catch (error) {
+      console.error(error)
+      setCallError(error instanceof Error ? error.message : 'Unable to create call session')
+    } finally {
+      setCallStatus('idle')
+    }
+  }
+
   const partner = partners.find((item) => item.id === selected) ?? null
 
   const threadItems = useMemo(() => {
@@ -288,6 +383,17 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
       return new Intl.NumberFormat('en-AU', { style: 'currency', currency }).format(amountCents / 100)
     } catch {
       return `$${(amountCents / 100).toFixed(2)}`
+    }
+  }, [])
+
+  const formatDateTime = useCallback((value: string) => {
+    try {
+      return new Intl.DateTimeFormat('en-AU', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }).format(new Date(value))
+    } catch {
+      return value
     }
   }, [])
 
@@ -444,9 +550,76 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
                     ) : null}
                   </div>
                 </header>
+                <section className="chat-call-panel" aria-label="Voice and video calls">
+                  <div className="chat-call-panel__actions">
+                    <button
+                      type="button"
+                      className="cta-secondary"
+                      onClick={() => void handleScheduleCall('voice')}
+                      disabled={callStatus === 'creating'}
+                    >
+                      {callStatus === 'creating' ? 'Scheduling…' : 'Start voice call'}
+                    </button>
+                    <button
+                      type="button"
+                      className="cta-secondary"
+                      onClick={() => void handleScheduleCall('video')}
+                      disabled={callStatus === 'creating'}
+                    >
+                      {callStatus === 'creating' ? 'Scheduling…' : 'Start video call'}
+                    </button>
+                  </div>
+                  <p className="chat-call-panel__hint">
+                    Each call issues a secure join link and short-lived access token for every participant.
+                  </p>
+                  {callError ? (
+                    <p className="chat-call-panel__error" role="alert">
+                      {callError}
+                    </p>
+                  ) : null}
+                  {callSessions.length ? (
+                    <ul className="chat-call-panel__list">
+                      {callSessions.map((session) => (
+                        <li key={session.id} className="chat-call-panel__item">
+                          <div className="chat-call-panel__header">
+                            <strong>{session.type === 'voice' ? 'Voice call' : 'Video call'}</strong>
+                            <span className="chat-call-panel__status">{session.status}</span>
+                          </div>
+                          <p className="chat-call-panel__meta">Issued {formatDateTime(session.createdAt)}</p>
+                          <p className="chat-call-panel__meta">
+                            Join:{' '}
+                            <a href={session.joinUrl} target="_blank" rel="noreferrer">
+                              {session.joinUrl}
+                            </a>
+                          </p>
+                          <p className="chat-call-panel__meta">
+                            Access token: <code>{session.accessToken}</code>
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="chat-call-panel__empty">
+                      No calls scheduled yet. Launch a voice or video session to collaborate instantly.
+                    </p>
+                  )}
+                </section>
                 {policyWarning ? (
                   <div className="chat-policy-banner" role="status">
                     <strong>ConveySafe reminder:</strong> {policyWarning}
+                  </div>
+                ) : null}
+                {mlAssessment ? (
+                  <div className="chat-ml-banner" role="status">
+                    <strong>Machine learning alert:</strong>{' '}
+                    Risk score {Math.round(Math.min(Math.max(mlAssessment.score, 0), 1) * 100)}% for sensitive content.
+                    {mlAssessment.indicators.length ? (
+                      <ul>
+                        {mlAssessment.indicators.map((indicator, index) => (
+                          <li key={`${indicator}-${index}`}>{indicator}</li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </div>
                 ) : null}
                 {showInvoiceComposer ? (
