@@ -12,7 +12,7 @@ const navItems = [
   { href: '/users', label: 'Customers' },
   { href: '/reviews', label: 'Reviews' },
   { href: '/enquiries', label: 'Enquiries' },
-  { href: '/catalogue', label: 'Service catalogue' },
+  { href: '/catalogue', label: 'Service catalog' },
   { href: '/homepage', label: 'Homepage content' },
   { href: '/cms', label: 'Content & SEO' },
   { href: '/safety', label: 'Safety & ML' },
