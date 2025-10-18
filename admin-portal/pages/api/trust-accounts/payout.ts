@@ -1,7 +1,7 @@
 import type { NextApiResponse } from 'next'
-import { requireRole } from '../../../../../frontend/lib/session'
-import { recordTrustPayout } from '../../../../../frontend/lib/trustAccounts'
-import { withObservability, type ObservedRequest } from '../../../../../frontend/lib/observability'
+import { requireRole } from '../../../../frontend/lib/session'
+import { recordTrustPayout } from '../../../../frontend/lib/trustAccounts'
+import { withObservability, type ObservedRequest } from '../../../../frontend/lib/observability'
 
 const handler = (req: ObservedRequest, res: NextApiResponse): void => {
   const actor = requireRole(req, res, ['admin'])
