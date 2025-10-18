@@ -55,11 +55,11 @@ services:
     ports: ["3310:3310"]
   otel:
     <<: *common-env
-    image: otel/opentelemetry-collector:latest
+    image: otel/opentelemetry-collector-contrib:0.93.0
     command: ["--config=/etc/otel-config.yaml"]
     volumes:
       - ./otel/otel-config.yaml:/etc/otel-config.yaml:ro
-    ports: ["4317:4317"]
+    ports: ["4317:4317", "8888:8888"]
   loki:
     <<: *common-env
     image: grafana/loki:2.9.8
