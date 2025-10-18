@@ -1,10 +1,12 @@
-import type { NextApiRequest, NextApiResponse } from 'next'
+import type { NextApiResponse } from 'next'
 import bcrypt from 'bcryptjs'
 import db from '../../../lib/db'
-import { createSessionCookie } from '../../../lib/session'
+import { createSessionCookie, createRefreshCookie, type SessionUser } from '../../../lib/session'
 import { ensureAdminSeeded } from '../../../lib/adminSeed'
+import { issueRefreshToken } from '../../../lib/authTokens'
+import { withObservability, type ObservedRequest } from '../../../lib/observability'
 
-const handler = (req: NextApiRequest, res: NextApiResponse): void => {
+const handler = (req: ObservedRequest, res: NextApiResponse): void => {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST'])
     res.status(405).end('Method Not Allowed')
@@ -41,10 +43,16 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
     return
   }
 
-  const cookie = createSessionCookie({ sub: user.id, role: user.role as 'buyer' | 'seller' | 'conveyancer' | 'admin' })
+  const { token: refreshToken, expiresAt } = issueRefreshToken(user.id)
+  const sessionCookie = createSessionCookie({
+    sub: user.id,
+    role: user.role as SessionUser['role'],
+  })
+  const refreshCookie = createRefreshCookie(refreshToken, expiresAt)
+
   db.prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?').run(user.id)
-  res.setHeader('Set-Cookie', cookie)
-  res.status(200).json({ ok: true })
+  res.setHeader('Set-Cookie', [sessionCookie, refreshCookie])
+  res.status(200).json({ ok: true, expiresAt })
 }
 
-export default handler
+export default withObservability(handler, { feature: 'auth_login' })

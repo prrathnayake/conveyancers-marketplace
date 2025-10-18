@@ -36,6 +36,10 @@ const COOKIE_NAME =
   process.env.SESSION_COOKIE_NAME?.trim() ||
   (APP_SCOPE === 'admin' ? 'admin_session_token' : 'session_token')
 
+const REFRESH_COOKIE_NAME =
+  process.env.SESSION_REFRESH_COOKIE_NAME?.trim() ||
+  (APP_SCOPE === 'admin' ? 'admin_refresh_token' : 'refresh_token')
+
 const MAX_AGE_SECONDS = 60 * 60 * 12
 
 declare global {
@@ -64,8 +68,8 @@ const jwtSecret = (): string => {
   throw new Error('JWT_SECRET environment variable is not configured')
 }
 
-const serializeCookie = (value: string, options: SerializeOptions = {}): string => {
-  return cookie.serialize(COOKIE_NAME, value, {
+const serializeCookie = (name: string, value: string, options: SerializeOptions = {}): string => {
+  return cookie.serialize(name, value, {
     httpOnly: true,
     sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
@@ -76,10 +80,18 @@ const serializeCookie = (value: string, options: SerializeOptions = {}): string 
 
 export const createSessionCookie = (session: JwtSession): string => {
   const token = jwt.sign(session, jwtSecret(), { expiresIn: MAX_AGE_SECONDS })
-  return serializeCookie(token, { maxAge: MAX_AGE_SECONDS })
+  return serializeCookie(COOKIE_NAME, token, { maxAge: MAX_AGE_SECONDS })
 }
 
-export const destroySessionCookie = (): string => serializeCookie('', { maxAge: 0 })
+export const destroySessionCookie = (): string => serializeCookie(COOKIE_NAME, '', { maxAge: 0 })
+
+export const createRefreshCookie = (token: string, expiresAt: string): string => {
+  const expires = new Date(expiresAt)
+  const maxAge = Math.max(60, Math.floor((expires.getTime() - Date.now()) / 1000))
+  return serializeCookie(REFRESH_COOKIE_NAME, token, { maxAge })
+}
+
+export const destroyRefreshCookie = (): string => serializeCookie(REFRESH_COOKIE_NAME, '', { maxAge: 0 })
 
 const decodeSession = (token: string): JwtSession | null => {
   try {
@@ -143,6 +155,16 @@ export const getSessionFromRequest = (req: RequestWithCookies): SessionUser | nu
     return null
   }
   return getUserById(session.sub)
+}
+
+export const getRefreshTokenFromRequest = (req: RequestWithCookies): string | null => {
+  const cookiesHeader = req.headers.cookie
+  if (!cookiesHeader) {
+    return null
+  }
+  const cookies = cookie.parse(Array.isArray(cookiesHeader) ? cookiesHeader.join('; ') : cookiesHeader)
+  const token = cookies[REFRESH_COOKIE_NAME]
+  return token ?? null
 }
 
 export const requireRole = (

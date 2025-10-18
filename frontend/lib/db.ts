@@ -201,6 +201,105 @@ const applySchema = (): void => {
       FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS document_signatures (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      provider_reference TEXT DEFAULT '',
+      certificate_hash TEXT DEFAULT '',
+      signed_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS document_signature_signers (
+      id TEXT PRIMARY KEY,
+      signature_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      completed INTEGER DEFAULT 0,
+      completed_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(signature_id) REFERENCES document_signatures(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS document_signature_audit (
+      id TEXT PRIMARY KEY,
+      signature_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      metadata TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      previous_hash TEXT DEFAULT '',
+      entry_hash TEXT NOT NULL,
+      FOREIGN KEY(signature_id) REFERENCES document_signatures(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS milestone_quotes (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      milestone_id TEXT NOT NULL,
+      description TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      issued_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME,
+      last_notified_at DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS quote_notifications (
+      id TEXT PRIMARY KEY,
+      quote_id TEXT NOT NULL,
+      message TEXT NOT NULL,
+      delivered INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(quote_id) REFERENCES milestone_quotes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS trust_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conveyancer_id INTEGER NOT NULL,
+      account_name TEXT NOT NULL,
+      account_number TEXT NOT NULL,
+      bsb TEXT NOT NULL,
+      compliance_status TEXT NOT NULL DEFAULT 'pending',
+      last_reconciled_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(account_number, bsb),
+      FOREIGN KEY(conveyancer_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS trust_payout_reports (
+      id TEXT PRIMARY KEY,
+      trust_account_id INTEGER NOT NULL,
+      payment_id TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      processed_at DATETIME NOT NULL,
+      reviewer TEXT NOT NULL,
+      notes TEXT DEFAULT '',
+      certificate_hash TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(trust_account_id) REFERENCES trust_accounts(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS auth_refresh_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      revoked INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_document_signatures_job ON document_signatures(job_id);
+    CREATE INDEX IF NOT EXISTS idx_document_signatures_document ON document_signatures(document_id);
+    CREATE INDEX IF NOT EXISTS idx_milestone_quotes_job ON milestone_quotes(job_id);
+    CREATE INDEX IF NOT EXISTS idx_trust_accounts_conveyancer ON trust_accounts(conveyancer_id);
+    CREATE INDEX IF NOT EXISTS idx_auth_refresh_tokens_user ON auth_refresh_tokens(user_id);
+
     CREATE TABLE IF NOT EXISTS chat_invoices (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       conversation_id INTEGER NOT NULL,
@@ -314,6 +413,7 @@ export const ensureSchema = (): void => {
   ensureColumn('service_catalogue', 'preview_markdown', "preview_markdown TEXT DEFAULT ''")
   ensureColumn('service_catalogue', 'features', "features TEXT DEFAULT '[]'")
   ensureColumn('chat_invoices', 'refunded_cents', 'refunded_cents INTEGER DEFAULT 0')
+  ensureColumn('document_signature_signers', 'created_at', 'created_at DATETIME DEFAULT CURRENT_TIMESTAMP')
   schemaInitialized = true
 }
 
