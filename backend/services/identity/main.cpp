@@ -1324,6 +1324,11 @@ json ParseJson(const httplib::Request &req, httplib::Response &res) {
   }
 }
 
+void RespondInvalidPayload(httplib::Response &res) {
+  res.status = 400;
+  res.set_content(R"({"error":"invalid_payload"})", "application/json");
+}
+
 bool RequireFields(const json &payload, httplib::Response &res,
                    const std::vector<std::string> &fields) {
   for (const auto &field : fields) {
@@ -1447,29 +1452,32 @@ int main() {
                   {"checkedAt", result.checked_at}};
         res.set_content(body.dump(), "application/json");
         return;
-      } catch (const std::exception &ex) {
-        res.status = 400;
-        res.set_content(json{{"error", ex.what()}}.dump(), "application/json");
+      } catch (const std::exception &) {
+        RespondInvalidPayload(res);
         return;
       }
     }
     if (!RequireFields(payload, res, {"reference", "approved"})) {
       return;
     }
-    const auto reference = payload["reference"].get<std::string>();
-    const auto approved = payload["approved"].get<bool>();
-    const auto provider = payload.value("provider", std::string{"Manual update"});
-    const auto checked_at = payload.value("checkedAt", CurrentIso8601Timestamp());
-    if (!Store().UpdateKycStatus(profile_id, reference, approved, provider, checked_at)) {
-      res.status = 404;
-      res.set_content(R"({"error":"profile_not_found"})", "application/json");
-      return;
+    try {
+      const auto reference = payload["reference"].get<std::string>();
+      const auto approved = payload["approved"].get<bool>();
+      const auto provider = payload.value("provider", std::string{"Manual update"});
+      const auto checked_at = payload.value("checkedAt", CurrentIso8601Timestamp());
+      if (!Store().UpdateKycStatus(profile_id, reference, approved, provider, checked_at)) {
+        res.status = 404;
+        res.set_content(R"({"error":"profile_not_found"})", "application/json");
+        return;
+      }
+      json body{{"ok", approved},
+                {"reference", reference},
+                {"provider", provider},
+                {"checkedAt", checked_at}};
+      res.set_content(body.dump(), "application/json");
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
     }
-    json body{{"ok", approved},
-              {"reference", reference},
-              {"provider", provider},
-              {"checkedAt", checked_at}};
-    res.set_content(body.dump(), "application/json");
   });
 
   server.Post(R"(/profiles/([\w_-]+)/verification)",
@@ -1490,17 +1498,21 @@ int main() {
                                     "licence_verified"})) {
                   return;
                 }
-                const auto licence_number = payload["licence_number"].get<std::string>();
-                const auto insurance_provider = payload["insurance_provider"].get<std::string>();
-                const auto insurance_expiry = payload["insurance_expiry"].get<std::string>();
-                const auto licence_verified = payload["licence_verified"].get<bool>();
-                if (!Store().UpdateLicence(profile_id, licence_number, insurance_provider,
-                                           insurance_expiry, licence_verified)) {
-                  res.status = 404;
-                  res.set_content(R"({"error":"profile_not_found"})", "application/json");
-                  return;
+                try {
+                  const auto licence_number = payload["licence_number"].get<std::string>();
+                  const auto insurance_provider = payload["insurance_provider"].get<std::string>();
+                  const auto insurance_expiry = payload["insurance_expiry"].get<std::string>();
+                  const auto licence_verified = payload["licence_verified"].get<bool>();
+                  if (!Store().UpdateLicence(profile_id, licence_number, insurance_provider,
+                                             insurance_expiry, licence_verified)) {
+                    res.status = 404;
+                    res.set_content(R"({"error":"profile_not_found"})", "application/json");
+                    return;
+                  }
+                  res.set_content(R"({"ok":true})", "application/json");
+                } catch (const json::exception &) {
+                  RespondInvalidPayload(res);
                 }
-                res.set_content(R"({"ok":true})", "application/json");
               });
 
   server.Patch(R"(/profiles/([\w_-]+))", [](const httplib::Request &req, httplib::Response &res) {
@@ -1521,16 +1533,20 @@ int main() {
       res.set_content(R"({"error":"missing_field","field":"biography"})", "application/json");
       return;
     }
-    auto biography = payload.value("biography", std::string{});
-    auto services = payload.value("services", std::vector<std::string>{});
-    auto specialties = payload.value("specialties", std::vector<std::string>{});
-    auto suburb = payload.value("suburb", std::string{});
-    if (!Store().UpdateProfile(profile_id, biography, services, specialties, suburb)) {
-      res.status = 404;
-      res.set_content(R"({"error":"profile_not_found"})", "application/json");
-      return;
+    try {
+      auto biography = payload.value("biography", std::string{});
+      auto services = payload.value("services", std::vector<std::string>{});
+      auto specialties = payload.value("specialties", std::vector<std::string>{});
+      auto suburb = payload.value("suburb", std::string{});
+      if (!Store().UpdateProfile(profile_id, biography, services, specialties, suburb)) {
+        res.status = 404;
+        res.set_content(R"({"error":"profile_not_found"})", "application/json");
+        return;
+      }
+      res.set_content(R"({"ok":true})", "application/json");
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
     }
-    res.set_content(R"({"ok":true})", "application/json");
   });
 
   server.Post(R"(/profiles/([\w_-]+)/reviews)", [](const httplib::Request &req, httplib::Response &res) {
@@ -1549,15 +1565,25 @@ int main() {
     if (!RequireFields(payload, res, {"author_name", "rating", "comment", "role"})) {
       return;
     }
-    const auto rating = payload["rating"].get<int>();
+    int rating = 0;
+    std::string author_name;
+    std::string role;
+    std::string comment;
+    try {
+      rating = payload["rating"].get<int>();
+      author_name = payload["author_name"].get<std::string>();
+      role = payload["role"].get<std::string>();
+      comment = payload["comment"].get<std::string>();
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
+      return;
+    }
     if (rating < 1 || rating > 5) {
       res.status = 400;
       res.set_content(R"({"error":"invalid_rating"})", "application/json");
       return;
     }
-    if (!Store().AddReview(profile_id, payload["author_name"].get<std::string>(),
-                           payload["role"].get<std::string>(), rating,
-                           payload["comment"].get<std::string>())) {
+    if (!Store().AddReview(profile_id, author_name, role, rating, comment)) {
       res.status = 404;
       res.set_content(R"({"error":"profile_not_found"})", "application/json");
       return;
@@ -1580,14 +1606,22 @@ int main() {
     if (!RequireFields(payload, res, {"account_id", "policy_version"})) {
       return;
     }
-    const auto account_id = payload["account_id"].get<std::string>();
+    std::string account_id;
+    std::string policy_version;
+    bool marketing_opt_in = false;
+    try {
+      account_id = payload["account_id"].get<std::string>();
+      policy_version = payload["policy_version"].get<std::string>();
+      marketing_opt_in = payload.value("marketing_opt_in", false);
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
+      return;
+    }
     if (!RequireSelfOrAdmin(req, res, account_id)) {
       return;
     }
-    const bool marketing_opt_in = payload.value("marketing_opt_in", false);
     const auto actor_account = ActorAccountId(req);
-    if (!Store().RecordPrivacyConsent(account_id, payload["policy_version"].get<std::string>(),
-                                      marketing_opt_in, actor_account)) {
+    if (!Store().RecordPrivacyConsent(account_id, policy_version, marketing_opt_in, actor_account)) {
       res.status = 404;
       res.set_content(R"({"error":"account_not_found"})", "application/json");
       return;
@@ -1631,7 +1665,17 @@ int main() {
     if (res.status == 400 && !res.body.empty()) {
       return;
     }
-    std::string account_id = payload.value("account_id", std::string{});
+    std::string account_id;
+    std::string reason;
+    std::string contact;
+    try {
+      account_id = payload.value("account_id", std::string{});
+      reason = payload.value("reason", std::string{});
+      contact = payload.value("contact", std::string{});
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
+      return;
+    }
     if (account_id.empty()) {
       account_id = ActorAccountId(req);
     }
@@ -1643,13 +1687,11 @@ int main() {
     if (!RequireSelfOrAdmin(req, res, account_id)) {
       return;
     }
-    const auto reason = payload.value("reason", std::string{});
     if (reason.empty()) {
       res.status = 400;
       res.set_content(R"({"error":"missing_field","field":"reason"})", "application/json");
       return;
     }
-    const auto contact = payload.value("contact", std::string{});
     const auto actor_account = ActorAccountId(req);
     if (auto request = Store().SubmitErasureRequest(account_id, actor_account, reason, contact)) {
       res.status = 202;
@@ -1691,13 +1733,20 @@ int main() {
                 if (!RequireFields(payload, res, {"status"})) {
                   return;
                 }
-                std::string status = payload["status"].get<std::string>();
+                std::string status;
+                std::string notes;
+                try {
+                  status = payload["status"].get<std::string>();
+                  notes = payload.value("notes", std::string{});
+                } catch (const json::exception &) {
+                  RespondInvalidPayload(res);
+                  return;
+                }
                 if (status != "approved" && status != "rejected" && status != "pending") {
                   res.status = 400;
                   res.set_content(R"({"error":"invalid_status"})", "application/json");
                   return;
                 }
-                const auto notes = payload.value("notes", std::string{});
                 const auto actor_account = ActorAccountId(req);
                 if (auto request =
                         Store().ResolveErasureRequest(request_id, actor_account, status, notes)) {
@@ -1722,9 +1771,17 @@ int main() {
     if (!RequireFields(payload, res, {"account_id"})) {
       return;
     }
-    const auto target_account = payload["account_id"].get<std::string>();
-    const auto reason = payload.value("reason", std::string{"Assisted support session"});
-    int ttl = payload.value("ttl_minutes", 15);
+    std::string target_account;
+    std::string reason;
+    int ttl = 15;
+    try {
+      target_account = payload["account_id"].get<std::string>();
+      reason = payload.value("reason", std::string{"Assisted support session"});
+      ttl = payload.value("ttl_minutes", 15);
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
+      return;
+    }
     if (ttl <= 0) {
       ttl = 15;
     }
@@ -1765,7 +1822,13 @@ int main() {
     if (!RequireFields(payload, res, {"account_id"})) {
       return;
     }
-    const auto account_id = payload["account_id"].get<std::string>();
+    std::string account_id;
+    try {
+      account_id = payload["account_id"].get<std::string>();
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
+      return;
+    }
     std::string new_secret;
     const auto actor_account = ActorAccountId(req);
     if (!Store().ResetTwoFactorSecret(account_id, actor_account, &new_secret)) {
@@ -1798,10 +1861,19 @@ int main() {
     if (!RequireFields(payload, res, {"profile_id", "reference", "approved"})) {
       return;
     }
-    const auto profile_id = payload["profile_id"].get<std::string>();
-    const auto reference = payload["reference"].get<std::string>();
-    const auto approved = payload["approved"].get<bool>();
-    const auto notes = payload.value("notes", std::string{});
+    std::string profile_id;
+    std::string reference;
+    bool approved = false;
+    std::string notes;
+    try {
+      profile_id = payload["profile_id"].get<std::string>();
+      reference = payload["reference"].get<std::string>();
+      approved = payload["approved"].get<bool>();
+      notes = payload.value("notes", std::string{});
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
+      return;
+    }
     const auto actor_account = ActorAccountId(req);
     if (!Store().OverrideKycWithReason(profile_id, reference, approved, actor_account, notes)) {
       res.status = 404;
@@ -1819,7 +1891,29 @@ int main() {
     if (!RequireFields(payload, res, {"email", "password", "role", "full_name", "state", "suburb"})) {
       return;
     }
-    const auto role = payload["role"].get<std::string>();
+    std::string email;
+    std::string password;
+    std::string role;
+    std::string full_name;
+    std::string state;
+    std::string suburb;
+    std::vector<std::string> services;
+    std::vector<std::string> specialties;
+    std::string biography;
+    try {
+      email = payload["email"].get<std::string>();
+      password = payload["password"].get<std::string>();
+      role = payload["role"].get<std::string>();
+      full_name = payload["full_name"].get<std::string>();
+      state = payload["state"].get<std::string>();
+      suburb = payload["suburb"].get<std::string>();
+      services = payload.value("services", std::vector<std::string>{});
+      specialties = payload.value("specialties", std::vector<std::string>{});
+      biography = payload.value("biography", std::string{""});
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
+      return;
+    }
     static const std::unordered_set<std::string> allowed_roles{"buyer", "seller", "conveyancer", "admin"};
     if (allowed_roles.count(role) == 0) {
       res.status = 400;
@@ -1827,16 +1921,11 @@ int main() {
       return;
     }
     try {
-      const auto registration = Store().RegisterAccount(
-          payload["email"].get<std::string>(), payload["password"].get<std::string>(), role,
-          payload["full_name"].get<std::string>(), payload["state"].get<std::string>(),
-          payload["suburb"].get<std::string>(),
-          payload.value("services", std::vector<std::string>{}),
-          payload.value("specialties", std::vector<std::string>{}),
-          payload.value("biography", std::string{""}));
+      const auto registration =
+          Store().RegisterAccount(email, password, role, full_name, state, suburb, services, specialties,
+                                  biography);
 
-      const auto otp_uri = BuildOtpAuthUri(payload["email"].get<std::string>(),
-                                           registration.two_factor_secret);
+      const auto otp_uri = BuildOtpAuthUri(email, registration.two_factor_secret);
       res.set_content(json{{"account_id", registration.account_id},
                            {"status", "pending_verification"},
                            {"two_factor_setup",
@@ -1862,16 +1951,25 @@ int main() {
     if (!RequireFields(payload, res, {"email", "password"})) {
       return;
     }
-    const auto email = payload["email"].get<std::string>();
-    const auto password = payload["password"].get<std::string>();
+    std::string email;
+    std::string password;
+    std::string existing_token;
+    std::string code;
+    try {
+      email = payload["email"].get<std::string>();
+      password = payload["password"].get<std::string>();
+      existing_token = payload.value("two_factor_token", std::string{});
+      code = payload.value("two_factor_code", std::string{});
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
+      return;
+    }
     const auto account = Store().Authenticate(email, password);
     if (!account) {
       res.status = 401;
       res.set_content(R"({"error":"invalid_credentials"})", "application/json");
       return;
     }
-    const auto existing_token = payload.value("two_factor_token", std::string{});
-    const auto code = payload.value("two_factor_code", std::string{});
     if (!existing_token.empty() && !code.empty()) {
       std::string session_token;
       json failure_metadata;
@@ -1926,8 +2024,12 @@ int main() {
         return;
       }
     }
-    const auto retention_days = payload.value("retention_days", 365);
-    res.set_content(Store().PurgeAuditLog(retention_days).dump(), "application/json");
+    try {
+      const auto retention_days = payload.value("retention_days", 365);
+      res.set_content(Store().PurgeAuditLog(retention_days).dump(), "application/json");
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
+    }
   });
 
   constexpr auto kBindAddress = "0.0.0.0";

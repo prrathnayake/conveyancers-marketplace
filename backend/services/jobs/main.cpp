@@ -1265,6 +1265,11 @@ json ParseJson(const httplib::Request &req, httplib::Response &res) {
   }
 }
 
+void RespondInvalidPayload(httplib::Response &res) {
+  res.status = 400;
+  res.set_content(R"({"error":"invalid_payload"})", "application/json");
+}
+
 bool RequireFields(const json &payload, httplib::Response &res,
                    const std::vector<std::string> &fields) {
   for (const auto &field : fields) {
@@ -1328,36 +1333,40 @@ int main() {
                        {"title", "state", "conveyancer_id", "buyer_name", "seller_name", "escrow_enabled"})) {
       return;
     }
-    std::vector<Milestone> milestones;
-    if (payload.contains("milestones") && payload["milestones"].is_array()) {
-      for (const auto &entry : payload["milestones"]) {
-        Milestone milestone;
-        milestone.id = entry.value("id", "");
-        milestone.title = entry.value("title", "Client milestone");
-        milestone.status = entry.value("status", "pending");
-        milestone.due_date = entry.value("due_date", "");
-        milestone.escrow_funded = entry.value("escrow_funded", false);
-        milestone.assigned_to = entry.value("assigned_to", payload["conveyancer_id"].get<std::string>());
-        milestone.updated_at = entry.value("updated_at", "");
-        milestones.push_back(milestone);
+    try {
+      const auto conveyancer_id = payload["conveyancer_id"].get<std::string>();
+      std::vector<Milestone> milestones;
+      if (payload.contains("milestones") && payload["milestones"].is_array()) {
+        for (const auto &entry : payload["milestones"]) {
+          Milestone milestone;
+          milestone.id = entry.value("id", "");
+          milestone.title = entry.value("title", "Client milestone");
+          milestone.status = entry.value("status", "pending");
+          milestone.due_date = entry.value("due_date", "");
+          milestone.escrow_funded = entry.value("escrow_funded", false);
+          milestone.assigned_to = entry.value("assigned_to", conveyancer_id);
+          milestone.updated_at = entry.value("updated_at", "");
+          milestones.push_back(milestone);
+        }
       }
+      auto job = Store().Create(payload["title"].get<std::string>(), payload["state"].get<std::string>(),
+                                conveyancer_id, payload["buyer_name"].get<std::string>(),
+                                payload["seller_name"].get<std::string>(),
+                                payload["escrow_enabled"].get<bool>(), milestones);
+      if (!job) {
+        res.status = 500;
+        res.set_content(R"({"error":"job_creation_failed"})", "application/json");
+        return;
+      }
+      const auto role = req.get_header_value("X-Actor-Role");
+      const bool include_internal = role == "admin" || role == "finance_admin";
+      const bool reveal_contact = include_internal || job->contact_policy.unlocked;
+      res.status = 201;
+      res.set_content(JobDetailToJson(*job, reveal_contact, include_internal, role).dump(),
+                      "application/json");
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
     }
-    auto job = Store().Create(payload["title"].get<std::string>(), payload["state"].get<std::string>(),
-                              payload["conveyancer_id"].get<std::string>(),
-                              payload["buyer_name"].get<std::string>(),
-                              payload["seller_name"].get<std::string>(),
-                              payload["escrow_enabled"].get<bool>(), milestones);
-    if (!job) {
-      res.status = 500;
-      res.set_content(R"({"error":"job_creation_failed"})", "application/json");
-      return;
-    }
-    const auto role = req.get_header_value("X-Actor-Role");
-    const bool include_internal = role == "admin" || role == "finance_admin";
-    const bool reveal_contact = include_internal || job->contact_policy.unlocked;
-    res.status = 201;
-    res.set_content(JobDetailToJson(*job, reveal_contact, include_internal, role).dump(),
-                    "application/json");
   });
 
   server.Get(R"(/jobs/([\w_-]+))", [](const httplib::Request &req, httplib::Response &res) {
@@ -1417,16 +1426,19 @@ int main() {
     if (!RequireFields(payload, res, {"title", "due_date", "assigned_to"})) {
       return;
     }
-    if (auto milestone =
-            Store().AddMilestone(job_id, payload["title"].get<std::string>(),
-                                 payload["due_date"].get<std::string>(),
-                                 payload["assigned_to"].get<std::string>())) {
-      res.status = 201;
-      res.set_content(MilestoneToJson(*milestone).dump(), "application/json");
-      return;
+    try {
+      if (auto milestone = Store().AddMilestone(job_id, payload["title"].get<std::string>(),
+                                               payload["due_date"].get<std::string>(),
+                                               payload["assigned_to"].get<std::string>())) {
+        res.status = 201;
+        res.set_content(MilestoneToJson(*milestone).dump(), "application/json");
+        return;
+      }
+      res.status = 404;
+      res.set_content(R"({"error":"job_not_found"})", "application/json");
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
     }
-    res.status = 404;
-    res.set_content(R"({"error":"job_not_found"})", "application/json");
   });
 
   server.Patch(R"(/jobs/([\w_-]+)/milestones/([\w_-]+))",
@@ -1444,19 +1456,23 @@ int main() {
                  if (res.status == 400 && !res.body.empty()) {
                    return;
                  }
-                 const auto status = payload.value("status", std::string{"pending"});
-                 auto due_date = std::optional<std::string>{};
-                 if (payload.contains("due_date") && payload["due_date"].is_string()) {
-                   due_date = payload["due_date"].get<std::string>();
-                 }
-                 const auto escrow_funded = payload.value("escrow_funded", false);
-                 if (Store().UpdateMilestone(job_id, milestone_id, status, due_date, escrow_funded)) {
-                   res.set_content(R"({"ok":true})", "application/json");
-                   return;
-                 }
-                 res.status = 404;
-                 res.set_content(R"({"error":"milestone_not_found"})", "application/json");
-               });
+                try {
+                  const auto status = payload.value("status", std::string{"pending"});
+                  auto due_date = std::optional<std::string>{};
+                  if (payload.contains("due_date") && payload["due_date"].is_string()) {
+                    due_date = payload["due_date"].get<std::string>();
+                  }
+                  const auto escrow_funded = payload.value("escrow_funded", false);
+                  if (Store().UpdateMilestone(job_id, milestone_id, status, due_date, escrow_funded)) {
+                    res.set_content(R"({"ok":true})", "application/json");
+                    return;
+                  }
+                  res.status = 404;
+                  res.set_content(R"({"error":"milestone_not_found"})", "application/json");
+                } catch (const json::exception &) {
+                  RespondInvalidPayload(res);
+                }
+              });
 
   server.Get(R"(/jobs/([\w_-]+)/chat)", [](const httplib::Request &req, httplib::Response &res) {
     if (!security::Authorize(req, res, "jobs")) {
@@ -1495,14 +1511,18 @@ int main() {
     if (!RequireFields(payload, res, {"sender", "body"})) {
       return;
     }
-    if (auto message = Store().AddMessage(job_id, payload["sender"].get<std::string>(),
-                                          payload["body"].get<std::string>())) {
-      res.status = 201;
-      res.set_content(MessageToJson(*message).dump(), "application/json");
-      return;
+    try {
+      if (auto message = Store().AddMessage(job_id, payload["sender"].get<std::string>(),
+                                            payload["body"].get<std::string>())) {
+        res.status = 201;
+        res.set_content(MessageToJson(*message).dump(), "application/json");
+        return;
+      }
+      res.status = 404;
+      res.set_content(R"({"error":"job_not_found"})", "application/json");
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
     }
-    res.status = 404;
-    res.set_content(R"({"error":"job_not_found"})", "application/json");
   });
 
   server.Get(R"(/jobs/([\w_-]+)/documents)", [](const httplib::Request &req, httplib::Response &res) {
@@ -1546,27 +1566,31 @@ int main() {
                        {"name", "requires_signature", "content_type", "uploaded_by"})) {
       return;
     }
-    std::vector<std::string> access_roles;
-    if (payload.contains("access_roles") && payload["access_roles"].is_array()) {
-      for (const auto &entry : payload["access_roles"]) {
-        if (entry.is_string()) {
-          access_roles.push_back(entry.get<std::string>());
+    try {
+      std::vector<std::string> access_roles;
+      if (payload.contains("access_roles") && payload["access_roles"].is_array()) {
+        for (const auto &entry : payload["access_roles"]) {
+          if (entry.is_string()) {
+            access_roles.push_back(entry.get<std::string>());
+          }
         }
       }
+      const auto checksum = payload.value("checksum", std::string{});
+      const bool encrypted = payload.value("encrypted", true);
+      if (auto document = Store().AddDocument(job_id, payload["name"].get<std::string>(),
+                                              payload["requires_signature"].get<bool>(),
+                                              payload["content_type"].get<std::string>(),
+                                              payload["uploaded_by"].get<std::string>(), access_roles,
+                                              checksum, encrypted)) {
+        res.status = 201;
+        res.set_content(DocumentToJson(*document, true).dump(), "application/json");
+        return;
+      }
+      res.status = 404;
+      res.set_content(R"({"error":"job_not_found"})", "application/json");
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
     }
-    const auto checksum = payload.value("checksum", std::string{});
-    const bool encrypted = payload.value("encrypted", true);
-    if (auto document = Store().AddDocument(job_id, payload["name"].get<std::string>(),
-                                            payload["requires_signature"].get<bool>(),
-                                            payload["content_type"].get<std::string>(),
-                                            payload["uploaded_by"].get<std::string>(), access_roles,
-                                            checksum, encrypted)) {
-      res.status = 201;
-      res.set_content(DocumentToJson(*document, true).dump(), "application/json");
-      return;
-    }
-    res.status = 404;
-    res.set_content(R"({"error":"job_not_found"})", "application/json");
   });
 
   server.Post(R"(/jobs/([\w_-]+)/documents/([\w_-]+)/sign)",
@@ -1624,17 +1648,21 @@ int main() {
                 if (!RequireFields(payload, res, {"uploaded_by", "content_type"})) {
                   return;
                 }
-                const auto checksum = payload.value("checksum", std::string{});
-                const bool encrypted = payload.value("encrypted", true);
-                if (auto updated = Store().AppendDocumentVersion(job_id, document_id,
-                                                                 payload["uploaded_by"].get<std::string>(),
-                                                                 payload["content_type"].get<std::string>(), checksum,
-                                                                 encrypted)) {
-                  res.set_content(DocumentToJson(*updated, true).dump(), "application/json");
-                  return;
+                try {
+                  const auto checksum = payload.value("checksum", std::string{});
+                  const bool encrypted = payload.value("encrypted", true);
+                  if (auto updated = Store().AppendDocumentVersion(job_id, document_id,
+                                                                   payload["uploaded_by"].get<std::string>(),
+                                                                   payload["content_type"].get<std::string>(),
+                                                                   checksum, encrypted)) {
+                    res.set_content(DocumentToJson(*updated, true).dump(), "application/json");
+                    return;
+                  }
+                  res.status = 404;
+                  res.set_content(R"({"error":"document_not_found"})", "application/json");
+                } catch (const json::exception &) {
+                  RespondInvalidPayload(res);
                 }
-                res.status = 404;
-                res.set_content(R"({"error":"document_not_found"})", "application/json");
               });
 
   server.Post(R"(/jobs/([\w_-]+)/complete)", [](const httplib::Request &req, httplib::Response &res) {
@@ -1649,13 +1677,17 @@ int main() {
     if (res.status == 400 && !res.body.empty()) {
       return;
     }
-    const auto summary = payload.value("summary", std::string{"Escrow release pending"});
-    if (Store().CompleteJob(job_id, summary)) {
-      res.set_content(R"({"ok":true})", "application/json");
-      return;
+    try {
+      const auto summary = payload.value("summary", std::string{"Escrow release pending"});
+      if (Store().CompleteJob(job_id, summary)) {
+        res.set_content(R"({"ok":true})", "application/json");
+        return;
+      }
+      res.status = 404;
+      res.set_content(R"({"error":"job_not_found"})", "application/json");
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
     }
-    res.status = 404;
-    res.set_content(R"({"error":"job_not_found"})", "application/json");
   });
 
   server.Post(R"(/jobs/([\w_-]+)/disputes)", [](const httplib::Request &req, httplib::Response &res) {
@@ -1674,14 +1706,18 @@ int main() {
     if (!RequireFields(payload, res, {"type", "description"})) {
       return;
     }
-    if (auto dispute = Store().CreateDispute(job_id, payload["type"].get<std::string>(),
-                                             payload["description"].get<std::string>())) {
-      res.status = 201;
-      res.set_content(DisputeToJson(*dispute).dump(), "application/json");
-      return;
+    try {
+      if (auto dispute = Store().CreateDispute(job_id, payload["type"].get<std::string>(),
+                                               payload["description"].get<std::string>())) {
+        res.status = 201;
+        res.set_content(DisputeToJson(*dispute).dump(), "application/json");
+        return;
+      }
+      res.status = 404;
+      res.set_content(R"({"error":"job_not_found"})", "application/json");
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
     }
-    res.status = 404;
-    res.set_content(R"({"error":"job_not_found"})", "application/json");
   });
 
   server.Get(R"(/jobs/([\w_-]+)/disputes)", [](const httplib::Request &req, httplib::Response &res) {
@@ -1722,21 +1758,25 @@ int main() {
                 if (!RequireFields(payload, res, {"status"})) {
                   return;
                 }
-                std::vector<std::string> evidence;
-                if (payload.contains("evidence_urls") && payload["evidence_urls"].is_array()) {
-                  for (const auto &value : payload["evidence_urls"]) {
-                    if (value.is_string()) {
-                      evidence.push_back(value.get<std::string>());
+                try {
+                  std::vector<std::string> evidence;
+                  if (payload.contains("evidence_urls") && payload["evidence_urls"].is_array()) {
+                    for (const auto &value : payload["evidence_urls"]) {
+                      if (value.is_string()) {
+                        evidence.push_back(value.get<std::string>());
+                      }
                     }
                   }
+                  if (Store().UpdateDisputeStatus(job_id, dispute_id,
+                                                  payload["status"].get<std::string>(), evidence)) {
+                    res.set_content(R"({"ok":true})", "application/json");
+                    return;
+                  }
+                  res.status = 404;
+                  res.set_content(R"({"error":"dispute_not_found"})", "application/json");
+                } catch (const json::exception &) {
+                  RespondInvalidPayload(res);
                 }
-                if (Store().UpdateDisputeStatus(job_id, dispute_id,
-                                                payload["status"].get<std::string>(), evidence)) {
-                  res.set_content(R"({"ok":true})", "application/json");
-                  return;
-                }
-                res.status = 404;
-                res.set_content(R"({"error":"dispute_not_found"})", "application/json");
               });
 
   server.Get(R"(/jobs/([\w_-]+)/contact)", [](const httplib::Request &req, httplib::Response &res) {
@@ -1774,7 +1814,13 @@ int main() {
     if (!RequireFields(payload, res, {"token"})) {
       return;
     }
-    const auto token = payload["token"].get<std::string>();
+    std::string token;
+    try {
+      token = payload["token"].get<std::string>();
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
+      return;
+    }
     if (!security::VerifyScopedToken("contact", job_id, token)) {
       res.status = 403;
       res.set_content(R"({"error":"invalid_token"})", "application/json");
@@ -1809,21 +1855,28 @@ int main() {
     if (!RequireFields(payload, res, {"type", "created_by"})) {
       return;
     }
-    const auto type = payload["type"].get<std::string>();
+    std::string type;
+    std::string created_by;
+    std::vector<std::string> participants;
+    try {
+      type = payload["type"].get<std::string>();
+      if (payload.contains("participants") && payload["participants"].is_array()) {
+        for (const auto &value : payload["participants"]) {
+          if (value.is_string()) {
+            participants.push_back(value.get<std::string>());
+          }
+        }
+      }
+      created_by = payload["created_by"].get<std::string>();
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
+      return;
+    }
     if (type != "voice" && type != "video") {
       res.status = 400;
       res.set_content(R"({"error":"invalid_call_type"})", "application/json");
       return;
     }
-    std::vector<std::string> participants;
-    if (payload.contains("participants") && payload["participants"].is_array()) {
-      for (const auto &value : payload["participants"]) {
-        if (value.is_string()) {
-          participants.push_back(value.get<std::string>());
-        }
-      }
-    }
-    const auto created_by = payload["created_by"].get<std::string>();
     if (auto session = Store().CreateCallSession(job_id, type, created_by, participants)) {
       const auto role = req.get_header_value("X-Actor-Role");
       const bool include_internal = role == "admin";
@@ -1904,21 +1957,25 @@ int main() {
       res.set_content(R"({"error":"invalid_tasks"})", "application/json");
       return;
     }
-    std::vector<TemplateTask> tasks;
-    for (const auto &entry : payload["tasks"]) {
-      TemplateTask task;
-      task.id = entry.value("id", GenerateId("tt_"));
-      task.title = entry.value("title", std::string{"Checklist item"});
-      task.default_assignee = entry.value("default_assignee", std::string{});
-      task.due_in_days = entry.value("due_in_days", 0);
-      task.escrow_required = entry.value("escrow_required", false);
-      tasks.push_back(task);
+    try {
+      std::vector<TemplateTask> tasks;
+      for (const auto &entry : payload["tasks"]) {
+        TemplateTask task;
+        task.id = entry.value("id", GenerateId("tt_"));
+        task.title = entry.value("title", std::string{"Checklist item"});
+        task.default_assignee = entry.value("default_assignee", std::string{});
+        task.due_in_days = entry.value("due_in_days", 0);
+        task.escrow_required = entry.value("escrow_required", false);
+        tasks.push_back(task);
+      }
+      auto created = Templates().Create(payload["name"].get<std::string>(),
+                                        payload["jurisdiction"].get<std::string>(),
+                                        payload["description"].get<std::string>(), tasks);
+      res.status = 201;
+      res.set_content(TemplateToJson(created).dump(), "application/json");
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
     }
-    auto created = Templates().Create(payload["name"].get<std::string>(),
-                                      payload["jurisdiction"].get<std::string>(),
-                                      payload["description"].get<std::string>(), tasks);
-    res.status = 201;
-    res.set_content(TemplateToJson(created).dump(), "application/json");
   });
 
   server.Post(R"(/jobs/([\w_-]+)/templates/apply)", [](const httplib::Request &req, httplib::Response &res) {
@@ -1936,7 +1993,13 @@ int main() {
     if (!RequireFields(payload, res, {"template_id"})) {
       return;
     }
-    const auto template_id = payload["template_id"].get<std::string>();
+    std::string template_id;
+    try {
+      template_id = payload["template_id"].get<std::string>();
+    } catch (const json::exception &) {
+      RespondInvalidPayload(res);
+      return;
+    }
     auto definition = Templates().Get(template_id);
     if (!definition) {
       res.status = 404;
