@@ -1078,6 +1078,28 @@ select {
   border-color: rgba(248, 113, 113, 0.32);
 }
 
+.admin-repeatable {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.admin-repeatable__label {
+  font-weight: 600;
+  color: var(--admin-text);
+}
+
+.admin-repeatable__item {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.admin-repeatable__item .admin-input {
+  flex: 1;
+}
+
 .admin-input-with-addon {
   display: grid;
   grid-template-columns: 1fr auto;
