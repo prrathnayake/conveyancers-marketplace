@@ -85,7 +85,26 @@ if (!fs.existsSync(databaseDirectory)) {
 }
 
 const db = new Database(databasePath)
-db.pragma('journal_mode = WAL')
+
+db.pragma('busy_timeout = 5000')
+
+const ensureWalJournalMode = (): void => {
+  try {
+    db.pragma('journal_mode = WAL')
+  } catch (error) {
+    const code = typeof error === 'object' && error !== null && 'code' in error ? (error as { code?: string }).code : undefined
+    if (code !== 'SQLITE_BUSY') {
+      throw error
+    }
+    // Another process is holding an exclusive lock. Continue with the default
+    // journal mode so read operations can still succeed during builds.
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn('[db] Unable to enable WAL journal mode because the database is locked. Continuing with default journal mode.')
+    }
+  }
+}
+
+ensureWalJournalMode()
 
 const applySchema = (): void => {
   db.exec(`
