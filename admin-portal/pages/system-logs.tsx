@@ -1,6 +1,13 @@
 import Head from 'next/head'
 import type { GetServerSideProps } from 'next'
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from 'react'
 
 import AdminLayout from '../components/AdminLayout'
 import type { SessionUser } from '../../frontend/lib/session'
@@ -40,8 +47,12 @@ const AdminSystemLogs = ({ user }: SystemLogsPageProps): JSX.Element => {
   const [servicesLoading, setServicesLoading] = useState(true)
   const [entriesLoading, setEntriesLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const latestServiceRequest = useRef(0)
+  const latestEntriesRequest = useRef(0)
 
   const loadEntries = useCallback(async (service: string) => {
+    const requestId = latestEntriesRequest.current + 1
+    latestEntriesRequest.current = requestId
     try {
       setEntriesLoading(true)
       setError(null)
@@ -55,16 +66,24 @@ const AdminSystemLogs = ({ user }: SystemLogsPageProps): JSX.Element => {
         throw new Error(message)
       }
       const data = payload as SystemLogsEntriesResponse
-      setEntries(data.entries)
+      if (latestEntriesRequest.current === requestId) {
+        setEntries(data.entries)
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load log entries')
-      setEntries([])
+      if (latestEntriesRequest.current === requestId) {
+        setError(err instanceof Error ? err.message : 'Unable to load log entries')
+        setEntries([])
+      }
     } finally {
-      setEntriesLoading(false)
+      if (latestEntriesRequest.current === requestId) {
+        setEntriesLoading(false)
+      }
     }
   }, [])
 
   const loadServices = useCallback(async (): Promise<string | null> => {
+    const requestId = latestServiceRequest.current + 1
+    latestServiceRequest.current = requestId
     try {
       setServicesLoading(true)
       setError(null)
@@ -77,6 +96,10 @@ const AdminSystemLogs = ({ user }: SystemLogsPageProps): JSX.Element => {
             : 'Failed to load log services'
         throw new Error(message)
       }
+      if (latestServiceRequest.current !== requestId) {
+        return null
+      }
+
       const data = payload as SystemLogsListResponse
       setServices(data.services)
       if (data.services.length === 0) {
@@ -98,13 +121,17 @@ const AdminSystemLogs = ({ user }: SystemLogsPageProps): JSX.Element => {
       await loadEntries(nextService)
       return nextService
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load available logs')
-      setServices([])
-      setSelectedService('')
-      setEntries([])
+      if (latestServiceRequest.current === requestId) {
+        setError(err instanceof Error ? err.message : 'Unable to load available logs')
+        setServices([])
+        setSelectedService('')
+        setEntries([])
+      }
       return null
     } finally {
-      setServicesLoading(false)
+      if (latestServiceRequest.current === requestId) {
+        setServicesLoading(false)
+      }
     }
   }, [loadEntries])
 
