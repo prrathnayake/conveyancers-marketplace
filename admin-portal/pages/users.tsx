@@ -117,6 +117,7 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
       status: 'all',
     }
   )
+  const [search, setSearch] = useState('')
   const [formState, setFormState] = useState<UserFormState>(emptyForm)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
@@ -125,7 +126,7 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
   const [showPassword, setShowPassword] = useState(false)
   const [generatedPassword, setGeneratedPassword] = useState<string | null>(null)
 
-  const loadUsers = async (nextFilters = filters) => {
+  const loadUsers = async (nextFilters = filters, nextSearch = search) => {
     setLoading(true)
     setError(null)
     try {
@@ -135,6 +136,10 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
       }
       if (nextFilters.status !== 'all') {
         params.set('status', nextFilters.status)
+      }
+      const normalizedSearch = nextSearch.trim()
+      if (normalizedSearch) {
+        params.set('search', normalizedSearch)
       }
       const response = await fetch(`/api/users${params.toString() ? `?${params.toString()}` : ''}`)
       if (!response.ok) {
@@ -150,9 +155,12 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
   }
 
   useEffect(() => {
-    void loadUsers(filters)
+    const timeout = setTimeout(() => {
+      void loadUsers(filters, search)
+    }, 300)
+    return () => clearTimeout(timeout)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.role, filters.status])
+  }, [filters.role, filters.status, search])
 
   const resetForm = () => {
     setSelectedId(null)
@@ -350,6 +358,16 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
         ) : null}
         <div className="admin-filters">
           <label className="admin-form__label">
+            Search
+            <input
+              className="admin-input"
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Filter by name, email, or notes"
+            />
+          </label>
+          <label className="admin-form__label">
             Role filter
             <select
               className="admin-select"
@@ -513,7 +531,6 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
                   setFormState((prev) => ({ ...prev, status: event.target.value as typeof prev.status }))
                 }
                 required
-                disabled={!selectedId}
               >
                 {statusOptions.map((option) => (
                   <option key={option.value} value={option.value}>
