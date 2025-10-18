@@ -113,7 +113,7 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
   const [records, setRecords] = useState<ManagedUser[]>([])
   const [filters, setFilters] = useState<{ role: 'all' | 'customer' | ManagedUser['role']; status: 'all' | ManagedUser['status'] }>(
     {
-      role: 'all',
+      role: 'customer',
       status: 'all',
     }
   )
