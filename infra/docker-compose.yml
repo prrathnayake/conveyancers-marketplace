@@ -51,8 +51,18 @@ services:
     ports: ["9000:9000","9001:9001"]
   clamav:
     <<: *common-env
-    image: clamav/clamav:1.2
+    image: clamav/clamav:1.4
+    environment:
+      CLAMD_CONF_LocalSocket: /run/clamav/clamd.sock
+      CLAMD_CONF_FixStaleSocket: "yes"
+      CLAMD_CONF_LogFile: /dev/stdout
+      CLAMD_CONF_LogTime: "yes"
+      CLAMD_STARTUP_TIMEOUT: 120
+      FRESHCLAM_CONF_LogFile: /dev/stdout
+      FRESHCLAM_CONF_LogTime: "yes"
     ports: ["3310:3310"]
+    volumes:
+      - clamavdb:/var/lib/clamav
   otel:
     <<: *common-env
     image: otel/opentelemetry-collector-contrib:0.93.0
@@ -169,3 +179,4 @@ services:
 volumes:
   pgdata: {}
   miniodata: {}
+  clamavdb: {}
