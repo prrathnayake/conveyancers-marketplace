@@ -37,6 +37,8 @@ export type ConveyancerProfileRow = {
   verified: number
   rating: number
   review_count: number
+  profile_image_mime: string | null
+  profile_image_data: string | null
 }
 
 type ConveyancerJobHistoryRow = {
@@ -73,13 +75,14 @@ export const findConveyancerProfile = (conveyancerId: number): ConveyancerProfil
     .prepare(
       `SELECT u.id, u.full_name, cp.firm_name, cp.bio, cp.phone, cp.state, cp.suburb, cp.website, cp.remote_friendly,
               cp.turnaround, cp.response_time, cp.specialties, cp.verified,
-              COALESCE(AVG(r.rating), 0) AS rating, COUNT(r.id) AS review_count
+              COALESCE(AVG(r.rating), 0) AS rating, COUNT(r.id) AS review_count,
+              u.profile_image_mime, u.profile_image_data
          FROM users u
          JOIN conveyancer_profiles cp ON cp.user_id = u.id
     LEFT JOIN conveyancer_reviews r ON r.conveyancer_id = u.id
         WHERE u.id = ? AND u.role = 'conveyancer'
      GROUP BY u.id, cp.firm_name, cp.bio, cp.phone, cp.state, cp.suburb, cp.website, cp.remote_friendly,
-              cp.turnaround, cp.response_time, cp.specialties, cp.verified`
+              cp.turnaround, cp.response_time, cp.specialties, cp.verified, u.profile_image_mime, u.profile_image_data`
     )
     .get(conveyancerId) as ConveyancerProfileRow | undefined
 
@@ -131,6 +134,10 @@ export const buildConveyancerProfile = (
     contactPhone: revealPhone ? row.phone : null,
     hasContactAccess: revealPhone,
     jurisdictionRestricted: restricted,
+    profileImage:
+      row.profile_image_data && row.profile_image_mime
+        ? `data:${row.profile_image_mime};base64,${row.profile_image_data}`
+        : null,
     jobHistory: history.map((entry) => ({
       matterType: entry.matter_type,
       completedAt: entry.completed_at,

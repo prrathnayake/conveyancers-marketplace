@@ -30,7 +30,7 @@ const UserMenu = (): JSX.Element | null => {
         aria-label={`${user.fullName} account menu`}
       >
         <span className="user-avatar" aria-hidden="true">
-          {user.fullName.charAt(0)}
+          {user.profileImageUrl ? <img src={user.profileImageUrl} alt="" /> : user.fullName.charAt(0)}
         </span>
       </button>
       <div className="user-dropdown" role="menu">

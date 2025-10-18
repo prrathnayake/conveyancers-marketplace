@@ -46,6 +46,20 @@ const Layout: FC<LayoutProps> = ({ children }) => {
   }, [router.pathname])
 
   const [banner, setBanner] = useState<string>('')
+  const [branding, setBranding] = useState<{ name: string; tagline: string; logo: string; phone: string }>(() => ({
+    name: 'Conveyancers Marketplace',
+    tagline: 'Settlement workflows without friction',
+    logo: '',
+    phone: '+61 2 1234 5678',
+  }))
+  const logoFallback = useMemo(() => {
+    const initials = branding.name
+      .split(/\s+/)
+      .filter((segment) => segment.length > 0)
+      .map((segment) => segment[0]?.toUpperCase() ?? '')
+      .join('')
+    return initials.slice(0, 2) || 'CM'
+  }, [branding.name])
   const [isPageLoading, setIsPageLoading] = useState(false)
   const [isNavOpen, setIsNavOpen] = useState(false)
   const navPanelId = useId()
@@ -83,7 +97,14 @@ const Layout: FC<LayoutProps> = ({ children }) => {
           return
         }
         const payload = (await response.json()) as { settings?: Record<string, string> }
-        setBanner(payload.settings?.statusBanner ?? '')
+        const settings = payload.settings ?? {}
+        setBanner(settings.statusBanner ?? '')
+        setBranding({
+          name: settings.organisationName ?? 'Conveyancers Marketplace',
+          tagline: settings.organisationTagline ?? 'Settlement workflows without friction',
+          logo: settings.organisationLogo ?? '',
+          phone: settings.supportPhone ?? '+61 2 1234 5678',
+        })
       } catch (error) {
         if (!(error instanceof DOMException)) {
           console.error('Failed to load settings', error)
@@ -118,18 +139,25 @@ const Layout: FC<LayoutProps> = ({ children }) => {
           <span className="site-header__topline-text">
             Trusted by development, lending, and conveyancing teams for frictionless settlements.
           </span>
+          <span className="site-header__topline-text site-header__topline-text--secondary">
+            Support: {branding.phone}
+          </span>
           <Link href="/search?tab=jobs" className="site-header__topline-link">
             View live matters
           </Link>
         </div>
         <div className="site-header__bar">
-          <Link href="/" className="site-logo" aria-label="Conveyancers Marketplace home">
-            <span className="site-logo__mark" aria-hidden="true">
-              CM
-            </span>
+          <Link href="/" className="site-logo" aria-label={`${branding.name} home`}>
+            {branding.logo ? (
+              <span className="site-logo__image" aria-hidden="true">
+                <img src={branding.logo} alt="" />
+              </span>
+            ) : (
+              <span className="site-logo__mark" aria-hidden="true">{logoFallback}</span>
+            )}
             <span className="site-logo__text">
-              <span className="site-logo__title">Conveyancers Marketplace</span>
-              <span className="site-logo__subtitle">Settlement workflows without friction</span>
+              <span className="site-logo__title">{branding.name}</span>
+              <span className="site-logo__subtitle">{branding.tagline}</span>
             </span>
           </Link>
           <nav aria-label="Primary" className="site-nav" data-state={isNavOpen ? 'open' : 'closed'}>

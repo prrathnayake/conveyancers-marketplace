@@ -5,6 +5,7 @@ import { createSessionCookie, createRefreshCookie, type SessionUser } from '../.
 import { ensureAdminSeeded } from '../../../lib/adminSeed'
 import { issueRefreshToken } from '../../../lib/authTokens'
 import { withObservability, type ObservedRequest } from '../../../lib/observability'
+import { recomputeVerificationStatus } from '../../../lib/verification'
 
 const handler = (req: ObservedRequest, res: NextApiResponse): void => {
   if (req.method !== 'POST') {
@@ -52,7 +53,9 @@ const handler = (req: ObservedRequest, res: NextApiResponse): void => {
 
   db.prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?').run(user.id)
   res.setHeader('Set-Cookie', [sessionCookie, refreshCookie])
-  res.status(200).json({ ok: true, expiresAt })
+
+  const verification = recomputeVerificationStatus(user.id)
+  res.status(200).json({ ok: true, expiresAt, verificationRequired: !verification.overallVerified, verification })
 }
 
 export default withObservability(handler, { feature: 'auth_login' })

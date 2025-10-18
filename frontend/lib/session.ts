@@ -4,6 +4,7 @@ import crypto from 'crypto'
 import * as cookie from 'cookie'
 import type { SerializeOptions } from 'cookie'
 import db from './db'
+import { getVerificationSummary, type VerificationSummary } from './verification'
 
 type JwtSession = {
   sub: number
@@ -16,6 +17,10 @@ export type SessionUser = {
   role: JwtSession['role']
   fullName: string
   status: 'active' | 'suspended' | 'invited'
+  phone: string | null
+  verification: VerificationSummary
+  profileImageUrl: string | null
+  profileImageUpdatedAt: string | null
 }
 
 const detectAppScope = (): 'admin' | 'public' => {
@@ -116,19 +121,41 @@ const decodeSession = (token: string): JwtSession | null => {
   }
 }
 
+const buildProfileImageUrl = (mime: string | null, data: string | null): string | null => {
+  if (!mime || !data) {
+    return null
+  }
+  const trimmedMime = mime.trim().toLowerCase()
+  if (!trimmedMime.startsWith('image/')) {
+    return null
+  }
+  if (!data.match(/^[a-z0-9+/=]+$/i)) {
+    return null
+  }
+  return `data:${trimmedMime};base64,${data}`
+}
+
 const mapUser = (row: any): SessionUser | null => {
   if (!row) return null
+  const verification = getVerificationSummary(row.id as number)
   return {
     id: row.id as number,
     email: row.email as string,
     role: row.role as SessionUser['role'],
     fullName: row.full_name as string,
     status: (row.status as SessionUser['status']) ?? 'active',
+    phone: (row.phone as string | null) ?? null,
+    verification,
+    profileImageUrl: buildProfileImageUrl(row.profile_image_mime as string | null, row.profile_image_data as string | null),
+    profileImageUpdatedAt: (row.profile_image_updated_at as string | null) ?? null,
   }
 }
 
 export const getUserById = (id: number): SessionUser | null => {
-  const stmt = db.prepare('SELECT id, email, role, full_name, status FROM users WHERE id = ?')
+  const stmt = db.prepare(
+    `SELECT id, email, role, full_name, status, phone, profile_image_data, profile_image_mime, profile_image_updated_at
+       FROM users WHERE id = ?`
+  )
   return mapUser(stmt.get(id))
 }
 

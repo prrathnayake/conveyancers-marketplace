@@ -19,6 +19,10 @@ type SettingsFormState = {
   statusBanner: string
   serviceFeeRate: string
   escrowAccountName: string
+  organisationName: string
+  organisationTagline: string
+  organisationLogo: string
+  supportPhone: string
 }
 
 type SettingsPageProps = {
@@ -30,10 +34,41 @@ const SettingsPage = ({ user, initialSettings }: SettingsPageProps): JSX.Element
   const [settings, setSettings] = useState<SettingsFormState>(initialSettings)
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [logoError, setLogoError] = useState<string | null>(null)
 
   const handleChange = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = event.target
     setSettings((prev) => ({ ...prev, [name]: value }))
+  }
+
+  const handleLogoChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) {
+      return
+    }
+    if (!file.type.startsWith('image/')) {
+      setLogoError('Upload a PNG, JPG, or WebP logo.')
+      return
+    }
+    if (file.size > 512 * 1024) {
+      setLogoError('Logo files must be under 512 KB.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setSettings((prev) => ({ ...prev, organisationLogo: reader.result as string }))
+        setLogoError(null)
+      } else {
+        setLogoError('Unable to read logo file.')
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleLogoRemove = () => {
+    setSettings((prev) => ({ ...prev, organisationLogo: '' }))
+    setLogoError(null)
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -52,6 +87,10 @@ const SettingsPage = ({ user, initialSettings }: SettingsPageProps): JSX.Element
             statusBanner: settings.statusBanner,
             serviceFeeRate: normalisedRate.toString(),
             escrowAccountName: settings.escrowAccountName.trim(),
+            organisationName: settings.organisationName.trim(),
+            organisationTagline: settings.organisationTagline.trim(),
+            organisationLogo: settings.organisationLogo,
+            supportPhone: settings.supportPhone.trim(),
           },
         }),
       })
@@ -84,6 +123,50 @@ const SettingsPage = ({ user, initialSettings }: SettingsPageProps): JSX.Element
         </header>
         <form className="admin-form" onSubmit={handleSubmit}>
           <fieldset>
+            <legend>Branding</legend>
+            <label className="admin-form__label">
+              <span>Organisation name</span>
+              <input
+                name="organisationName"
+                className="admin-input"
+                value={settings.organisationName}
+                onChange={handleChange}
+                required
+              />
+            </label>
+            <label className="admin-form__label">
+              <span>Tagline</span>
+              <input
+                name="organisationTagline"
+                className="admin-input"
+                value={settings.organisationTagline}
+                onChange={handleChange}
+              />
+            </label>
+            <div className="admin-logo-uploader">
+              <div className="admin-logo-preview" aria-live="polite">
+                {settings.organisationLogo ? (
+                  <img src={settings.organisationLogo} alt="Organisation logo preview" />
+                ) : (
+                  <span aria-hidden="true">{settings.organisationName.charAt(0)}</span>
+                )}
+              </div>
+              <div className="admin-logo-actions">
+                <label className="admin-form__label">
+                  <span>System logo</span>
+                  <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleLogoChange} />
+                </label>
+                <div className="admin-logo-buttons">
+                  <button type="button" className="cta-secondary" onClick={handleLogoRemove} disabled={!settings.organisationLogo}>
+                    Remove logo
+                  </button>
+                </div>
+                <p className="admin-field__help">Used in navigation bars across the marketplace and admin portal.</p>
+                {logoError ? <p className="admin-status admin-status--error">{logoError}</p> : null}
+              </div>
+            </div>
+          </fieldset>
+          <fieldset>
             <legend>Messaging</legend>
             <label className="admin-form__label">
               <span>Support email</span>
@@ -94,6 +177,16 @@ const SettingsPage = ({ user, initialSettings }: SettingsPageProps): JSX.Element
                 value={settings.supportEmail}
                 onChange={handleChange}
                 required
+              />
+            </label>
+            <label className="admin-form__label">
+              <span>Support phone</span>
+              <input
+                name="supportPhone"
+                className="admin-input"
+                value={settings.supportPhone}
+                onChange={handleChange}
+                placeholder="e.g. +61 2 1234 5678"
               />
             </label>
             <label className="admin-form__label admin-form__label--span">
@@ -180,6 +273,10 @@ export const getServerSideProps: GetServerSideProps<SettingsPageProps> = async (
     statusBanner: payload.settings.statusBanner ?? '',
     serviceFeeRate: formatRateInput(payload.settings.serviceFeeRate),
     escrowAccountName: payload.settings.escrowAccountName ?? 'ConveySafe Trust Account',
+    organisationName: payload.settings.organisationName ?? 'Conveyancers Marketplace',
+    organisationTagline: payload.settings.organisationTagline ?? 'Settlement workflows without friction',
+    organisationLogo: payload.settings.organisationLogo ?? '',
+    supportPhone: payload.settings.supportPhone ?? '',
   }
 
   return { props: { user, initialSettings } }

@@ -2,7 +2,16 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 
 import db, { ensureSchema } from '../../../lib/db'
 
-const PUBLIC_KEYS = new Set(['statusBanner', 'supportEmail', 'serviceFeeRate', 'escrowAccountName'])
+const PUBLIC_KEYS = new Set([
+  'statusBanner',
+  'supportEmail',
+  'serviceFeeRate',
+  'escrowAccountName',
+  'organisationName',
+  'organisationTagline',
+  'organisationLogo',
+  'supportPhone',
+])
 
 const handler = (_req: NextApiRequest, res: NextApiResponse): void => {
   ensureSchema()

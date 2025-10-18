@@ -33,6 +33,10 @@ const AdminLayout: FC<AdminLayoutProps> = ({ children, user }) => {
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const [loggingOut, setLoggingOut] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const [branding, setBranding] = useState<{ name: string; logo: string }>(() => ({
+    name: 'Marketplace Control',
+    logo: '',
+  }))
 
   const displayName = (user?.fullName ?? 'Administrator').trim() || 'Administrator'
   const displayEmail = user?.email ?? ''
@@ -43,6 +47,25 @@ const AdminLayout: FC<AdminLayoutProps> = ({ children, user }) => {
   const initials = nameSegments
     .map((segment) => segment[0]?.toUpperCase() ?? '')
     .join('') || 'AD'
+
+  useEffect(() => {
+    const loadBranding = async () => {
+      try {
+        const response = await fetch('/api/settings')
+        if (!response.ok) {
+          return
+        }
+        const payload = (await response.json()) as { settings: Record<string, string> }
+        setBranding({
+          name: payload.settings.organisationName ?? 'Marketplace Control',
+          logo: payload.settings.organisationLogo ?? '',
+        })
+      } catch (error) {
+        console.error('Failed to load admin branding', error)
+      }
+    }
+    void loadBranding()
+  }, [])
 
   useEffect(() => {
     if (!menuOpen) {
@@ -123,8 +146,14 @@ const AdminLayout: FC<AdminLayoutProps> = ({ children, user }) => {
     <div className="admin-shell">
       <aside className="admin-sidebar">
         <div className="admin-branding">
-          <span className="admin-branding__mark">CM</span>
-          <span className="admin-branding__title">Marketplace Control</span>
+          {branding.logo ? (
+            <span className="admin-branding__image" aria-hidden="true">
+              <img src={branding.logo} alt="" />
+            </span>
+          ) : (
+            <span className="admin-branding__mark">CM</span>
+          )}
+          <span className="admin-branding__title">{branding.name}</span>
         </div>
         <nav aria-label="Admin navigation" className="admin-nav">
           {navItems.map((item) => {

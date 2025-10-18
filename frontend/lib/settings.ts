@@ -5,6 +5,10 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   statusBanner: '',
   serviceFeeRate: '0.05',
   escrowAccountName: 'ConveySafe Trust Account',
+  organisationName: 'Conveyancers Marketplace',
+  organisationTagline: 'Settlement workflows without friction',
+  organisationLogo: '',
+  supportPhone: '+61 2 1234 5678',
 }
 
 export const getSetting = (key: string, fallback?: string): string => {

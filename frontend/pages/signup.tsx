@@ -12,6 +12,7 @@ const SignupPage = (): JSX.Element => {
     password: '',
     fullName: '',
     role: 'buyer',
+    phone: '',
   })
   const [status, setStatus] = useState<'idle' | 'loading'>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -26,6 +27,11 @@ const SignupPage = (): JSX.Element => {
     event.preventDefault()
     setStatus('loading')
     setError(null)
+    const errorMessages: Record<string, string> = {
+      email_in_use: 'This email is already registered.',
+      invalid_phone: 'Enter a valid mobile number with an area or country code.',
+      weak_password: 'Choose a stronger password (minimum eight characters).',
+    }
     try {
       const response = await fetch('/api/auth/signup', {
         method: 'POST',
@@ -34,10 +40,11 @@ const SignupPage = (): JSX.Element => {
       })
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null
-        throw new Error(payload?.error ?? 'signup_failed')
+        const code = payload?.error ?? 'signup_failed'
+        throw new Error(errorMessages[code] ?? 'We could not create your account. Please try again.')
       }
       await refresh()
-      await router.push('/account')
+      await router.push('/account/verify')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unexpected error')
     } finally {
@@ -108,6 +115,20 @@ const SignupPage = (): JSX.Element => {
                 {showPassword ? 'Hide' : 'Show'}
               </button>
             </div>
+            <label htmlFor="phone" className="field-label">
+              Mobile number
+            </label>
+            <input
+              id="phone"
+              name="phone"
+              type="tel"
+              value={form.phone}
+              onChange={handleChange}
+              className="input"
+              required
+              autoComplete="tel"
+              placeholder="e.g. +61 400 000 000"
+            />
             <label htmlFor="role" className="field-label">
               Role
             </label>

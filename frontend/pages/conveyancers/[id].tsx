@@ -27,6 +27,7 @@ type ConveyancerProfile = {
   contactPhone: string | null
   hasContactAccess: boolean
   jurisdictionRestricted: boolean
+  profileImage: string | null
   jobHistory: Array<{
     matterType: string
     completedAt: string
@@ -242,21 +243,26 @@ const ConveyancerProfilePage = ({ profile, viewer, reviews: initialReviews }: Co
       <main className="page">
         <article className="profile-card" aria-labelledby="profile-heading">
           <header className="profile-card__header">
-            <div>
-              <p className="profile-card__badge">
-                {profile.verified ? 'Verified conveyancer' : 'Awaiting ConveySafe verification'}
-              </p>
-              <h1 id="profile-heading">{profile.firmName}</h1>
-              <p className="profile-card__lead">Led by {profile.fullName}</p>
-              <p className="profile-card__location">
-                {profile.suburb}, {profile.state}
-              </p>
+          <div className="profile-card__identity">
+            <p className="profile-card__badge">
+              {profile.verified ? 'Verified conveyancer' : 'Awaiting ConveySafe verification'}
+            </p>
+            <h1 id="profile-heading">{profile.firmName}</h1>
+            <p className="profile-card__lead">Led by {profile.fullName}</p>
+            <p className="profile-card__location">
+              {profile.suburb}, {profile.state}
+            </p>
+          </div>
+          {profile.profileImage ? (
+            <div className="profile-card__photo">
+              <img src={profile.profileImage} alt={`${profile.firmName} profile`} />
             </div>
-            <div className="profile-card__rating" aria-label={`Rated ${averageRating.toFixed(1)} out of 5`}>
-              <span aria-hidden="true">{renderStars(averageRating)}</span>
-              <strong>{averageRating.toFixed(1)}</strong>
-              <span>{reviewCount} review{reviewCount === 1 ? '' : 's'}</span>
-            </div>
+          ) : null}
+          <div className="profile-card__rating" aria-label={`Rated ${averageRating.toFixed(1)} out of 5`}>
+            <span aria-hidden="true">{renderStars(averageRating)}</span>
+            <strong>{averageRating.toFixed(1)}</strong>
+            <span>{reviewCount} review{reviewCount === 1 ? '' : 's'}</span>
+          </div>
           </header>
           <section className="profile-card__body">
             <div className="profile-card__primary">
