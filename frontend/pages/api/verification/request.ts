@@ -5,8 +5,17 @@ import { issueVerificationCode } from '../../../lib/otp'
 import { normalizePhoneNumber } from '../../../lib/phone'
 import { recomputeVerificationStatus } from '../../../lib/verification'
 import { requireAuth } from '../../../lib/session'
+import { sendEmail, sendSms } from '../../../lib/notifications'
 
-const handler = (req: NextApiRequest, res: NextApiResponse): void => {
+const formatExpiryMinutes = (expiresAtIso: string): number => {
+  const expires = new Date(expiresAtIso)
+  if (Number.isNaN(expires.getTime())) {
+    return 10
+  }
+  return Math.max(1, Math.round((expires.getTime() - Date.now()) / (60 * 1000)))
+}
+
+const handler = async (req: NextApiRequest, res: NextApiResponse): Promise<void> => {
   const user = requireAuth(req, res)
   if (!user) {
     return
@@ -42,6 +51,23 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
         ? { phone: user.phone }
         : {}
     const issuance = issueVerificationCode(user.id, channel, { metadata })
+    const expiryMinutes = formatExpiryMinutes(issuance.expiresAt)
+    if (channel === 'email') {
+      await sendEmail({
+        to: user.email,
+        subject: 'Verify your Conveyancers Marketplace account',
+        html: `
+          <p>Hi ${user.fullName},</p>
+          <p>Your verification code is <strong>${issuance.code}</strong>. Enter this code within the next ${expiryMinutes} minutes to confirm your email address.</p>
+          <p>If you did not request this, you can ignore this email.</p>
+        `,
+      })
+    } else if (user.phone) {
+      await sendSms({
+        to: user.phone,
+        body: `Conveyancers Marketplace code: ${issuance.code}. It expires in ${expiryMinutes} minutes.`,
+      })
+    }
     const verification = recomputeVerificationStatus(user.id)
 
     const payload: Record<string, unknown> = {

@@ -21,6 +21,10 @@ type DbUser = {
   full_name: string
   role: string
   status: string
+  phone: string | null
+  email_verified_at: string | null
+  phone_verified_at: string | null
+  is_verified: number
   created_at: string
   last_login_at: string | null
 }
@@ -31,8 +35,17 @@ type ManagedUser = {
   fullName: string
   role: 'buyer' | 'seller' | 'conveyancer' | 'admin'
   status: 'active' | 'suspended' | 'invited'
+  phone: string | null
+  emailVerifiedAt: string | null
+  phoneVerifiedAt: string | null
+  overallVerified: boolean
   createdAt: string
   lastLoginAt: string | null
+  jobStats: {
+    total: number
+    active: number
+    completed: number
+  }
   customerProfile: null | {
     preferredContactMethod: 'email' | 'phone' | 'sms'
     notes: string
@@ -45,6 +58,9 @@ const sanitizeFullName = (value: string): string => value.replace(/\s+/g, ' ').t
 const mapUser = (row: DbUser & {
   preferred_contact_method?: string | null
   notes?: string | null
+  job_total?: number | null
+  job_active?: number | null
+  job_completed?: number | null
 }): ManagedUser => {
   const base: ManagedUser = {
     id: row.id,
@@ -52,8 +68,17 @@ const mapUser = (row: DbUser & {
     fullName: row.full_name,
     role: row.role as ManagedUser['role'],
     status: (row.status as ManagedUser['status']) ?? 'active',
+    phone: row.phone ?? null,
+    emailVerifiedAt: row.email_verified_at ?? null,
+    phoneVerifiedAt: row.phone_verified_at ?? null,
+    overallVerified: Boolean(row.is_verified),
     createdAt: row.created_at,
     lastLoginAt: row.last_login_at,
+    jobStats: {
+      total: Number(row.job_total ?? 0),
+      active: Number(row.job_active ?? 0),
+      completed: Number(row.job_completed ?? 0),
+    },
     customerProfile: null,
   }
 
@@ -151,16 +176,41 @@ const listUsers = (filters: { role?: string; status?: string; search?: string })
               u.full_name,
               u.role,
               u.status,
+              u.phone,
+              u.email_verified_at,
+              u.phone_verified_at,
+              u.is_verified,
               u.created_at,
               u.last_login_at,
               cp.preferred_contact_method,
-              cp.notes
+              cp.notes,
+              js.total_jobs AS job_total,
+              js.active_jobs AS job_active,
+              js.completed_jobs AS job_completed
          FROM users u
     LEFT JOIN customer_profiles cp ON cp.user_id = u.id
+    LEFT JOIN (
+          SELECT customer_id,
+                 COUNT(*) AS total_jobs,
+                 SUM(CASE WHEN status IN ('pending','in_progress') THEN 1 ELSE 0 END) AS active_jobs,
+                 SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed_jobs
+            FROM customer_jobs
+        GROUP BY customer_id
+        ) js ON js.customer_id = u.id
         ${where}
      ORDER BY u.created_at DESC`
     )
-    .all(...params) as Array<DbUser & { preferred_contact_method?: string | null; notes?: string | null }>
+    .all(
+      ...params
+    ) as Array<
+      DbUser & {
+        preferred_contact_method?: string | null
+        notes?: string | null
+        job_total?: number | null
+        job_active?: number | null
+        job_completed?: number | null
+      }
+    >
   return rows.map(mapUser)
 }
 

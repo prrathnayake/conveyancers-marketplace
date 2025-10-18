@@ -98,3 +98,19 @@ export const saveCatalogueEntries = (entries: CatalogueEntry[], actor: SessionUs
     })
   }
 }
+
+export const deleteCatalogueEntry = (slug: string, actor: SessionUser): void => {
+  const normalized = slug.trim().toLowerCase()
+  if (!normalized) {
+    throw new Error('invalid_slug')
+  }
+  const result = db.prepare('DELETE FROM service_catalogue WHERE slug = ?').run(normalized)
+  if (!result.changes) {
+    throw new Error('not_found')
+  }
+  recordAuditEvent(actor, {
+    action: 'service_catalogue.deleted',
+    entity: 'service_catalogue',
+    entityId: normalized,
+  })
+}

@@ -12,8 +12,17 @@ type ManagedUser = {
   fullName: string
   role: SessionUser['role']
   status: 'active' | 'suspended' | 'invited'
+  phone: string | null
+  emailVerifiedAt: string | null
+  phoneVerifiedAt: string | null
+  overallVerified: boolean
   createdAt: string
   lastLoginAt: string | null
+  jobStats: {
+    total: number
+    active: number
+    completed: number
+  }
   customerProfile: null | {
     preferredContactMethod: 'email' | 'phone' | 'sms'
     notes: string
@@ -407,6 +416,7 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
                 <th scope="col">Email</th>
                 <th scope="col">Role</th>
                 <th scope="col">Status</th>
+                <th scope="col">Verified</th>
                 <th scope="col">Last login</th>
                 <th scope="col">Created</th>
                 <th scope="col">Customer context</th>
@@ -416,7 +426,7 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
             <tbody>
               {records.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="admin-empty">
+                  <td colSpan={9} className="admin-empty">
                     No users match the selected filters.
                   </td>
                 </tr>
@@ -429,6 +439,15 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
                     <td>
                       <span className={`admin-pill ${record.status === 'active' ? 'admin-pill--success' : ''}`}>
                         {record.status}
+                      </span>
+                    </td>
+                    <td>
+                      <span
+                        className={`admin-pill ${
+                          record.overallVerified ? 'admin-pill--success' : 'admin-pill--warning'
+                        }`}
+                      >
+                        {record.overallVerified ? 'Verified' : 'Pending'}
                       </span>
                     </td>
                     <td>{record.lastLoginAt ? formatDateTime(record.lastLoginAt) : 'Never'}</td>
@@ -483,6 +502,83 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
             </tbody>
           </table>
         </div>
+        <section className="admin-detail-card" aria-labelledby="user-detail-heading">
+          <h2 id="user-detail-heading">Customer details</h2>
+          {selectedUser ? (
+            <>
+              <dl className="admin-detail-grid">
+                <div>
+                  <dt>Full name</dt>
+                  <dd>{selectedUser.fullName}</dd>
+                </div>
+                <div>
+                  <dt>Email</dt>
+                  <dd>{selectedUser.email}</dd>
+                </div>
+                <div>
+                  <dt>Mobile</dt>
+                  <dd>{selectedUser.phone ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt>Account status</dt>
+                  <dd>
+                    <span className={`admin-pill ${selectedUser.status === 'active' ? 'admin-pill--success' : ''}`}>
+                      {selectedUser.status}
+                    </span>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Overall verification</dt>
+                  <dd>
+                    <span
+                      className={`admin-pill ${
+                        selectedUser.overallVerified ? 'admin-pill--success' : 'admin-pill--warning'
+                      }`}
+                    >
+                      {selectedUser.overallVerified ? 'Verified' : 'Pending checks'}
+                    </span>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Email verified</dt>
+                  <dd>{formatDateTime(selectedUser.emailVerifiedAt)}</dd>
+                </div>
+                <div>
+                  <dt>Mobile verified</dt>
+                  <dd>{formatDateTime(selectedUser.phoneVerifiedAt)}</dd>
+                </div>
+                <div>
+                  <dt>Created</dt>
+                  <dd>{formatDateTime(selectedUser.createdAt)}</dd>
+                </div>
+                <div>
+                  <dt>Last login</dt>
+                  <dd>{selectedUser.lastLoginAt ? formatDateTime(selectedUser.lastLoginAt) : 'Never'}</dd>
+                </div>
+                <div>
+                  <dt>Jobs summary</dt>
+                  <dd>
+                    {selectedUser.jobStats.active} active · {selectedUser.jobStats.completed} completed ·{' '}
+                    {selectedUser.jobStats.total} total
+                  </dd>
+                </div>
+              </dl>
+              {selectedUser.customerProfile ? (
+                <div className="admin-detail-notes">
+                  <h3>Customer context</h3>
+                  <p>
+                    Prefers {selectedUser.customerProfile.preferredContactMethod.toUpperCase()} communication.
+                  </p>
+                  <p>{selectedUser.customerProfile.notes || 'No additional notes recorded.'}</p>
+                </div>
+              ) : (
+                <p className="admin-detail-empty">No customer profile has been captured for this account.</p>
+              )}
+            </>
+          ) : (
+            <p className="admin-detail-empty">Select a user to view their verification and history.</p>
+          )}
+        </section>
         <form className="admin-form" onSubmit={handleSubmit} noValidate>
           <h2>{selectedId ? 'Update user account' : 'Create user account'}</h2>
           <div className="admin-form__grid">
