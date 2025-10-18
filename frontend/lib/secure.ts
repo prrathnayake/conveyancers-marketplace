@@ -17,11 +17,27 @@ let generatedKey: Buffer | null = null
 const decodeKey = (): Buffer => {
   const secret = process.env.CHAT_ENCRYPTION_KEY?.trim()
   if (secret && secret.length > 0) {
-    const buffer = Buffer.from(secret, 'base64')
-    if (buffer.length !== 32) {
-      throw new Error('CHAT_ENCRYPTION_KEY must be a 32-byte value encoded with base64')
+    const normalized = secret.replace(/\s+/g, '')
+
+    // First, attempt to interpret the secret as base64.
+    const base64Buffer = Buffer.from(normalized, 'base64')
+    const base64Normalized = base64Buffer.toString('base64').replace(/=+$/, '')
+    if (base64Buffer.length === 32 && base64Normalized === normalized.replace(/=+$/, '')) {
+      return base64Buffer
     }
-    return buffer
+
+    // Fall back to accepting 64 character hex-encoded keys which are
+    // frequently used by existing infrastructure secrets tooling.
+    if (/^[0-9a-fA-F]{64}$/.test(normalized)) {
+      const hexBuffer = Buffer.from(normalized, 'hex')
+      if (hexBuffer.length === 32) {
+        return hexBuffer
+      }
+    }
+
+    throw new Error(
+      'CHAT_ENCRYPTION_KEY must be a 32-byte secret encoded as base64 or a 64-character hex string'
+    )
   }
 
   if (process.env.NODE_ENV !== 'production') {
