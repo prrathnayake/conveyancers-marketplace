@@ -47,12 +47,21 @@ type ConveyancerJobHistoryRow = {
   clients: string
 }
 
+type DocumentBadgeStatus = 'valid' | 'expiring' | 'expired'
+
 type ConveyancerDocumentBadgeRow = {
   label: string
   status: string
   reference: string
   last_verified: string
   expires_at: string | null
+}
+
+const normalizeDocumentBadgeStatus = (status: string): DocumentBadgeStatus => {
+  if (status === 'valid' || status === 'expiring' || status === 'expired') {
+    return status
+  }
+  return 'expired'
 }
 
 export const isJurisdictionRestricted = (row: ConveyancerProfileRow): boolean => {
@@ -131,7 +140,7 @@ export const buildConveyancerProfile = (
     })),
     documentBadges: badges.map((badge) => ({
       label: badge.label,
-      status: badge.status,
+      status: normalizeDocumentBadgeStatus(badge.status),
       reference: badge.reference,
       lastVerified: badge.last_verified,
       expiresAt: badge.expires_at,
