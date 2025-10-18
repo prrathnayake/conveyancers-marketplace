@@ -113,7 +113,7 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
   const [records, setRecords] = useState<ManagedUser[]>([])
   const [filters, setFilters] = useState<{ role: 'all' | 'customer' | ManagedUser['role']; status: 'all' | ManagedUser['status'] }>(
     {
-      role: 'customer',
+      role: 'all',
       status: 'all',
     }
   )
@@ -416,7 +416,7 @@ const AdminUsers = ({ user }: AdminUsersProps): JSX.Element => {
             <tbody>
               {records.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="admin-empty">
+                  <td colSpan={8} className="admin-empty">
                     No users match the selected filters.
                   </td>
                 </tr>

@@ -104,12 +104,12 @@ const CatalogueManager = ({ user, initialEntries }: CatalogueManagerProps): JSX.
   return (
     <AdminLayout user={user}>
       <Head>
-        <title>Service catalogue</title>
+        <title>Service catalog</title>
       </Head>
       <section className="admin-section">
         <header className="admin-section__header">
           <div>
-            <h1 className="admin-section__title">Service catalogue</h1>
+            <h1 className="admin-section__title">Service catalog</h1>
             <p className="admin-section__description">
               Curate the marketplace offerings and preview the copy buyers and sellers will see.
             </p>
