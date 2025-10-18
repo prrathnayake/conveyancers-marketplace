@@ -2,32 +2,12 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 
 import db from '../../../lib/db'
 import { requireRole } from '../../../lib/session'
-
-type ReviewPayload = {
-  id: number
-  reviewerName: string
-  rating: number
-  comment: string
-  createdAt: string
-}
-
-const getReviews = (conveyancerId: number): ReviewPayload[] => {
-  return db
-    .prepare(
-      `SELECT id, reviewer_name, rating, comment, created_at
-         FROM conveyancer_reviews
-        WHERE conveyancer_id = ?
-     ORDER BY created_at DESC`
-    )
-    .all(conveyancerId)
-    .map((row: any) => ({
-      id: row.id as number,
-      reviewerName: row.reviewer_name as string,
-      rating: row.rating as number,
-      comment: row.comment as string,
-      createdAt: row.created_at as string,
-    }))
-}
+import {
+  findLatestReviewableJob,
+  hasReviewForJob,
+  listConveyancerReviews,
+  recordConveyancerReview,
+} from '../../../lib/reviews'
 
 const handler = (req: NextApiRequest, res: NextApiResponse): void => {
   if (req.method === 'GET') {
@@ -37,7 +17,10 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
       res.status(400).json({ error: 'invalid_conveyancer' })
       return
     }
-    res.status(200).json({ reviews: getReviews(numericId) })
+    const limitParam = req.query.limit
+    const limit = typeof limitParam === 'string' ? Number(limitParam) : undefined
+    const reviews = listConveyancerReviews(numericId, { limit })
+    res.status(200).json({ reviews })
     return
   }
 
@@ -52,7 +35,7 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
       rating?: number
       comment?: string
     }
-    if (!conveyancerId || !rating || !comment) {
+    if (!conveyancerId || !rating || !comment?.trim()) {
       res.status(400).json({ error: 'invalid_payload' })
       return
     }
@@ -70,10 +53,18 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
     }
 
     const author = reviewerName?.trim() || user.fullName
+    const job = findLatestReviewableJob(user.id, conveyancerId)
+    if (!job) {
+      res.status(403).json({ error: 'job_not_reviewable' })
+      return
+    }
 
-    db.prepare(
-      'INSERT INTO conveyancer_reviews (conveyancer_id, reviewer_name, rating, comment) VALUES (?, ?, ?, ?)' 
-    ).run(conveyancerId, author, rating, comment.trim())
+    if (hasReviewForJob(conveyancerId, job.reference)) {
+      res.status(409).json({ error: 'review_exists_for_job' })
+      return
+    }
+
+    recordConveyancerReview(conveyancerId, author, rating, comment.trim(), job.reference)
 
     res.status(201).json({ ok: true })
     return

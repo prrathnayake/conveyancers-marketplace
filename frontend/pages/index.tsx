@@ -1,7 +1,7 @@
 import Head from 'next/head'
 import Link from 'next/link'
 import type { FC, ReactElement } from 'react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { GetServerSideProps } from 'next'
 
 import styles from '../styles/home.module.css'
@@ -26,10 +26,12 @@ type FeatureCard = {
   description: string
 }
 
-type Testimonial = {
-  quote: string
-  name: string
-  role: string
+type ProductReview = {
+  id: number
+  reviewerName: string
+  rating: number
+  comment: string
+  createdAt: string
 }
 
 type HomeProps = {
@@ -39,11 +41,13 @@ type HomeProps = {
   stats: MarketplaceStat[]
   features: FeatureCard[]
   workflow: WorkflowStep[]
-  testimonials: Testimonial[]
   resources: ResourceLink[]
   faqs: FaqItem[]
   copy: HomepageCopy
   cta: CtaContent
+  productReviews: ProductReview[]
+  productReviewCount: number
+  productReviewAverage: number
 }
 
 const renderStats = (stats: MarketplaceStat[]) =>
@@ -64,17 +68,6 @@ const renderWorkflow = (workflow: WorkflowStep[]) =>
         <p>{item.copy}</p>
       </div>
     </li>
-  ))
-
-const renderTestimonials = (testimonials: Testimonial[]) =>
-  testimonials.map((testimonial, index) => (
-    <figure key={`${testimonial.name}-${index}`}>
-      <blockquote>{testimonial.quote}</blockquote>
-      <figcaption>
-        <span>{testimonial.name}</span>
-        <span>{testimonial.role}</span>
-      </figcaption>
-    </figure>
   ))
 
 const renderResources = (resources: ResourceLink[]) =>
@@ -120,6 +113,30 @@ const renderCtaLink = (
   )
 }
 
+const renderStars = (rating: number): string => {
+  const bounded = Math.max(0, Math.min(5, Math.round(rating)))
+  return '★'.repeat(bounded).padEnd(5, '☆')
+}
+
+const formatReviewDate = (value: string): string => {
+  if (!value) {
+    return ''
+  }
+  try {
+    const date = new Date(value)
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      })
+    }
+  } catch (error) {
+    console.warn('Failed to format review date', error)
+  }
+  return value
+}
+
 const Home: FC<HomeProps> = ({
   metaDescription,
   hero,
@@ -128,10 +145,12 @@ const Home: FC<HomeProps> = ({
   stats,
   features,
   workflow,
-  testimonials,
   resources,
   faqs,
   cta,
+  productReviews,
+  productReviewCount,
+  productReviewAverage,
 }): ReactElement => {
   const [personaKey, setPersonaKey] = useState<string>(personas[0]?.key ?? '')
 
@@ -141,6 +160,147 @@ const Home: FC<HomeProps> = ({
   ])
 
   const availablePersonas = useMemo(() => personas.filter((entry) => entry.label && entry.headline), [personas])
+
+  const [reviews, setReviews] = useState<ProductReview[]>(productReviews)
+  const [reviewStats, setReviewStats] = useState<{ average: number; count: number }>(() => ({
+    average: productReviewAverage,
+    count: productReviewCount,
+  }))
+  const [allReviewsLoaded, setAllReviewsLoaded] = useState<boolean>(productReviewCount <= productReviews.length)
+  const [loadingReviews, setLoadingReviews] = useState<boolean>(false)
+  const [reviewError, setReviewError] = useState<string | null>(null)
+  const [viewer, setViewer] = useState<{ fullName: string; role: string } | null>(null)
+  const [viewerChecked, setViewerChecked] = useState<boolean>(false)
+  const [productForm, setProductForm] = useState<{ reviewerName: string; rating: number; comment: string }>(() => ({
+    reviewerName: '',
+    rating: 5,
+    comment: '',
+  }))
+  const [submitStatus, setSubmitStatus] = useState<'idle' | 'submitting' | 'success' | 'error' | 'unauthorized'>('idle')
+
+  const applyReviewStats = (stats?: { average?: number; count?: number }) => {
+    if (!stats) {
+      return
+    }
+    setReviewStats({
+      average: Number(stats.average ?? 0),
+      count: Number(stats.count ?? 0),
+    })
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const response = await fetch('/api/users/me')
+        if (!response.ok) {
+          return
+        }
+        const data = (await response.json()) as { fullName: string; role: string }
+        if (!cancelled) {
+          setViewer({ fullName: data.fullName, role: data.role })
+          setProductForm((current) =>
+            current.reviewerName.trim().length > 0
+              ? current
+              : { ...current, reviewerName: data.fullName },
+          )
+        }
+      } catch (error) {
+        console.warn('Unable to resolve current user', error)
+      } finally {
+        if (!cancelled) {
+          setViewerChecked(true)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const fetchReviews = async (limit?: number) => {
+    const query = typeof limit === 'number' ? `?limit=${limit}` : ''
+    const response = await fetch(`/api/reviews/product${query}`)
+    if (!response.ok) {
+      throw new Error('fetch_failed')
+    }
+    const data = (await response.json()) as {
+      reviews: ProductReview[]
+      stats: { average?: number; count?: number }
+    }
+    setReviews(data.reviews)
+    applyReviewStats(data.stats)
+    return data
+  }
+
+  const handleLoadAllReviews = async () => {
+    setLoadingReviews(true)
+    setReviewError(null)
+    try {
+      const data = await fetchReviews()
+      const totalCount = Number(data.stats?.count ?? data.reviews.length)
+      setAllReviewsLoaded(data.reviews.length >= totalCount)
+    } catch (error) {
+      console.error(error)
+      setReviewError('Unable to load additional reviews right now. Please try again shortly.')
+    } finally {
+      setLoadingReviews(false)
+    }
+  }
+
+  const handleShowLatestReviews = async () => {
+    setLoadingReviews(true)
+    setReviewError(null)
+    try {
+      const data = await fetchReviews(5)
+      const totalCount = Number(data.stats?.count ?? data.reviews.length)
+      setAllReviewsLoaded(totalCount <= data.reviews.length)
+    } catch (error) {
+      console.error(error)
+      setReviewError('Unable to refresh the latest reviews right now.')
+    } finally {
+      setLoadingReviews(false)
+    }
+  }
+
+  const handleSubmitProductReview = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSubmitStatus('submitting')
+    setReviewError(null)
+    try {
+      const response = await fetch('/api/reviews/product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rating: productForm.rating,
+          comment: productForm.comment,
+          reviewerName: productForm.reviewerName.trim() ? productForm.reviewerName : undefined,
+        }),
+      })
+      if (response.status === 401 || response.status === 403) {
+        setSubmitStatus('unauthorized')
+        return
+      }
+      if (!response.ok) {
+        throw new Error('submit_failed')
+      }
+      const data = (await response.json()) as {
+        ok: boolean
+        stats?: { average?: number; count?: number }
+      }
+      applyReviewStats(data.stats)
+      await fetchReviews(allReviewsLoaded ? undefined : 5)
+      setProductForm({
+        reviewerName: viewer?.fullName ?? '',
+        rating: 5,
+        comment: '',
+      })
+      setSubmitStatus('success')
+    } catch (error) {
+      console.error(error)
+      setSubmitStatus('error')
+    }
+  }
 
   return (
     <>
@@ -216,12 +376,140 @@ const Home: FC<HomeProps> = ({
           <ol className={styles.workflowSteps}>{renderWorkflow(workflow)}</ol>
         </section>
 
-        <section className={styles.testimonials} aria-label="Customer testimonials">
-          <h2 className={styles.sectionHeading}>{copy.testimonialsHeading}</h2>
-          {copy.testimonialsDescription ? (
-            <p className={styles.sectionDescription}>{copy.testimonialsDescription}</p>
+        <section className={styles.reviewsSection} aria-label="Marketplace reviews">
+          <div className={styles.reviewsHeader}>
+            <div>
+              <h2 className={styles.sectionHeading}>{copy.testimonialsHeading}</h2>
+              {copy.testimonialsDescription ? (
+                <p className={styles.sectionDescription}>{copy.testimonialsDescription}</p>
+              ) : null}
+            </div>
+            <div className={styles.reviewsSummary} aria-live="polite">
+              <span className={styles.reviewsAverage} aria-label={`Average rating ${reviewStats.average.toFixed(1)} out of 5`}>
+                <span aria-hidden="true">{renderStars(reviewStats.average)}</span>
+                <strong>{reviewStats.average.toFixed(1)}</strong>
+              </span>
+              <p>
+                {reviewStats.count.toLocaleString()} review{reviewStats.count === 1 ? '' : 's'}
+              </p>
+            </div>
+          </div>
+          {reviewError ? (
+            <p className={`status status--error ${styles.reviewStatus}`} role="alert">
+              {reviewError}
+            </p>
           ) : null}
-          <div className={styles.testimonialGrid}>{renderTestimonials(testimonials)}</div>
+          <div className={styles.reviewsGrid}>
+            {reviews.length > 0 ? (
+              reviews.map((review) => (
+                <article key={review.id} className={styles.reviewCard}>
+                  <header className={styles.reviewCardHeader}>
+                    <span className={styles.reviewRating} aria-label={`${review.rating} out of 5`}>
+                      <span aria-hidden="true">{renderStars(review.rating)}</span>
+                    </span>
+                    <time className={styles.reviewDate} dateTime={review.createdAt}>
+                      {formatReviewDate(review.createdAt)}
+                    </time>
+                  </header>
+                  <p className={styles.reviewComment}>{review.comment}</p>
+                  <footer className={styles.reviewFooter}>— {review.reviewerName}</footer>
+                </article>
+              ))
+            ) : (
+              <p className={styles.reviewEmpty}>No reviews have been published yet.</p>
+            )}
+          </div>
+          <div className={styles.reviewActions}>
+            {reviewStats.count > reviews.length ? (
+              <button
+                type="button"
+                className={styles.reviewToggle}
+                onClick={() => void handleLoadAllReviews()}
+                disabled={loadingReviews}
+              >
+                {loadingReviews ? 'Loading reviews…' : `View all ${reviewStats.count.toLocaleString()} reviews`}
+              </button>
+            ) : null}
+            {allReviewsLoaded && reviewStats.count > 5 ? (
+              <button
+                type="button"
+                className={styles.reviewToggle}
+                onClick={() => void handleShowLatestReviews()}
+                disabled={loadingReviews}
+              >
+                {loadingReviews ? 'Refreshing…' : 'Show latest 5'}
+              </button>
+            ) : null}
+          </div>
+          <form className={styles.reviewForm} onSubmit={handleSubmitProductReview}>
+            <h3>Share your marketplace experience</h3>
+            <label className={styles.reviewLabel} htmlFor="product-review-name">
+              Display name (optional)
+            </label>
+            <input
+              id="product-review-name"
+              className="input"
+              value={productForm.reviewerName}
+              onChange={(event) => {
+                setProductForm((current) => ({ ...current, reviewerName: event.target.value }))
+                setSubmitStatus('idle')
+              }}
+              placeholder={viewer?.fullName ?? 'Your name'}
+            />
+            <label className={styles.reviewLabel} htmlFor="product-review-rating">
+              Rating
+            </label>
+            <select
+              id="product-review-rating"
+              className="input"
+              value={productForm.rating}
+              onChange={(event) => {
+                setProductForm((current) => ({ ...current, rating: Number(event.target.value) }))
+                setSubmitStatus('idle')
+              }}
+            >
+              {[5, 4, 3, 2, 1].map((value) => (
+                <option key={value} value={value}>
+                  {value} — {value === 1 ? 'Poor' : value === 5 ? 'Excellent' : 'Good'}
+                </option>
+              ))}
+            </select>
+            <label className={styles.reviewLabel} htmlFor="product-review-comment">
+              Feedback
+            </label>
+            <textarea
+              id="product-review-comment"
+              className="input input--multiline"
+              rows={4}
+              value={productForm.comment}
+              onChange={(event) => {
+                setProductForm((current) => ({ ...current, comment: event.target.value }))
+                setSubmitStatus('idle')
+              }}
+              placeholder="Describe how Conveyancers Marketplace supported your settlement."
+            />
+            {viewerChecked && !viewer ? (
+              <p className={styles.reviewHint}>
+                <Link href="/login">Sign in</Link> to publish your review.
+              </p>
+            ) : null}
+            <div className={styles.reviewFormActions}>
+              <button type="submit" className="cta-primary" disabled={submitStatus === 'submitting'}>
+                {submitStatus === 'submitting' ? 'Submitting…' : 'Submit review'}
+              </button>
+              {submitStatus === 'success' ? (
+                <p className="status status--success">Thank you! Your review is live.</p>
+              ) : null}
+              {submitStatus === 'error' ? (
+                <p className="status status--error">We could not submit your review. Please try again.</p>
+              ) : null}
+              {submitStatus === 'unauthorized' ? (
+                <p className="status status--error">
+                  Please <Link href="/login">sign in</Link> to publish your review.
+                </p>
+              ) : null}
+            </div>
+          </form>
         </section>
 
         <section className={styles.resourcesSection} aria-label="Resources for conveyancing teams">
@@ -258,17 +546,25 @@ const Home: FC<HomeProps> = ({
 export default Home
 
 export const getServerSideProps: GetServerSideProps<HomeProps> = async () => {
-  const [{ getContentPage }, { getHomepageContent }, { listCatalogueEntries }, dbModule] = await Promise.all([
+  const [
+    { getContentPage },
+    { getHomepageContent },
+    { listCatalogueEntries },
+    dbModule,
+    reviewsModule,
+  ] = await Promise.all([
     import('../lib/cms'),
     import('../lib/homepage'),
     import('../lib/catalogue'),
     import('../lib/db'),
+    import('../lib/reviews'),
   ])
 
   const page = getContentPage('home')
   const homepage = getHomepageContent()
   const catalogue = listCatalogueEntries()
   const database = dbModule.default
+  const { listProductReviews, getProductReviewStats } = reviewsModule
 
   const formatCount = (value: number): string => {
     if (value >= 1000) {
@@ -285,9 +581,8 @@ export const getServerSideProps: GetServerSideProps<HomeProps> = async () => {
     .prepare('SELECT COUNT(1) AS total FROM conveyancer_job_history')
     .get() as { total?: number }
   const auditCountRow = database.prepare('SELECT COUNT(1) AS total FROM admin_audit_log').get() as { total?: number }
-  const ratingRow = database
-    .prepare('SELECT AVG(rating) AS rating, COUNT(1) AS reviews FROM conveyancer_reviews')
-    .get() as { rating?: number; reviews?: number }
+  const productStats = getProductReviewStats()
+  const initialProductReviews = listProductReviews({ limit: 5 })
 
   const stats: MarketplaceStat[] = [
     {
@@ -306,30 +601,11 @@ export const getServerSideProps: GetServerSideProps<HomeProps> = async () => {
       detail: 'Administrative changes logged for evidence.',
     },
     {
-      label: 'Client satisfaction',
-      value: `${Number(ratingRow.rating ?? 0).toFixed(1)}/5`,
-      detail: `${Number(ratingRow.reviews ?? 0).toLocaleString()} verified testimonials published.`,
+      label: 'Marketplace satisfaction',
+      value: `${Number(productStats.average ?? 0).toFixed(1)}/5`,
+      detail: `${Number(productStats.count ?? 0).toLocaleString()} verified product reviews published.`,
     },
   ]
-
-  const testimonialsQuery = database.prepare(
-    `SELECT reviewer_name, rating, comment, created_at
-       FROM conveyancer_reviews
-   ORDER BY rating DESC, created_at DESC
-      LIMIT 3`,
-  )
-  const testimonialsRows = testimonialsQuery.all() as Array<{
-    reviewer_name: string
-    rating: number
-    comment: string
-    created_at: string
-  }>
-
-  const testimonials: Testimonial[] = testimonialsRows.map((row) => ({
-    quote: `“${row.comment.trim()}”`,
-    name: row.reviewer_name,
-    role: `${row.rating.toFixed(1)}/5 rating`,
-  }))
 
   const features: FeatureCard[] = catalogue.slice(0, 4).map((entry) => ({
     title: entry.title,
@@ -354,10 +630,12 @@ export const getServerSideProps: GetServerSideProps<HomeProps> = async () => {
       stats,
       features: normalizedFeatures,
       workflow: homepage.workflow,
-      testimonials,
       resources: homepage.resources,
       faqs: homepage.faqs,
       cta: homepage.cta,
+      productReviews: initialProductReviews,
+      productReviewCount: Number(productStats.count ?? 0),
+      productReviewAverage: Number(productStats.average ?? 0),
     },
   }
 }

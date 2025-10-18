@@ -150,7 +150,30 @@ const applySchema = (): void => {
       reviewer_name TEXT NOT NULL,
       rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
       comment TEXT NOT NULL,
+      job_reference TEXT DEFAULT '',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(conveyancer_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS product_reviews (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      reviewer_id INTEGER,
+      reviewer_name TEXT NOT NULL,
+      rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+      comment TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(reviewer_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS customer_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL,
+      conveyancer_id INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending','in_progress','completed','canceled')),
+      reference TEXT DEFAULT '',
+      completed_at DATETIME,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(customer_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(conveyancer_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
@@ -318,6 +341,8 @@ const applySchema = (): void => {
     CREATE INDEX IF NOT EXISTS idx_milestone_quotes_job ON milestone_quotes(job_id);
     CREATE INDEX IF NOT EXISTS idx_trust_accounts_conveyancer ON trust_accounts(conveyancer_id);
     CREATE INDEX IF NOT EXISTS idx_auth_refresh_tokens_user ON auth_refresh_tokens(user_id);
+    CREATE INDEX IF NOT EXISTS idx_product_reviews_created ON product_reviews(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_customer_jobs_lookup ON customer_jobs(customer_id, conveyancer_id, status);
 
     CREATE TABLE IF NOT EXISTS chat_invoices (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -439,6 +464,7 @@ export const ensureSchema = (): void => {
   ensureColumn('service_catalogue', 'features', "features TEXT DEFAULT '[]'")
   ensureColumn('chat_invoices', 'refunded_cents', 'refunded_cents INTEGER DEFAULT 0')
   ensureColumn('document_signature_signers', 'created_at', 'created_at DATETIME DEFAULT CURRENT_TIMESTAMP')
+  ensureColumn('conveyancer_reviews', 'job_reference', "job_reference TEXT DEFAULT ''")
   schemaInitialized = true
 }
 
@@ -481,8 +507,15 @@ const seedArtifacts = (): void => {
       'SELECT COUNT(1) AS total FROM conveyancer_reviews WHERE conveyancer_id = ?'
     )
     const insertReview = db.prepare(
-      `INSERT INTO conveyancer_reviews (conveyancer_id, reviewer_name, rating, comment)
-       VALUES (?, ?, ?, ?)`
+      `INSERT INTO conveyancer_reviews (conveyancer_id, reviewer_name, rating, comment, job_reference)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    const countJobs = db.prepare(
+      'SELECT COUNT(1) AS total FROM customer_jobs WHERE customer_id = ? AND conveyancer_id = ?'
+    )
+    const insertJob = db.prepare(
+      `INSERT INTO customer_jobs (customer_id, conveyancer_id, status, reference, completed_at)
+       VALUES (?, ?, 'completed', ?, ?)`
     )
 
     const now = new Date()
@@ -496,6 +529,11 @@ const seedArtifacts = (): void => {
       copy.setDate(copy.getDate() + offsetDays)
       return copy.toISOString()
     }
+
+    const customers = db
+      .prepare("SELECT id FROM users WHERE role IN ('buyer','seller') ORDER BY id LIMIT 6")
+      .all() as Array<{ id: number }>
+    let customerCursor = 0
 
     for (const { user_id: conveyancerId } of conveyancers) {
       const historyCount = countHistory.get(conveyancerId) as { total?: number }
@@ -540,20 +578,90 @@ const seedArtifacts = (): void => {
 
       const reviewCount = countReviews.get(conveyancerId) as { total?: number }
       if (!reviewCount?.total) {
+        const jobRefOne = `JOB-${conveyancerId}-01`
+        const jobRefTwo = `JOB-${conveyancerId}-02`
         insertReview.run(
           conveyancerId,
           'Verified buyer',
           5,
-          'Transparent milestones and proactive updates made the purchase straightforward.'
+          'Transparent milestones and proactive updates made the purchase straightforward.',
+          jobRefOne
         )
         insertReview.run(
           conveyancerId,
           'Settlement partner',
           4,
-          'Responsive communication and strong compliance hygiene across every step.'
+          'Responsive communication and strong compliance hygiene across every step.',
+          jobRefTwo
         )
+
+        if (customers.length > 0) {
+          const firstCustomer = customers[customerCursor % customers.length]
+          const secondCustomer = customers[(customerCursor + 1) % customers.length]
+          customerCursor = (customerCursor + 2) % customers.length
+
+          const existingFirst = countJobs.get(firstCustomer.id, conveyancerId) as { total?: number }
+          if (!existingFirst?.total) {
+            insertJob.run(firstCustomer.id, conveyancerId, jobRefOne, iso(12))
+          }
+
+          const existingSecond = countJobs.get(secondCustomer.id, conveyancerId) as { total?: number }
+          if (!existingSecond?.total) {
+            insertJob.run(secondCustomer.id, conveyancerId, jobRefTwo, iso(18))
+          }
+        }
       }
     }
+  })
+
+  const seedProductReviews = db.transaction(() => {
+    const total = db.prepare('SELECT COUNT(1) AS total FROM product_reviews').get() as { total?: number }
+    if (total?.total) {
+      return
+    }
+
+    const insert = db.prepare(
+      `INSERT INTO product_reviews (reviewer_name, rating, comment, created_at)
+       VALUES (?, ?, ?, ?)`
+    )
+
+    const now = new Date()
+    const iso = (offsetDays: number): string => {
+      const copy = new Date(now.getTime())
+      copy.setDate(copy.getDate() - offsetDays)
+      return copy.toISOString()
+    }
+
+    insert.run(
+      'Harper • Buyer',
+      5,
+      'The Conveyancers Marketplace platform kept every milestone visible and approvals were effortless.',
+      iso(4)
+    )
+    insert.run(
+      'Mason • Seller',
+      4,
+      'Escrow tracking and document badges gave us confidence while we negotiated tight deadlines.',
+      iso(9)
+    )
+    insert.run(
+      'Avery • Conveyancer',
+      5,
+      'Secure messaging, quote management, and audit logs made collaboration with clients seamless.',
+      iso(15)
+    )
+    insert.run(
+      'Jordan • Buyer',
+      5,
+      'Receiving automated alerts for every settlement step meant no surprises ahead of completion.',
+      iso(21)
+    )
+    insert.run(
+      'Quinn • Lender partner',
+      5,
+      'Document verification and milestone controls reduced settlement risk across our loan book.',
+      iso(32)
+    )
   })
 
   const seedContentPages = db.transaction(() => {
@@ -740,6 +848,7 @@ const seedArtifacts = (): void => {
 
   seedCustomerProfiles()
   seedConveyancerArtifacts()
+  seedProductReviews()
   seedContentPages()
   seedHomepageSections()
 }

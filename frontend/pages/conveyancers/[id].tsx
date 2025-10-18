@@ -6,6 +6,7 @@ import { useState } from 'react'
 
 import type { SessionUser } from '../../lib/session'
 import { getSessionFromRequest } from '../../lib/session'
+import { listConveyancerReviews } from '../../lib/reviews'
 
 type ConveyancerProfile = {
   id: string
@@ -42,9 +43,18 @@ type ConveyancerProfile = {
   }>
 }
 
+type ConveyancerReview = {
+  id: number
+  reviewerName: string
+  rating: number
+  comment: string
+  createdAt: string
+}
+
 type ConveyancerProfilePageProps = {
   profile: ConveyancerProfile
   viewer: SessionUser | null
+  reviews: ConveyancerReview[]
 }
 
 const renderStars = (rating: number): string => {
@@ -73,15 +83,116 @@ const formatBadgeStatus = (status: ConveyancerProfile['documentBadges'][number][
   return 'Expired'
 }
 
-const ConveyancerProfilePage = ({ profile, viewer }: ConveyancerProfilePageProps): JSX.Element => {
+const ConveyancerProfilePage = ({ profile, viewer, reviews: initialReviews }: ConveyancerProfilePageProps): JSX.Element => {
   const router = useRouter()
   const [status, setStatus] = useState<'idle' | 'starting' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [averageRating, setAverageRating] = useState<number>(profile.rating)
+  const [reviewCount, setReviewCount] = useState<number>(profile.reviewCount)
+  const [reviews, setReviews] = useState<ConveyancerReview[]>(initialReviews)
+  const [reviewsLoading, setReviewsLoading] = useState<boolean>(false)
+  const [reviewsError, setReviewsError] = useState<string | null>(null)
+  const [allReviewsLoaded, setAllReviewsLoaded] = useState<boolean>(reviewCount <= initialReviews.length)
+  const [reviewSubmitStatus, setReviewSubmitStatus] = useState<
+    'idle' | 'submitting' | 'success' | 'error' | 'unauthorized' | 'not_allowed' | 'duplicate'
+  >('idle')
+  const [reviewForm, setReviewForm] = useState<{ reviewerName: string; rating: number; comment: string }>(() => ({
+    reviewerName: viewer?.fullName ?? '',
+    rating: 5,
+    comment: '',
+  }))
 
   const allowedRoles: SessionUser['role'][] = ['buyer', 'seller', 'admin']
   const canViewerStartChat = Boolean(
     viewer && viewer.id !== profile.userId && allowedRoles.includes(viewer.role),
   )
+  const canViewerReview = Boolean(viewer && (viewer.role === 'buyer' || viewer.role === 'seller'))
+
+  const fetchReviews = async (limit?: number) => {
+    const query = limit ? `&limit=${limit}` : ''
+    const response = await fetch(`/api/reviews?conveyancerId=${profile.userId}${query}`)
+    if (!response.ok) {
+      throw new Error('fetch_failed')
+    }
+    const data = (await response.json()) as { reviews: ConveyancerReview[] }
+    setReviews(data.reviews)
+    if (typeof limit === 'number') {
+      setAllReviewsLoaded(reviewCount <= data.reviews.length)
+    } else {
+      setAllReviewsLoaded(data.reviews.length >= reviewCount)
+    }
+    return data
+  }
+
+  const handleLoadAllReviews = async () => {
+    setReviewsLoading(true)
+    setReviewsError(null)
+    try {
+      await fetchReviews()
+    } catch (loadError) {
+      console.error(loadError)
+      setReviewsError('Unable to load additional reviews right now. Please try again shortly.')
+    } finally {
+      setReviewsLoading(false)
+    }
+  }
+
+  const handleShowLatestReviews = async () => {
+    setReviewsLoading(true)
+    setReviewsError(null)
+    try {
+      await fetchReviews(5)
+    } catch (loadError) {
+      console.error(loadError)
+      setReviewsError('Unable to refresh recent reviews right now.')
+    } finally {
+      setReviewsLoading(false)
+    }
+  }
+
+  const handleSubmitReview = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setReviewSubmitStatus('submitting')
+    setReviewsError(null)
+    try {
+      const response = await fetch('/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conveyancerId: profile.userId,
+          reviewerName: reviewForm.reviewerName.trim() ? reviewForm.reviewerName : undefined,
+          rating: reviewForm.rating,
+          comment: reviewForm.comment,
+        }),
+      })
+      if (response.status === 401) {
+        setReviewSubmitStatus('unauthorized')
+        return
+      }
+      if (response.status === 403) {
+        setReviewSubmitStatus('not_allowed')
+        return
+      }
+      if (response.status === 409) {
+        setReviewSubmitStatus('duplicate')
+        return
+      }
+      if (!response.ok) {
+        throw new Error('submit_failed')
+      }
+
+      const nextCount = reviewCount + 1
+      const nextAverage = ((averageRating * reviewCount) + reviewForm.rating) / nextCount
+      setReviewCount(nextCount)
+      setAverageRating(Number.isFinite(nextAverage) ? nextAverage : reviewForm.rating)
+      await fetchReviews(allReviewsLoaded ? undefined : 5)
+      setReviewForm({ reviewerName: viewer?.fullName ?? '', rating: 5, comment: '' })
+      setReviewSubmitStatus('success')
+    } catch (submitError) {
+      console.error(submitError)
+      setReviewSubmitStatus('error')
+    }
+  }
 
   const handleStartChat = async () => {
     if (!viewer) {
@@ -141,10 +252,10 @@ const ConveyancerProfilePage = ({ profile, viewer }: ConveyancerProfilePageProps
                 {profile.suburb}, {profile.state}
               </p>
             </div>
-            <div className="profile-card__rating" aria-label={`Rated ${profile.rating.toFixed(1)} out of 5`}>
-              <span aria-hidden="true">{renderStars(profile.rating)}</span>
-              <strong>{profile.rating.toFixed(1)}</strong>
-              <span>{profile.reviewCount} review{profile.reviewCount === 1 ? '' : 's'}</span>
+            <div className="profile-card__rating" aria-label={`Rated ${averageRating.toFixed(1)} out of 5`}>
+              <span aria-hidden="true">{renderStars(averageRating)}</span>
+              <strong>{averageRating.toFixed(1)}</strong>
+              <span>{reviewCount} review{reviewCount === 1 ? '' : 's'}</span>
             </div>
           </header>
           <section className="profile-card__body">
@@ -182,6 +293,143 @@ const ConveyancerProfilePage = ({ profile, viewer }: ConveyancerProfilePageProps
                   </div>
                 </dl>
               </div>
+              <section aria-label="Client reviews" className="profile-reviews">
+                <div className="profile-reviews__header">
+                  <h3>Recent client reviews</h3>
+                  <div className="profile-reviews__summary" aria-live="polite">
+                    <span className="profile-reviews__rating" aria-label={`Rated ${averageRating.toFixed(1)} out of 5`}>
+                      <span aria-hidden="true">{renderStars(averageRating)}</span>
+                      <strong>{averageRating.toFixed(1)}</strong>
+                    </span>
+                    <span className="profile-reviews__count">
+                      {reviewCount} review{reviewCount === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                </div>
+                {reviewsError ? (
+                  <p className="profile-reviews__error" role="alert">
+                    {reviewsError}
+                  </p>
+                ) : null}
+                {reviews.length > 0 ? (
+                  <ul className="profile-reviews__list">
+                    {reviews.map((review) => (
+                      <li key={review.id} className="profile-review">
+                        <header className="profile-review__header">
+                          <span className="profile-review__rating" aria-label={`${review.rating} out of 5`}>
+                            <span aria-hidden="true">{renderStars(review.rating)}</span>
+                          </span>
+                          <time className="profile-review__date" dateTime={review.createdAt}>
+                            {formatDateOnly(review.createdAt)}
+                          </time>
+                        </header>
+                        <p className="profile-review__comment">{review.comment}</p>
+                        <footer className="profile-review__footer">— {review.reviewerName}</footer>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="profile-card__empty">No client reviews have been published yet.</p>
+                )}
+                <div className="profile-reviews__actions">
+                  {reviewCount > reviews.length ? (
+                    <button
+                      type="button"
+                      className="profile-reviews__toggle"
+                      onClick={() => void handleLoadAllReviews()}
+                      disabled={reviewsLoading}
+                    >
+                      {reviewsLoading ? 'Loading reviews…' : `View all ${reviewCount} reviews`}
+                    </button>
+                  ) : null}
+                  {allReviewsLoaded && reviewCount > 5 ? (
+                    <button
+                      type="button"
+                      className="profile-reviews__toggle"
+                      onClick={() => void handleShowLatestReviews()}
+                      disabled={reviewsLoading}
+                    >
+                      {reviewsLoading ? 'Refreshing…' : 'Show latest 5'}
+                    </button>
+                  ) : null}
+                </div>
+                {canViewerReview ? (
+                  <form className="profile-review-form" onSubmit={handleSubmitReview}>
+                    <h4>Share your experience</h4>
+                    <label className="profile-review-form__label" htmlFor="profile-review-name">
+                      Display name (optional)
+                    </label>
+                    <input
+                      id="profile-review-name"
+                      className="input"
+                      value={reviewForm.reviewerName}
+                      onChange={(event) => {
+                        setReviewForm((current) => ({ ...current, reviewerName: event.target.value }))
+                        setReviewSubmitStatus('idle')
+                      }}
+                      placeholder={viewer?.fullName ?? 'Your name'}
+                    />
+                    <label className="profile-review-form__label" htmlFor="profile-review-rating">
+                      Rating
+                    </label>
+                    <select
+                      id="profile-review-rating"
+                      className="input"
+                      value={reviewForm.rating}
+                      onChange={(event) => {
+                        setReviewForm((current) => ({ ...current, rating: Number(event.target.value) }))
+                        setReviewSubmitStatus('idle')
+                      }}
+                    >
+                      {[5, 4, 3, 2, 1].map((value) => (
+                        <option key={value} value={value}>
+                          {value} — {value === 1 ? 'Poor' : value === 5 ? 'Excellent' : 'Good'}
+                        </option>
+                      ))}
+                    </select>
+                    <label className="profile-review-form__label" htmlFor="profile-review-comment">
+                      Feedback
+                    </label>
+                    <textarea
+                      id="profile-review-comment"
+                      className="input input--multiline"
+                      rows={4}
+                      value={reviewForm.comment}
+                      onChange={(event) => {
+                        setReviewForm((current) => ({ ...current, comment: event.target.value }))
+                        setReviewSubmitStatus('idle')
+                      }}
+                      placeholder="Describe how this conveyancer supported your settlement."
+                    />
+                    <div className="profile-review-form__actions">
+                      <button type="submit" className="cta-secondary" disabled={reviewSubmitStatus === 'submitting'}>
+                        {reviewSubmitStatus === 'submitting' ? 'Submitting…' : 'Submit review'}
+                      </button>
+                      {reviewSubmitStatus === 'success' ? (
+                        <p className="status status--success">Thank you! Your review has been published.</p>
+                      ) : null}
+                      {reviewSubmitStatus === 'error' ? (
+                        <p className="status status--error">We could not submit your review. Please try again.</p>
+                      ) : null}
+                      {reviewSubmitStatus === 'unauthorized' ? (
+                        <p className="status status--error">Sign in to publish your review.</p>
+                      ) : null}
+                      {reviewSubmitStatus === 'not_allowed' ? (
+                        <p className="status status--error">
+                          Reviews are available once your engagement is completed or cancelled.
+                        </p>
+                      ) : null}
+                      {reviewSubmitStatus === 'duplicate' ? (
+                        <p className="status status--error">A review for your latest job is already recorded.</p>
+                      ) : null}
+                    </div>
+                  </form>
+                ) : (
+                  <p className="profile-card__note" role="note">
+                    Only buyers and sellers can publish reviews once their job has been completed or cancelled.
+                  </p>
+                )}
+              </section>
               <section aria-label="Recent matters" className="profile-history">
                 <h3>Recent matters delivered</h3>
                 {profile.jobHistory.length > 0 ? (
@@ -339,7 +587,8 @@ export const getServerSideProps: GetServerSideProps<ConveyancerProfilePageProps>
   const history = getConveyancerJobHistory(id)
   const badges = getConveyancerDocumentBadges(id)
   const profile = buildConveyancerProfile(row, viewer, history, badges)
-  return { props: { profile, viewer } }
+  const reviews = listConveyancerReviews(id, { limit: 5 })
+  return { props: { profile, viewer, reviews } }
 }
 
 export default ConveyancerProfilePage
