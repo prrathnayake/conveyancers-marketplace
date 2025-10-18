@@ -997,6 +997,104 @@ button:focus-visible {
   align-items: center;
 }
 
+.chat-call-panel {
+  margin: 1.25rem 1.75rem 0;
+  padding: 1.1rem 1.25rem;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.02);
+  display: grid;
+  gap: 0.75rem;
+}
+
+.chat-call-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.chat-call-panel__hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.chat-call-panel__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.chat-call-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.chat-call-panel__item {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  background: rgba(59, 130, 246, 0.08);
+  box-shadow: var(--shadow-soft);
+}
+
+.chat-call-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.chat-call-panel__status {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.chat-call-panel__meta {
+  margin: 0.15rem 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+.chat-call-panel__meta code {
+  background: rgba(15, 23, 42, 0.08);
+  padding: 0.1rem 0.3rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.chat-call-panel__empty {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.chat-ml-banner {
+  margin: 1rem 1.75rem;
+  padding: 0.85rem 1.2rem;
+  border-radius: 14px;
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.chat-ml-banner ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.chat-ml-banner li {
+  margin: 0.25rem 0;
+}
+
 .chat-thread {
   padding: 1.5rem;
   display: flex;

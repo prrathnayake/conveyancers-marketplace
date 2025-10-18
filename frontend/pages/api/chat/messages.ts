@@ -3,10 +3,8 @@ import db from '../../../lib/db'
 import { requireAuth } from '../../../lib/session'
 import { encryptText, decryptText } from '../../../lib/secure'
 import { ensureParticipant, getOrCreateConversation } from '../../../lib/conversations'
-
-const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
-const phonePattern = /(?:(?:\+?61|0)[\s-]?)?(?:\(?0?[2-9]\)?[\s-]?)?[0-9]{3}[\s-]?[0-9]{3}[\s-]?[0-9]{3,4}/
-const offPlatformKeywords = /(call\s+me|text\s+me|email\s+me|whatsapp|signal|telegram|zoom\s+call|offline\s+payment)/i
+import { emailPattern, phonePattern, offPlatformKeywords } from '../../../lib/policySignals'
+import { assessSensitiveContent, SENSITIVE_RISK_THRESHOLD } from '../../../lib/ml/sensitive'
 
 const detectPolicyWarning = (message: string): { flagType: string; reason: string } | null => {
   if (emailPattern.test(message)) {
@@ -205,9 +203,21 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
         'INSERT INTO message_policy_flags (message_id, reason, flag_type) VALUES (?, ?, ?)'
       ).run(Number(info.lastInsertRowid), warning.reason, warning.flagType)
     }
+    const assessment = assessSensitiveContent(trimmedBody)
+    if (assessment.score >= SENSITIVE_RISK_THRESHOLD) {
+      db.prepare(
+        'INSERT INTO message_policy_flags (message_id, reason, flag_type) VALUES (?, ?, ?)'
+      ).run(
+        Number(info.lastInsertRowid),
+        `ML risk ${assessment.score} — ${assessment.indicators.join('; ')}`,
+        'ml_sensitive_risk'
+      )
+    }
     res.status(201).json({
       messageId: Number(info.lastInsertRowid),
       policyWarning: warning?.reason,
+      mlRiskScore: assessment.score,
+      mlIndicators: assessment.indicators,
     })
     return
   }

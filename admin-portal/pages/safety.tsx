@@ -391,7 +391,20 @@ export const getServerSideProps: GetServerSideProps<SafetyProps> = async ({ req,
       fetch(`${jobsServiceUrl}/jobs/templates`, { headers }),
     ])
 
-    if (!policiesRes.ok || !insightsRes.ok || !templatesRes.ok) {
+    if (!policiesRes.ok) {
+      const detail = `policies:${policiesRes.status} insights:${insightsRes.status} templates:${templatesRes.status}`
+      return {
+        props: {
+          user,
+          policies: [],
+          insights: null,
+          templates: [],
+          error: `Unable to fetch safeguards (${detail})`,
+        },
+      }
+    }
+
+    if (!templatesRes.ok && templatesRes.status !== 404) {
       const detail = `policies:${policiesRes.status} insights:${insightsRes.status} templates:${templatesRes.status}`
       return {
         props: {
@@ -475,23 +488,27 @@ export const getServerSideProps: GetServerSideProps<SafetyProps> = async ({ req,
         : undefined,
     }))
 
-    const insights = (await insightsRes.json()) as InsightPayload
-    const rawTemplates = (await templatesRes.json()) as Array<Record<string, any>>
-    const templates: TemplateDefinition[] = rawTemplates.map((template) => ({
-      id: String(template.id ?? ''),
-      name: String(template.name ?? ''),
-      jurisdiction: String(template.jurisdiction ?? ''),
-      description: String(template.description ?? ''),
-      tasks: Array.isArray(template.tasks)
-        ? (template.tasks as Array<Record<string, any>>).map((task) => ({
-            id: String(task.id ?? ''),
-            title: String(task.title ?? ''),
-            default_assignee: String(task.default_assignee ?? ''),
-            due_in_days: Number(task.due_in_days ?? 0),
-            escrow_required: Boolean(task.escrow_required ?? false),
-          }))
-        : [],
-    }))
+    const insights = insightsRes.ok ? ((await insightsRes.json()) as InsightPayload) : null
+
+    let templates: TemplateDefinition[] = []
+    if (templatesRes.status !== 404) {
+      const rawTemplates = (await templatesRes.json()) as Array<Record<string, any>>
+      templates = rawTemplates.map((template) => ({
+        id: String(template.id ?? ''),
+        name: String(template.name ?? ''),
+        jurisdiction: String(template.jurisdiction ?? ''),
+        description: String(template.description ?? ''),
+        tasks: Array.isArray(template.tasks)
+          ? (template.tasks as Array<Record<string, any>>).map((task) => ({
+              id: String(task.id ?? ''),
+              title: String(task.title ?? ''),
+              default_assignee: String(task.default_assignee ?? ''),
+              due_in_days: Number(task.due_in_days ?? 0),
+              escrow_required: Boolean(task.escrow_required ?? false),
+            }))
+          : [],
+      }))
+    }
 
     return {
       props: {
