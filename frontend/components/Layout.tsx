@@ -1,3 +1,4 @@
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import type { FC, ReactNode } from 'react'
@@ -5,6 +6,8 @@ import { useEffect, useMemo, useState, useId } from 'react'
 import ThemeToggle from './ThemeToggle'
 import UserMenu from './UserMenu'
 import { useAuth } from '../context/AuthContext'
+
+const DynamicAiChatWidget = dynamic(async () => import('./chat/AiChatWidget'), { ssr: false })
 
 type PrimaryNavItem = {
   href: string
@@ -218,6 +221,7 @@ const Layout: FC<LayoutProps> = ({ children }) => {
       <main className="site-content" aria-busy={isPageLoading} data-loading={isPageLoading}>
         {children}
       </main>
+      <DynamicAiChatWidget />
     </div>
   )
 }
