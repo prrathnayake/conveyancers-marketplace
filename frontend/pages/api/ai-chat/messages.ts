@@ -11,6 +11,8 @@ import { generateAssistantReply } from '../../../lib/aiResponder'
 type MessageResponse = {
   sessionId: string
   persona: AiChatPersona
+  status: 'active' | 'escalated'
+  summary: string
   messages: {
     id: number
     role: 'assistant' | 'user' | 'system'
@@ -50,8 +52,19 @@ const handler = async (
     const context = listAiChatMessages(sessionId)
     const reply = generateAssistantReply(session.persona, context)
     appendAiChatMessage({ sessionId, role: 'assistant', content: reply })
+    const refreshedSession = getAiChatSession(sessionId)
+    if (!refreshedSession) {
+      res.status(500).json({ error: 'session_not_found' })
+      return
+    }
     const messages = listAiChatMessages(sessionId)
-    res.status(200).json({ sessionId, persona: session.persona, messages })
+    res.status(200).json({
+      sessionId,
+      persona: refreshedSession.persona,
+      status: refreshedSession.status,
+      summary: refreshedSession.summary,
+      messages,
+    })
   } catch (error) {
     console.error('Failed to process AI chat message', error)
     res.status(500).json({ error: 'ai_chat_message_failed' })
