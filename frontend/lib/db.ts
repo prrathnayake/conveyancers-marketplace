@@ -270,6 +270,35 @@ const applySchema = (): void => {
     CREATE INDEX IF NOT EXISTS idx_call_sessions_conversation
       ON call_sessions (conversation_id, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS ai_chat_sessions (
+      id TEXT PRIMARY KEY,
+      persona TEXT NOT NULL DEFAULT 'assistant',
+      origin TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      summary TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      escalated_at DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_chat_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('user','assistant','system')),
+      content TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(session_id) REFERENCES ai_chat_sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_chat_escalations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(session_id) REFERENCES ai_chat_sessions(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS document_signatures (
       id TEXT PRIMARY KEY,
       job_id TEXT NOT NULL,

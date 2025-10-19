@@ -14,6 +14,7 @@ import type {
   ResourceLink,
   WorkflowStep,
 } from '../lib/homepage'
+import useScrollReveal from '../hooks/useScrollReveal'
 
 export type MarketplaceStat = {
   label: string
@@ -177,6 +178,7 @@ const Home: FC<HomeProps> = ({
     comment: '',
   }))
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'submitting' | 'success' | 'error' | 'unauthorized'>('idle')
+  const { register } = useScrollReveal()
 
   const applyReviewStats = (stats?: { average?: number; count?: number }) => {
     if (!stats) {
@@ -309,50 +311,57 @@ const Home: FC<HomeProps> = ({
         <meta name="description" content={metaDescription} />
       </Head>
       <main className={styles.page}>
-        <section className={styles.hero} aria-labelledby="hero-heading">
-          <div className={styles.badge}>{hero.badge}</div>
-          <h1 id="hero-heading" className={styles.heroTitle}>
-            {hero.title}
-          </h1>
-          <p className={styles.heroSubtitle}>{hero.subtitle}</p>
-          {availablePersonas.length > 0 ? (
-            <div className={styles.personaToggle} role="tablist" aria-label="Select your scenario">
-              {availablePersonas.map((persona) => (
-                <button
-                  key={persona.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={personaKey === persona.key}
-                  className={`${styles.personaOption} ${personaKey === persona.key ? styles.personaOptionActive : ''}`}
-                  onClick={() => setPersonaKey(persona.key)}
-                >
-                  {persona.label}
-                </button>
-              ))}
+        <section ref={register} className={styles.hero} aria-labelledby="hero-heading">
+          <div className={styles.heroGrid}>
+            <div className={styles.heroContent}>
+              <div className={styles.badge}>{hero.badge}</div>
+              <h1 id="hero-heading" className={styles.heroTitle}>
+                {hero.title}
+              </h1>
+              <p className={styles.heroSubtitle}>{hero.subtitle}</p>
+              {availablePersonas.length > 0 ? (
+                <div className={styles.personaToggle} role="tablist" aria-label="Select your scenario">
+                  {availablePersonas.map((persona) => (
+                    <button
+                      key={persona.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={personaKey === persona.key}
+                      className={`${styles.personaOption} ${
+                        personaKey === persona.key ? styles.personaOptionActive : ''
+                      }`}
+                      onClick={() => setPersonaKey(persona.key)}
+                    >
+                      {persona.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {personaDetails ? (
+                <div className={styles.personaPanel}>
+                  <h2 className={styles.personaHeadline}>{personaDetails.headline}</h2>
+                  <ul className={styles.personaBenefits}>
+                    {personaDetails.benefits.map((benefit, index) => (
+                      <li key={`${personaDetails.key}-benefit-${index}`} className={styles.personaBenefit}>
+                        {benefit}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              <div className={styles.heroActions}>
+                {renderCtaLink(hero.primaryCta, styles.heroPrimary)}
+                {renderCtaLink(hero.secondaryCta, styles.heroSecondary, 'secondary')}
+              </div>
             </div>
-          ) : null}
-          {personaDetails ? (
-            <>
-              <h2 className={styles.personaHeadline}>{personaDetails.headline}</h2>
-              <ul className={styles.personaBenefits}>
-                {personaDetails.benefits.map((benefit, index) => (
-                  <li key={`${personaDetails.key}-benefit-${index}`} className={styles.personaBenefit}>
-                    {benefit}
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : null}
-          <div className={styles.heroActions}>
-            {renderCtaLink(hero.primaryCta, styles.heroPrimary)}
-            {renderCtaLink(hero.secondaryCta, styles.heroSecondary, 'secondary')}
+            <aside className={styles.heroHighlights} aria-label="Marketplace performance stats">
+              <p className={styles.heroHighlightsHeading}>Live marketplace insights</p>
+              <dl className={styles.stats} aria-label="Marketplace performance stats">{renderStats(stats)}</dl>
+            </aside>
           </div>
-          <dl className={styles.stats} aria-label="Marketplace performance stats">
-            {renderStats(stats)}
-          </dl>
         </section>
 
-        <section className={styles.features} id="features" aria-label="Platform features">
+        <section ref={register} className={styles.features} id="features" aria-label="Platform features">
           <h2 className={styles.sectionHeading}>{copy.featuresHeading}</h2>
           {copy.featuresDescription ? (
             <p className={styles.sectionDescription}>{copy.featuresDescription}</p>
@@ -367,7 +376,7 @@ const Home: FC<HomeProps> = ({
           </div>
         </section>
 
-        <section className={styles.workflow} id="workflow" aria-label="Settlement workflow">
+        <section ref={register} className={styles.workflow} id="workflow" aria-label="Settlement workflow">
           <div className={styles.workflowCopy}>
             <h2 className={styles.sectionHeading}>{copy.workflowHeading}</h2>
             <p>{copy.workflowDescription}</p>
@@ -376,7 +385,7 @@ const Home: FC<HomeProps> = ({
           <ol className={styles.workflowSteps}>{renderWorkflow(workflow)}</ol>
         </section>
 
-        <section className={styles.reviewsSection} aria-label="Marketplace reviews">
+        <section ref={register} className={styles.reviewsSection} aria-label="Marketplace reviews">
           <div className={styles.reviewsHeader}>
             <div>
               <h2 className={styles.sectionHeading}>{copy.testimonialsHeading}</h2>
@@ -512,7 +521,7 @@ const Home: FC<HomeProps> = ({
           </form>
         </section>
 
-        <section className={styles.resourcesSection} aria-label="Resources for conveyancing teams">
+        <section ref={register} className={styles.resourcesSection} aria-label="Resources for conveyancing teams">
           <div>
             <h2 className={styles.sectionHeading}>{copy.resourcesHeading}</h2>
             <p className={styles.sectionDescription}>{copy.resourcesDescription}</p>
@@ -520,7 +529,7 @@ const Home: FC<HomeProps> = ({
           <ul className={styles.resourcesList}>{renderResources(resources)}</ul>
         </section>
 
-        <section className={styles.faq} id="faq" aria-label="Security and workflow FAQs">
+        <section ref={register} className={styles.faq} id="faq" aria-label="Security and workflow FAQs">
           <div>
             <h2 className={styles.sectionHeading}>{copy.faqHeading}</h2>
             <p className={styles.sectionDescription}>{copy.faqDescription}</p>
@@ -528,7 +537,7 @@ const Home: FC<HomeProps> = ({
           <dl>{renderFaqs(faqs)}</dl>
         </section>
 
-        <section className={styles.ctaSection} aria-label="Call to action">
+        <section ref={register} className={styles.ctaSection} aria-label="Call to action">
           <div>
             <h2 className={styles.sectionHeading}>{cta.title}</h2>
             <p>{cta.copy}</p>
