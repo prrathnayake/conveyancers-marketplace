@@ -14,6 +14,8 @@ type Message = {
 type SessionPayload = {
   sessionId: string
   persona: Persona
+  status: 'active' | 'escalated'
+  summary: string
   messages: Message[]
 }
 
@@ -27,6 +29,8 @@ const personaLabels: Record<Persona, string> = {
   assistant: 'AI assistant',
   cat: 'Conveyancing cat',
 }
+
+const storageKeyForPersona = (value: Persona): string => `ai-chat-session:${value}`
 
 const formatTime = (value: string): string => {
   try {
@@ -61,29 +65,57 @@ const AiChatWidget = (): JSX.Element => {
     }
   }, [])
 
-  const establishSession = useCallback(
+  const activateSession = useCallback(
     async (activePersona: Persona): Promise<void> => {
       setIsLoading(true)
       setError('')
       try {
-        const response = await fetch('/api/ai-chat/session', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ persona: activePersona }),
-        })
-        if (!response.ok) {
-          throw new Error('session_failed')
+        let payload: SessionPayload | null = null
+
+        if (typeof window !== 'undefined') {
+          try {
+            const storedSessionId = window.localStorage.getItem(storageKeyForPersona(activePersona))
+            if (storedSessionId) {
+              const response = await fetch(
+                `/api/ai-chat/session?sessionId=${encodeURIComponent(storedSessionId)}`,
+              )
+              if (response.ok) {
+                payload = (await response.json()) as SessionPayload
+              } else if (response.status === 404) {
+                window.localStorage.removeItem(storageKeyForPersona(activePersona))
+              } else {
+                throw new Error('session_fetch_failed')
+              }
+            }
+          } catch (storageError) {
+            console.warn('Failed to restore AI chat session id', storageError)
+          }
         }
-        const payload = (await response.json()) as SessionPayload
-        if (pendingPersonaRef.current === activePersona) {
+
+        if (!payload) {
+          const response = await fetch('/api/ai-chat/session', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ persona: activePersona }),
+          })
+          if (!response.ok) {
+            throw new Error('session_failed')
+          }
+          payload = (await response.json()) as SessionPayload
+        }
+
+        if (pendingPersonaRef.current === activePersona && payload) {
+          if (payload.persona !== persona) {
+            setPersona(payload.persona)
+          }
           setSession(payload)
-          setEscalatedSummary(null)
+          setEscalatedSummary(payload.status === 'escalated' ? payload.summary : null)
           setTimeout(scrollToBottom, 120)
         }
       } catch (fetchError) {
-        console.error('Unable to create chat session', fetchError)
+        console.error('Unable to create or resume chat session', fetchError)
         if (pendingPersonaRef.current === activePersona) {
           setError('We could not initialise the assistant. Please try again in a moment.')
         }
@@ -93,7 +125,7 @@ const AiChatWidget = (): JSX.Element => {
         }
       }
     },
-    [scrollToBottom],
+    [persona, scrollToBottom],
   )
 
   useEffect(() => {
@@ -101,14 +133,25 @@ const AiChatWidget = (): JSX.Element => {
       return
     }
     pendingPersonaRef.current = persona
-    void establishSession(persona)
-  }, [isOpen, persona, establishSession])
+    void activateSession(persona)
+  }, [activateSession, isOpen, persona])
 
   useEffect(() => {
     if (session) {
       scrollToBottom()
     }
   }, [session, scrollToBottom])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !session) {
+      return
+    }
+    try {
+      window.localStorage.setItem(storageKeyForPersona(session.persona), session.sessionId)
+    } catch (storageError) {
+      console.warn('Failed to persist AI chat session id', storageError)
+    }
+  }, [session])
 
   const handleSend = useCallback(
     async (event?: React.FormEvent<HTMLFormElement>): Promise<void> => {
@@ -131,6 +174,7 @@ const AiChatWidget = (): JSX.Element => {
         }
         const payload = (await response.json()) as MessagePayload
         setSession(payload)
+        setEscalatedSummary(payload.status === 'escalated' ? payload.summary : null)
         setInput('')
         setTimeout(scrollToBottom, 120)
       } catch (sendError) {
@@ -162,6 +206,11 @@ const AiChatWidget = (): JSX.Element => {
       }
       const payload = (await response.json()) as EscalationResponse
       setEscalatedSummary(payload.summary)
+      setSession((previous) =>
+        previous
+          ? { ...previous, status: 'escalated', summary: payload.summary }
+          : previous,
+      )
     } catch (escalationError) {
       console.error('Failed to escalate chat session', escalationError)
       setError('Escalation failed. Please contact us directly if the issue persists.')
