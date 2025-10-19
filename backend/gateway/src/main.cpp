@@ -37,7 +37,12 @@ std::string ForwardQueryString(const httplib::Params &params) {
       oss << '&';
     }
     first = false;
-    oss << p.first << '=' << p.second;
+    const auto encoded_key = httplib::detail::encode_url(p.first);
+    const auto encoded_value = httplib::detail::encode_url(p.second);
+    oss << encoded_key;
+    if (!p.second.empty()) {
+      oss << '=' << encoded_value;
+    }
   }
   return oss.str();
 }
