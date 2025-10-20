@@ -41,6 +41,39 @@ DocumentRecord RowToDocument(const pqxx::row &row) {
   return record;
 }
 
+TemplateRecord RowToTemplate(const pqxx::row &row) {
+  TemplateRecord record;
+  record.id = row["id"].c_str();
+  record.name = row["name"].c_str();
+  record.jurisdiction = row["jurisdiction"].is_null() ? std::string{} : row["jurisdiction"].c_str();
+  record.description = row["description"].is_null() ? std::string{} : row["description"].c_str();
+  record.integration_url = row["integration_url"].is_null() ? std::string{} : row["integration_url"].c_str();
+  record.integration_auth = row["integration_auth"].is_null()
+                                 ? nlohmann::json::object()
+                                 : nlohmann::json::parse(row["integration_auth"].c_str());
+  record.latest_version = row["latest_version"].is_null() ? 0 : row["latest_version"].as<int>();
+  const std::string payload_str = row["payload"].is_null() ? "{}" : row["payload"].c_str();
+  nlohmann::json payload = nlohmann::json::parse(payload_str.empty() ? "{}" : payload_str);
+  if (payload.contains("tasks") && payload["tasks"].is_array()) {
+    for (const auto &task : payload["tasks"]) {
+      TemplateTaskRecord task_record;
+      task_record.name = task.value("name", "");
+      task_record.due_days = task.value("dueDays", 0);
+      task_record.assigned_role = task.value("assignedRole", "");
+      record.tasks.push_back(std::move(task_record));
+    }
+  }
+  if (payload.contains("syncMetadata")) {
+    record.metadata = payload["syncMetadata"];
+  } else {
+    record.metadata = payload;
+  }
+  if (!record.metadata.is_object()) {
+    record.metadata = nlohmann::json::object();
+  }
+  return record;
+}
+
 }  // namespace
 
 JobsRepository::JobsRepository(std::shared_ptr<PostgresConfig> config) : config_(std::move(config)) {}
@@ -174,6 +207,74 @@ void JobsRepository::UpdateJobStatus(const std::string &job_id, const std::strin
   pqxx::work txn(conn);
   txn.exec_params("update jobs set status=$2 where id=$1", job_id, status);
   txn.commit();
+}
+
+TemplateRecord JobsRepository::UpsertTemplateVersion(const TemplateUpsertInput &input) const {
+  pqxx::connection conn = config_->Connect();
+  pqxx::work txn(conn);
+
+  std::string template_id = input.template_id;
+  if (template_id.empty()) {
+    const auto row = txn.exec_params1(
+        "insert into job_templates(name, jurisdiction, description, integration_url, integration_auth, latest_version) "
+        "values ($1,$2,$3,$4,$5::jsonb,0) returning id",
+        input.name, input.jurisdiction.empty() ? pqxx::null() : pqxx::zview(input.jurisdiction.c_str()),
+        input.description.empty() ? pqxx::null() : pqxx::zview(input.description.c_str()),
+        input.integration_url.empty() ? pqxx::null() : pqxx::zview(input.integration_url.c_str()),
+        input.integration_auth.dump());
+    template_id = row["id"].c_str();
+  } else {
+    txn.exec_params(
+        "update job_templates set name=$2, jurisdiction=$3, description=$4, integration_url=$5, integration_auth=$6::jsonb "
+        "where id=$1",
+        template_id, input.name, input.jurisdiction.empty() ? pqxx::null() : pqxx::zview(input.jurisdiction.c_str()),
+        input.description.empty() ? pqxx::null() : pqxx::zview(input.description.c_str()),
+        input.integration_url.empty() ? pqxx::null() : pqxx::zview(input.integration_url.c_str()), input.integration_auth.dump());
+  }
+
+  const auto version_row = txn.exec_params1(
+      "select coalesce(max(version),0) as current_version from job_template_versions where template_id=$1", template_id);
+  const int next_version = version_row["current_version"].as<int>() + 1;
+
+  nlohmann::json payload;
+  payload["tasks"] = nlohmann::json::array();
+  for (const auto &task : input.tasks) {
+    nlohmann::json task_json;
+    task_json["name"] = task.name;
+    task_json["dueDays"] = task.due_days;
+    task_json["assignedRole"] = task.assigned_role;
+    payload["tasks"].push_back(std::move(task_json));
+  }
+  if (!input.metadata.is_null()) {
+    payload["syncMetadata"] = input.metadata;
+  }
+
+  txn.exec_params(
+      "insert into job_template_versions(template_id, version, payload, source) values ($1,$2,$3::jsonb,$4::jsonb)",
+      template_id, next_version, payload.dump(), input.source.dump());
+  txn.exec_params("update job_templates set latest_version=$2 where id=$1", template_id, next_version);
+
+  const auto row = txn.exec_params1(
+      "select t.id, t.name, t.jurisdiction, t.description, t.integration_url, t.integration_auth, t.latest_version, "
+      "v.payload from job_templates t join job_template_versions v on v.template_id=t.id and v.version=$2 where t.id=$1",
+      template_id, next_version);
+  txn.commit();
+  return RowToTemplate(row);
+}
+
+std::vector<TemplateRecord> JobsRepository::ListTemplates() const {
+  pqxx::connection conn = config_->Connect();
+  pqxx::work txn(conn);
+  const auto result = txn.exec(
+      "select t.id, t.name, t.jurisdiction, t.description, t.integration_url, t.integration_auth, t.latest_version, "
+      "coalesce(v.payload,'{}') as payload from job_templates t left join lateral (select payload from "
+      "job_template_versions v where v.template_id=t.id order by version desc limit 1) v on true order by t.name");
+  std::vector<TemplateRecord> templates;
+  templates.reserve(result.size());
+  for (const auto &row : result) {
+    templates.push_back(RowToTemplate(row));
+  }
+  return templates;
 }
 
 }  // namespace persistence
