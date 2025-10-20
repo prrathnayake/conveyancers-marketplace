@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(payments CXX)
 set(CMAKE_CXX_STANDARD 20)
+find_package(OpenSSL REQUIRED)
 add_executable(payments main.cpp)
 target_include_directories(payments PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party)
+target_link_libraries(payments PRIVATE OpenSSL::Crypto common_persistence)

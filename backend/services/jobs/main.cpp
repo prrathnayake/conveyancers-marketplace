@@ -1,2060 +1,639 @@
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cctype>
-#include <ctime>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <iomanip>
-#include <iostream>
-#include <map>
-#include <mutex>
-#include <numeric>
 #include <optional>
 #include <random>
-#include <regex>
-#include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string>
-#include <unordered_map>
+#include <string_view>
 #include <vector>
 
 #include "../../common/env_loader.h"
 #include "../../common/security.h"
+#include "../../common/persistence/audit_repository.h"
+#include "../../common/persistence/jobs_repository.h"
+#include "../../common/persistence/postgres.h"
 #include "../../third_party/httplib.h"
 #include "../../third_party/json.hpp"
+
+#include <openssl/bio.h>
+#include <openssl/buffer.h>
+#include <openssl/evp.h>
+#include <openssl/hmac.h>
+#include <openssl/rand.h>
+#include <openssl/sha.h>
+
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 using json = nlohmann::json;
 
 namespace {
 
-struct Job;
-struct CallSession;
-
-json JobSummaryToJson(const Job &job);
-json ContactPolicyToJson(const Job &job, bool reveal_full, bool include_internal);
-json CallSessionToJson(const CallSession &session, bool include_token = false);
-
-const std::regex kEmailPattern(R"(([A-Z0-9._%+-]+)@([A-Z0-9.-]+\.[A-Z]{2,}))", std::regex::icase);
-const std::regex kPhonePattern(R"((\+?61|0)[0-9\s-]{8,})", std::regex::icase);
-const std::regex kOffPlatformPattern(R"((whatsapp|signal|telegram|zoom|meet\s?link|call\s+me|email\s+me))",
-                                     std::regex::icase);
-
-std::string NowIso8601() {
-  const auto now = std::chrono::system_clock::now();
-  const auto time = std::chrono::system_clock::to_time_t(now);
-  std::tm tm;
-#if defined(_WIN32)
-  gmtime_s(&tm, &time);
-#else
-  gmtime_r(&time, &tm);
-#endif
-  char buffer[32];
-  std::strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &tm);
-  return buffer;
-}
-
-std::string MaskEmail(const std::string &value) {
-  if (value.empty()) {
-    return value;
+class TcpSocket {
+ public:
+  TcpSocket(const std::string &host, int port) {
+    if (host.empty() || port <= 0) {
+      throw std::runtime_error("invalid_target");
+    }
+    struct addrinfo hints {};
+    std::memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    struct addrinfo *result = nullptr;
+    const std::string port_str = std::to_string(port);
+    if (const int rc = getaddrinfo(host.c_str(), port_str.c_str(), &hints, &result); rc != 0) {
+      throw std::runtime_error("getaddrinfo_failed");
+    }
+    int fd = -1;
+    for (auto *entry = result; entry != nullptr; entry = entry->ai_next) {
+      fd = ::socket(entry->ai_family, entry->ai_socktype, entry->ai_protocol);
+      if (fd < 0) {
+        continue;
+      }
+      if (::connect(fd, entry->ai_addr, entry->ai_addrlen) == 0) {
+        break;
+      }
+      ::close(fd);
+      fd = -1;
+    }
+    freeaddrinfo(result);
+    if (fd < 0) {
+      throw std::runtime_error("connect_failed");
+    }
+    fd_ = fd;
   }
-  std::smatch match;
-  if (!std::regex_search(value, match, kEmailPattern)) {
-    return "••••";
-  }
-  const auto local = match[1].str();
-  const auto domain = match[2].str();
-  std::string prefix = local.substr(0, std::min<size_t>(2, local.size()));
-  return prefix + "•••@" + domain;
-}
 
-std::string MaskPhone(const std::string &value) {
-  if (value.empty()) {
-    return value;
+  TcpSocket(const TcpSocket &) = delete;
+  TcpSocket &operator=(const TcpSocket &) = delete;
+
+  TcpSocket(TcpSocket &&other) noexcept : fd_(other.fd_) { other.fd_ = -1; }
+
+  TcpSocket &operator=(TcpSocket &&other) noexcept {
+    if (this != &other) {
+      if (fd_ >= 0) {
+        ::close(fd_);
+      }
+      fd_ = other.fd_;
+      other.fd_ = -1;
+    }
+    return *this;
   }
-  std::string digits;
-  digits.reserve(value.size());
-  for (const auto ch : value) {
-    if (std::isdigit(static_cast<unsigned char>(ch))) {
-      digits.push_back(ch);
+
+  ~TcpSocket() {
+    if (fd_ >= 0) {
+      ::close(fd_);
     }
   }
-  if (digits.size() < 4) {
-    return "••••";
+
+  void Send(const std::string &data) const { SendRaw(data.data(), data.size()); }
+
+  void SendRaw(const char *data, std::size_t length) const {
+    std::size_t sent = 0;
+    while (sent < length) {
+      const ssize_t rc = ::send(fd_, data + sent, length - sent, 0);
+      if (rc < 0) {
+        throw std::runtime_error("send_failed");
+      }
+      sent += static_cast<std::size_t>(rc);
+    }
   }
-  std::string mask;
-  mask.reserve((digits.size() - 3) * 3);
-  for (size_t i = 0; i < digits.size() - 3; ++i) {
-    mask += "\u2022";
+
+  std::string ReadLine() const {
+    std::string line;
+    char ch = 0;
+    while (true) {
+      const ssize_t rc = ::recv(fd_, &ch, 1, 0);
+      if (rc <= 0) {
+        break;
+      }
+      if (ch == '\n') {
+        break;
+      }
+      if (ch != '\r') {
+        line.push_back(ch);
+      }
+    }
+    return line;
   }
-  return mask + digits.substr(digits.size() - 3);
-}
 
-bool ContainsContactCoordinates(const std::string &text) {
-  return std::regex_search(text, kEmailPattern) || std::regex_search(text, kPhonePattern);
-}
+ private:
+  int fd_ = -1;
+};
 
-bool ContainsOffPlatformHint(const std::string &text) {
-  return std::regex_search(text, kOffPlatformPattern);
-}
-
-std::string ComposeJoinUrl(const std::string &call_id) {
-  return "https://calls.conveysafe.example/join/" + call_id;
-}
-
-std::string ComposeRecordingUrl(const std::string &call_id) {
-  return "https://calls.conveysafe.example/recordings/" + call_id + ".mp4";
-}
-
-std::string GenerateId(const std::string &prefix) {
-  static std::mt19937 rng{std::random_device{}()};
-  static std::uniform_int_distribution<int> dist(10000, 99999);
-  return prefix + std::to_string(dist(rng));
-}
-
-std::time_t ToUtcTimestamp(std::tm *tm) {
-#if defined(_WIN32)
-  return _mkgmtime(tm);
-#else
-  return timegm(tm);
-#endif
-}
-
-std::string AddDaysToDate(const std::string &date, int days) {
-  std::tm tm = {};
-  std::istringstream iss(date);
-  iss >> std::get_time(&tm, "%Y-%m-%d");
-  if (iss.fail()) {
-    return date;
+std::string GetEnvOrDefault(const std::string &key, const std::string &fallback) {
+  if (const char *value = std::getenv(key.c_str()); value && *value) {
+    return value;
   }
-  auto timestamp = ToUtcTimestamp(&tm);
-  if (timestamp == -1) {
-    return date;
+  return fallback;
+}
+
+int ParseInt(const std::string &value, int fallback) {
+  if (value.empty()) {
+    return fallback;
   }
-  timestamp += static_cast<long long>(days) * 24 * 60 * 60;
-  std::tm result;
-#if defined(_WIN32)
-  gmtime_s(&result, &timestamp);
-#else
-  gmtime_r(&timestamp, &result);
-#endif
-  char buffer[16];
-  std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", &result);
+  try {
+    return std::stoi(value);
+  } catch (...) {
+    return fallback;
+  }
+}
+
+void SendJson(httplib::Response &res, const json &payload, int status = 200) {
+  res.status = status;
+  res.set_header("Content-Type", "application/json");
+  res.body = payload.dump();
+}
+
+std::vector<unsigned char> Base64Decode(const std::string &value) {
+  BIO *b64 = BIO_new(BIO_f_base64());
+  BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
+  BIO *source = BIO_new_mem_buf(value.data(), static_cast<int>(value.size()));
+  BIO *bio = BIO_push(b64, source);
+  std::vector<unsigned char> buffer(value.size());
+  const int decoded = BIO_read(bio, buffer.data(), static_cast<int>(buffer.size()));
+  BIO_free_all(bio);
+  if (decoded < 0) {
+    throw std::runtime_error("base64_decode_failed");
+  }
+  buffer.resize(static_cast<std::size_t>(decoded));
   return buffer;
 }
 
-struct ContactPolicy {
-  bool unlocked = false;
-  std::optional<std::string> unlocked_at;
-  std::string unlocked_by_role;
-  std::string buyer_email;
-  std::string buyer_phone;
-  std::string seller_email;
-  std::string seller_phone;
-  std::string conveyancer_email;
-  std::string conveyancer_phone;
-  std::string buyer_email_masked;
-  std::string buyer_phone_masked;
-  std::string seller_email_masked;
-  std::string seller_phone_masked;
-  std::string conveyancer_email_masked;
-  std::string conveyancer_phone_masked;
-};
-
-ContactPolicy GenerateContactPolicy(const std::string &job_id, const std::string &conveyancer_id,
-                                    const std::string &buyer_email_override = std::string{},
-                                    const std::string &buyer_phone_override = std::string{},
-                                    const std::string &seller_email_override = std::string{},
-                                    const std::string &seller_phone_override = std::string{}) {
-  ContactPolicy policy;
-  policy.buyer_email = buyer_email_override.empty() ? "buyer-" + job_id + "@clients.conveysafe"
-                                                    : buyer_email_override;
-  policy.buyer_phone = buyer_phone_override.empty() ? "+611300" + job_id.substr(std::min<size_t>(job_id.size(), 4))
-                                                    : buyer_phone_override;
-  policy.seller_email = seller_email_override.empty() ? "seller-" + job_id + "@clients.conveysafe"
-                                                      : seller_email_override;
-  policy.seller_phone = seller_phone_override.empty() ? "+611300" + job_id.substr(std::min<size_t>(job_id.size(), 4))
-                                                      : seller_phone_override;
-  policy.conveyancer_email = conveyancer_id + "@pro.conveysafe";
-  policy.conveyancer_phone = "+612800" + conveyancer_id.substr(std::min<size_t>(conveyancer_id.size(), 4));
-  policy.buyer_email_masked = MaskEmail(policy.buyer_email);
-  policy.buyer_phone_masked = MaskPhone(policy.buyer_phone);
-  policy.seller_email_masked = MaskEmail(policy.seller_email);
-  policy.seller_phone_masked = MaskPhone(policy.seller_phone);
-  policy.conveyancer_email_masked = MaskEmail(policy.conveyancer_email);
-  policy.conveyancer_phone_masked = MaskPhone(policy.conveyancer_phone);
-  return policy;
+std::string Sha256Hex(const std::vector<unsigned char> &data) {
+  std::array<unsigned char, SHA256_DIGEST_LENGTH> digest{};
+  SHA256(data.data(), data.size(), digest.data());
+  static const char *kHex = "0123456789abcdef";
+  std::string output;
+  output.reserve(digest.size() * 2);
+  for (const auto value : digest) {
+    output.push_back(kHex[value >> 4]);
+    output.push_back(kHex[value & 0x0F]);
+  }
+  return output;
 }
 
-struct Milestone {
-  std::string id;
-  std::string title;
-  std::string status;
-  std::string due_date;
-  bool escrow_funded;
-  std::string assigned_to;
-  std::string updated_at;
+class RedisAdapter {
+ public:
+  RedisAdapter(std::string host, int port, std::string password)
+      : host_(std::move(host)), port_(port), password_(std::move(password)) {}
+
+  bool Publish(const std::string &channel, const json &message) const {
+    if (host_.empty() || port_ <= 0) {
+      return false;
+    }
+    try {
+      TcpSocket socket(host_, port_);
+      if (!password_.empty()) {
+        std::ostringstream auth;
+        auth << "*2\r\n$4\r\nAUTH\r\n$" << password_.size() << "\r\n" << password_ << "\r\n";
+        socket.Send(auth.str());
+        socket.ReadLine();
+      }
+      const std::string payload = message.dump();
+      std::ostringstream cmd;
+      cmd << "*3\r\n$7\r\nPUBLISH\r\n$" << channel.size() << "\r\n" << channel << "\r\n$" << payload.size() << "\r\n"
+          << payload << "\r\n";
+      socket.Send(cmd.str());
+      socket.ReadLine();
+      return true;
+    } catch (const std::exception &ex) {
+      security::LogEvent("jobs", "error", "redis_publish_failed", ex.what());
+      return false;
+    }
+  }
+
+ private:
+  std::string host_;
+  int port_ = 0;
+  std::string password_;
 };
 
-struct Message {
-  std::string id;
-  std::string sender;
-  std::string body;
-  std::string sent_at;
-};
-
-struct DocumentVersion {
-  int version = 1;
-  std::string uploaded_at;
-  std::string uploaded_by;
-  std::string content_type;
-  std::string storage_path;
-  std::string checksum;
-  bool encrypted = true;
-  bool scanned = false;
-  std::string signed_off_at;
-};
-
-struct Document {
-  std::string id;
-  std::string name;
-  std::string status;
-  std::string signed_url;
-  bool requires_signature;
-  bool is_signed = false;
-  std::string encryption_key_id;
-  std::string storage_bucket;
-  std::vector<std::string> access_roles;
-  std::vector<DocumentVersion> versions;
-};
-
-std::string ComposeDocumentStoragePath(const std::string &bucket, const std::string &document_id,
-                                       int version) {
-  return bucket + "/" + document_id + "/v" + std::to_string(version);
+std::string TrimScheme(const std::string &endpoint, std::string *scheme) {
+  const std::string http = "http://";
+  const std::string https = "https://";
+  if (endpoint.rfind(http, 0) == 0) {
+    *scheme = "http";
+    return endpoint.substr(http.size());
+  }
+  if (endpoint.rfind(https, 0) == 0) {
+    *scheme = "https";
+    return endpoint.substr(https.size());
+  }
+  *scheme = "https";
+  return endpoint;
 }
 
-std::string ComposeDocumentSignedUrl(const std::string &job_id, const std::string &document_id,
-                                     int version) {
+std::string HmacSha256(const std::string &key, const std::string &data) {
+  unsigned int len = 0;
+  std::array<unsigned char, EVP_MAX_MD_SIZE> buffer{};
+  HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
+       reinterpret_cast<const unsigned char *>(data.data()), static_cast<int>(data.size()), buffer.data(), &len);
+  return std::string(reinterpret_cast<char *>(buffer.data()), len);
+}
+
+std::string ToHex(const std::string &data) {
+  static const char *kHex = "0123456789abcdef";
+  std::string output;
+  output.reserve(data.size() * 2);
+  for (unsigned char ch : data) {
+    output.push_back(kHex[ch >> 4]);
+    output.push_back(kHex[ch & 0x0F]);
+  }
+  return output;
+}
+
+std::string Sha256Hex(const std::string &data) {
+  std::array<unsigned char, SHA256_DIGEST_LENGTH> digest{};
+  SHA256(reinterpret_cast<const unsigned char *>(data.data()), data.size(), digest.data());
+  static const char *kHex = "0123456789abcdef";
+  std::string output;
+  output.reserve(digest.size() * 2);
+  for (const auto value : digest) {
+    output.push_back(kHex[value >> 4]);
+    output.push_back(kHex[value & 0x0F]);
+  }
+  return output;
+}
+
+std::string UrlEncode(std::string_view value) {
   std::ostringstream oss;
-  oss << "https://files.example.com/" << job_id << '/' << document_id << "/v" << version
-      << "?token="
-      << security::DeriveScopedToken("doc_url", job_id + ':' + document_id + ":v" + std::to_string(version));
+  for (unsigned char ch : value) {
+    if (std::isalnum(ch) || ch == '-' || ch == '_' || ch == '.' || ch == '~' || ch == '/') {
+      oss << static_cast<char>(ch);
+    } else {
+      oss << '%' << std::uppercase << std::setw(2) << std::setfill('0') << std::hex << static_cast<int>(ch)
+          << std::nouppercase << std::setfill(' ') << std::dec;
+    }
+  }
   return oss.str();
 }
 
-std::string GenerateDocumentChecksum(const std::string &job_id, const std::string &document_id,
-                                     int version) {
-  return security::DeriveScopedToken("doc_checksum",
-                                     job_id + ':' + document_id + ":v" + std::to_string(version));
-}
-
-std::vector<std::string> NormaliseAccessRoles(std::vector<std::string> roles) {
-  if (roles.empty()) {
-    roles = {"buyer", "seller", "conveyancer"};
-  }
-  if (std::find(roles.begin(), roles.end(), "admin") == roles.end()) {
-    roles.push_back("admin");
-  }
-  std::sort(roles.begin(), roles.end());
-  roles.erase(std::unique(roles.begin(), roles.end()), roles.end());
-  return roles;
-}
-
-bool DocumentAllowsRole(const Document &document, std::string_view role) {
-  if (role == "admin") {
-    return true;
-  }
-  if (document.access_roles.empty()) {
-    return true;
-  }
-  return std::find(document.access_roles.begin(), document.access_roles.end(), role) !=
-         document.access_roles.end();
-}
-
-Document BuildSeedDocument(const std::string &job_id, const std::string &document_id,
-                           const std::string &name, const std::string &content_type,
-                           bool requires_signature, bool is_signed,
-                           const std::string &uploaded_by, const std::string &uploaded_at,
-                           const std::vector<std::string> &roles,
-                           const std::string &status_override = std::string{}) {
-  Document document;
-  document.id = document_id;
-  document.name = name;
-  document.requires_signature = requires_signature;
-  document.is_signed = is_signed;
-  document.storage_bucket = "jobs-" + job_id;
-  document.encryption_key_id = security::DeriveScopedToken("doc_key", job_id + ':' + document_id);
-  document.access_roles = NormaliseAccessRoles(roles);
-
-  DocumentVersion version;
-  version.version = 1;
-  version.uploaded_at = uploaded_at;
-  version.uploaded_by = uploaded_by;
-  version.content_type = content_type;
-  version.encrypted = true;
-  version.scanned = true;
-  version.storage_path = ComposeDocumentStoragePath(document.storage_bucket, document.id, version.version);
-  version.checksum = GenerateDocumentChecksum(job_id, document.id, version.version);
-  if (is_signed) {
-    version.signed_off_at = uploaded_at;
-  }
-  document.versions.push_back(version);
-
-  if (!status_override.empty()) {
-    document.status = status_override;
-  } else if (requires_signature) {
-    document.status = is_signed ? "signed" : "awaiting_signature";
-  } else {
-    document.status = is_signed ? "signed" : "available";
-  }
-
-  document.signed_url = ComposeDocumentSignedUrl(job_id, document.id, version.version);
-  return document;
-}
-
-struct Dispute {
-  std::string id;
-  std::string type;
-  std::string description;
-  std::string status;
-  std::string created_at;
-  std::vector<std::string> evidence_urls;
-};
-
-struct CallSession {
-  std::string id;
-  std::string type;
-  std::string status;
-  std::string created_at;
-  std::string created_by;
-  std::vector<std::string> participants;
-  std::string join_url;
-  std::string access_token;
-};
-
-struct CompletionCertificate {
-  std::string id;
-  std::string job_id;
-  std::string summary;
-  std::string issued_at;
-  std::string issued_by;
-  std::string download_url;
-  std::string verification_code;
-  bool verified = false;
-};
-
-struct TemplateTask {
-  std::string id;
-  std::string title;
-  std::string default_assignee;
-  int due_in_days = 0;
-  bool escrow_required = false;
-};
-
-struct TemplateDefinition {
-  std::string id;
-  std::string name;
-  std::string jurisdiction;
-  std::string description;
-  std::vector<TemplateTask> tasks;
-};
-
-class TemplateLibrary {
+class MinioAdapter {
  public:
-  TemplateLibrary() {
-    TemplateDefinition purchase;
-    purchase.id = "tpl_residential_purchase";
-    purchase.name = "Residential purchase essentials";
-    purchase.jurisdiction = "NSW";
-    purchase.description = "Standard conveyancing workflow with finance, searches, and settlement prep.";
-    purchase.tasks = {{"tt_1", "Engagement agreement", "conveyancer", 1, false},
-                      {"tt_2", "Order council and strata searches", "conveyancer", 3, true},
-                      {"tt_3", "Prepare settlement pack", "conveyancer", 10, true}};
-    templates_.emplace(purchase.id, purchase);
-
-    TemplateDefinition sale;
-    sale.id = "tpl_residential_sale";
-    sale.name = "Residential sale checklist";
-    sale.jurisdiction = "VIC";
-    sale.description = "Tasks covering vendor statement, discharge of mortgage, and settlement handover.";
-    sale.tasks = {{"tt_4", "Issue Section 32 vendor statement", "conveyancer", 2, false},
-                  {"tt_5", "Coordinate discharge authority", "conveyancer", 5, true},
-                  {"tt_6", "Final settlement statement", "finance", 12, true}};
-    templates_.emplace(sale.id, sale);
-  }
-
-  std::vector<TemplateDefinition> List() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::vector<TemplateDefinition> results;
-    for (const auto &entry : templates_) {
-      results.push_back(entry.second);
+  MinioAdapter(std::string endpoint, std::string bucket, std::string access_key, std::string secret_key,
+               std::string region)
+      : bucket_(std::move(bucket)), access_key_(std::move(access_key)), secret_key_(std::move(secret_key)),
+        region_(std::move(region)) {
+    scheme_ = "https";
+    host_ = TrimScheme(endpoint, &scheme_);
+    if (region_.empty()) {
+      region_ = "us-east-1";
     }
-    std::sort(results.begin(), results.end(), [](const auto &a, const auto &b) { return a.name < b.name; });
-    return results;
   }
 
-  std::optional<TemplateDefinition> Get(const std::string &id) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (auto it = templates_.find(id); it != templates_.end()) {
-      return it->second;
+  bool Configured() const {
+    return !host_.empty() && !bucket_.empty() && !access_key_.empty() && !secret_key_.empty();
+  }
+
+  std::string ObjectUrl(const std::string &object_key) const {
+    return scheme_ + "://" + host_ + "/" + bucket_ + "/" + object_key;
+  }
+
+  std::string GeneratePresignedPut(const std::string &object_key, std::chrono::minutes expiry) const {
+    if (!Configured()) {
+      return {};
     }
-    return std::nullopt;
-  }
+    const auto now = std::chrono::system_clock::now();
+    const auto time = std::chrono::system_clock::to_time_t(now);
+    std::tm tm{};
+#if defined(_WIN32)
+    gmtime_s(&tm, &time);
+#else
+    gmtime_r(&time, &tm);
+#endif
+    char date[9];
+    std::strftime(date, sizeof(date), "%Y%m%d", &tm);
+    char timestamp[17];
+    std::strftime(timestamp, sizeof(timestamp), "%Y%m%dT%H%M%SZ", &tm);
 
-  TemplateDefinition Create(const std::string &name, const std::string &jurisdiction,
-                            const std::string &description, const std::vector<TemplateTask> &tasks) {
-    TemplateDefinition definition;
-    definition.id = GenerateId("tpl_");
-    definition.name = name;
-    definition.jurisdiction = jurisdiction;
-    definition.description = description;
-    definition.tasks = tasks;
-    std::lock_guard<std::mutex> lock(mutex_);
-    templates_[definition.id] = definition;
-    return definition;
+    const std::string credential_scope = std::string(date) + "/" + region_ + "/s3/aws4_request";
+    const std::string canonical_uri = "/" + bucket_ + "/" + object_key;
+    const std::string signed_headers = "host";
+    std::ostringstream canonical_query;
+    canonical_query << "X-Amz-Algorithm=AWS4-HMAC-SHA256";
+    canonical_query << "&X-Amz-Credential=" << UrlEncode(access_key_ + "/" + credential_scope);
+    canonical_query << "&X-Amz-Date=" << timestamp;
+    canonical_query << "&X-Amz-Expires=" << std::chrono::duration_cast<std::chrono::seconds>(expiry).count();
+    canonical_query << "&X-Amz-SignedHeaders=" << signed_headers;
+
+    const std::string canonical_headers = "host:" + host_ + "\n";
+    const std::string payload_hash = Sha256Hex("");
+    const std::string canonical_request = "PUT\n" + canonical_uri + "\n" + canonical_query.str() + "\n" +
+                                          canonical_headers + "\n" + signed_headers + "\n" + payload_hash;
+    const std::string string_to_sign =
+        "AWS4-HMAC-SHA256\n" + std::string(timestamp) + "\n" + credential_scope + "\n" + Sha256Hex(canonical_request);
+    const std::string k_date = HmacSha256("AWS4" + secret_key_, date);
+    const std::string k_region = HmacSha256(k_date, region_);
+    const std::string k_service = HmacSha256(k_region, "s3");
+    const std::string k_signing = HmacSha256(k_service, "aws4_request");
+    const std::string signature = ToHex(HmacSha256(k_signing, string_to_sign));
+
+    std::ostringstream url;
+    url << scheme_ << "://" << host_ << canonical_uri << "?" << canonical_query.str()
+        << "&X-Amz-Signature=" << signature;
+    return url.str();
   }
 
  private:
-  mutable std::mutex mutex_;
-  std::map<std::string, TemplateDefinition> templates_;
+  std::string scheme_;
+  std::string host_;
+  std::string bucket_;
+  std::string access_key_;
+  std::string secret_key_;
+  std::string region_ = "us-east-1";
 };
 
-TemplateLibrary &Templates() {
-  static TemplateLibrary library;
-  return library;
-}
-
-struct Job {
-  std::string id;
-  std::string title;
-  std::string state;
-  std::string status;
-  std::string conveyancer_id;
-  std::string buyer_name;
-  std::string seller_name;
-  bool escrow_enabled;
-  std::string opened_at;
-  std::optional<std::string> completed_at;
-  std::vector<Milestone> milestones;
-  std::vector<Message> messages;
-  std::vector<Document> documents;
-  std::vector<Dispute> disputes;
-  std::string risk_level = "low";
-  std::string compliance_notes;
-  ContactPolicy contact_policy;
-  std::vector<CallSession> calls;
-  std::vector<std::string> compliance_flags;
-  std::optional<CompletionCertificate> certificate;
-  std::string buyer_ip;
-  std::string seller_ip;
-  std::string quote_issued_at;
-  std::string last_activity_at;
-};
-
-class JobStore {
+class ClamAvAdapter {
  public:
-  JobStore() { Seed(); }
+  ClamAvAdapter(std::string host, int port) : host_(std::move(host)), port_(port) {}
 
-  std::vector<Job> ListJobs(const std::optional<std::string> &state,
-                            const std::optional<std::string> &conveyancer_id) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::vector<Job> jobs;
-    for (const auto &[_, job] : jobs_) {
-      if (state && job.state != *state) {
-        continue;
+  bool Scan(const std::vector<unsigned char> &data, std::string *reason) const {
+    if (ContainsEicar(data)) {
+      if (reason) {
+        *reason = "EICAR test string detected";
       }
-      if (conveyancer_id && job.conveyancer_id != *conveyancer_id) {
-        continue;
-      }
-      jobs.push_back(job);
-    }
-    std::sort(jobs.begin(), jobs.end(), [](const Job &a, const Job &b) {
-      return a.opened_at > b.opened_at;
-    });
-    return jobs;
-  }
-
-  std::optional<Job> Get(const std::string &id) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (auto it = jobs_.find(id); it != jobs_.end()) {
-      return it->second;
-    }
-    return std::nullopt;
-  }
-
-  std::optional<Job> Create(const std::string &title, const std::string &state,
-                            const std::string &conveyancer_id, const std::string &buyer_name,
-                            const std::string &seller_name, bool escrow_enabled,
-                            const std::vector<Milestone> &milestones) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    Job job;
-    job.id = GenerateId("job_");
-    job.title = title;
-    job.state = state;
-    job.status = "in_progress";
-    job.conveyancer_id = conveyancer_id;
-    job.buyer_name = buyer_name;
-    job.seller_name = seller_name;
-    job.escrow_enabled = escrow_enabled;
-    job.opened_at = NowIso8601();
-    job.milestones = milestones;
-    job.compliance_notes = "Escrow monitoring enabled";
-    job.quote_issued_at = job.opened_at;
-    job.last_activity_at = job.opened_at;
-    job.contact_policy = GenerateContactPolicy(job.id, conveyancer_id);
-    job.buyer_ip = "203.0.113." + std::to_string((jobs_.size() % 30) + 10);
-    job.seller_ip = "198.51.100." + std::to_string((jobs_.size() % 40) + 5);
-    jobs_[job.id] = job;
-    return job;
-  }
-
-  std::optional<Milestone> AddMilestone(const std::string &job_id, const std::string &title,
-                                        const std::string &due_date, const std::string &assigned_to) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = jobs_.find(job_id);
-    if (it == jobs_.end()) {
-      return std::nullopt;
-    }
-    Milestone milestone;
-    milestone.id = GenerateId("ms_");
-    milestone.title = title;
-    milestone.status = "pending";
-    milestone.due_date = due_date;
-    milestone.escrow_funded = false;
-    milestone.assigned_to = assigned_to;
-    milestone.updated_at = NowIso8601();
-    it->second.milestones.push_back(milestone);
-    it->second.status = "in_progress";
-    it->second.last_activity_at = milestone.updated_at;
-    return milestone;
-  }
-
-  bool UpdateMilestone(const std::string &job_id, const std::string &milestone_id,
-                       const std::string &status, const std::optional<std::string> &due_date,
-                       bool escrow_funded) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = jobs_.find(job_id);
-    if (it == jobs_.end()) {
       return false;
     }
-    for (auto &milestone : it->second.milestones) {
-      if (milestone.id == milestone_id) {
-        milestone.status = status;
-        if (due_date) {
-          milestone.due_date = *due_date;
+    if (host_.empty() || port_ <= 0) {
+      return true;
+    }
+    try {
+      TcpSocket socket(host_, port_);
+      socket.Send("zINSTREAM\0");
+      std::size_t offset = 0;
+      while (offset < data.size()) {
+        const std::size_t chunk = std::min<std::size_t>(8192, data.size() - offset);
+        const uint32_t len = htonl(static_cast<uint32_t>(chunk));
+        socket.SendRaw(reinterpret_cast<const char *>(&len), sizeof(len));
+        socket.SendRaw(reinterpret_cast<const char *>(data.data() + offset), chunk);
+        offset += chunk;
+      }
+      const uint32_t terminator = 0;
+      socket.SendRaw(reinterpret_cast<const char *>(&terminator), sizeof(terminator));
+      const std::string response = socket.ReadLine();
+      if (response.find("FOUND") != std::string::npos) {
+        if (reason) {
+          *reason = response;
         }
-        milestone.escrow_funded = escrow_funded;
-        milestone.updated_at = NowIso8601();
-        it->second.last_activity_at = milestone.updated_at;
-        return true;
+        return false;
       }
+      return true;
+    } catch (const std::exception &ex) {
+      security::LogEvent("jobs", "warn", "clamav_unavailable", ex.what());
+      return true;
     }
-    return false;
-  }
-
-  std::optional<Message> AddMessage(const std::string &job_id, const std::string &sender,
-                                    const std::string &body) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = jobs_.find(job_id);
-    if (it == jobs_.end()) {
-      return std::nullopt;
-    }
-    Message message;
-    message.id = GenerateId("msg_");
-    message.sender = sender;
-    message.body = body;
-    message.sent_at = NowIso8601();
-    it->second.messages.push_back(message);
-    it->second.last_activity_at = message.sent_at;
-    if (ContainsContactCoordinates(body) && !it->second.contact_policy.unlocked) {
-      it->second.compliance_flags.push_back("contact_coordinates:" + message.id);
-    }
-    if (ContainsOffPlatformHint(body)) {
-      it->second.compliance_flags.push_back("off_platform_hint:" + message.id);
-    }
-    return message;
-  }
-
-  std::optional<Document> AddDocument(const std::string &job_id, const std::string &name,
-                                      bool requires_signature, const std::string &content_type,
-                                      const std::string &uploaded_by,
-                                      const std::vector<std::string> &access_roles,
-                                      const std::string &checksum, bool encrypted) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = jobs_.find(job_id);
-    if (it == jobs_.end()) {
-      return std::nullopt;
-    }
-    Document document;
-    document.id = GenerateId("doc_");
-    document.name = name;
-    document.requires_signature = requires_signature;
-    document.is_signed = false;
-    document.storage_bucket = "jobs-" + job_id;
-    document.encryption_key_id = security::DeriveScopedToken("doc_key", job_id + ':' + document.id);
-    document.access_roles = NormaliseAccessRoles(access_roles);
-
-    DocumentVersion version;
-    version.version = 1;
-    version.uploaded_at = NowIso8601();
-    version.uploaded_by = uploaded_by;
-    version.content_type = content_type;
-    version.encrypted = encrypted;
-    version.scanned = true;
-    version.storage_path = ComposeDocumentStoragePath(document.storage_bucket, document.id, version.version);
-    version.checksum = checksum.empty()
-                            ? GenerateDocumentChecksum(job_id, document.id, version.version)
-                            : checksum;
-
-    document.versions.push_back(version);
-    document.status = requires_signature ? "awaiting_signature" : "available";
-    document.signed_url = ComposeDocumentSignedUrl(job_id, document.id, version.version);
-
-    it->second.documents.push_back(document);
-    it->second.last_activity_at = version.uploaded_at;
-    return it->second.documents.back();
-  }
-
-  bool MarkDocumentSigned(const std::string &job_id, const std::string &document_id,
-                          bool signed_flag) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = jobs_.find(job_id);
-    if (it == jobs_.end()) {
-      return false;
-    }
-    for (auto &document : it->second.documents) {
-      if (document.id == document_id) {
-        if (document.requires_signature) {
-          document.is_signed = signed_flag;
-          document.status = signed_flag ? "signed" : "awaiting_signature";
-          if (!document.versions.empty()) {
-            document.versions.back().signed_off_at = signed_flag ? NowIso8601() : std::string{};
-          }
-        }
-        it->second.last_activity_at = NowIso8601();
-        return true;
-      }
-    }
-    return false;
-  }
-
-  std::optional<Document> AppendDocumentVersion(const std::string &job_id, const std::string &document_id,
-                                                const std::string &uploaded_by,
-                                                const std::string &content_type,
-                                                const std::string &checksum, bool encrypted) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = jobs_.find(job_id);
-    if (it == jobs_.end()) {
-      return std::nullopt;
-    }
-    for (auto &document : it->second.documents) {
-      if (document.id == document_id) {
-        DocumentVersion version;
-        version.version = document.versions.empty() ? 1 : document.versions.back().version + 1;
-        version.uploaded_at = NowIso8601();
-        version.uploaded_by = uploaded_by;
-        version.content_type = content_type;
-        version.encrypted = encrypted;
-        version.scanned = true;
-        version.storage_path =
-            ComposeDocumentStoragePath(document.storage_bucket, document.id, version.version);
-        version.checksum = checksum.empty()
-                                ? GenerateDocumentChecksum(job_id, document.id, version.version)
-                                : checksum;
-        document.versions.push_back(version);
-        document.is_signed = false;
-        document.status = document.requires_signature ? "awaiting_signature" : "available";
-        document.signed_url = ComposeDocumentSignedUrl(job_id, document.id, version.version);
-        it->second.last_activity_at = version.uploaded_at;
-        return document;
-      }
-    }
-    return std::nullopt;
-  }
-
-  std::optional<Document> GetDocument(const std::string &job_id, const std::string &document_id) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = jobs_.find(job_id);
-    if (it == jobs_.end()) {
-      return std::nullopt;
-    }
-    for (const auto &document : it->second.documents) {
-      if (document.id == document_id) {
-        return document;
-      }
-    }
-    return std::nullopt;
-  }
-
-  std::optional<Dispute> CreateDispute(const std::string &job_id, const std::string &type,
-                                       const std::string &description) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = jobs_.find(job_id);
-    if (it == jobs_.end()) {
-      return std::nullopt;
-    }
-    Dispute dispute;
-    dispute.id = GenerateId("disp_");
-    dispute.type = type;
-    dispute.description = description;
-    dispute.status = "open";
-    dispute.created_at = NowIso8601();
-    it->second.disputes.push_back(dispute);
-    it->second.risk_level = "medium";
-    it->second.compliance_notes = "Dispute opened; monitoring required";
-    it->second.last_activity_at = dispute.created_at;
-    return dispute;
-  }
-
-  bool UpdateDisputeStatus(const std::string &job_id, const std::string &dispute_id,
-                           const std::string &status, const std::vector<std::string> &evidence) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = jobs_.find(job_id);
-    if (it == jobs_.end()) {
-      return false;
-    }
-    for (auto &dispute : it->second.disputes) {
-      if (dispute.id == dispute_id) {
-        dispute.status = status;
-        dispute.evidence_urls.insert(dispute.evidence_urls.end(), evidence.begin(), evidence.end());
-        if (status == "resolved") {
-          it->second.risk_level = "low";
-          it->second.compliance_notes = "Dispute resolved";
-        }
-        it->second.last_activity_at = NowIso8601();
-        return true;
-      }
-    }
-    return false;
-  }
-
-  bool CompleteJob(const std::string &job_id, const std::string &summary) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = jobs_.find(job_id);
-    if (it == jobs_.end()) {
-      return false;
-    }
-    it->second.status = "completed";
-    const auto issued_at = NowIso8601();
-    it->second.completed_at = issued_at;
-    it->second.compliance_notes = summary;
-    it->second.last_activity_at = issued_at;
-    CompletionCertificate certificate;
-    certificate.id = GenerateId("cert_");
-    certificate.job_id = job_id;
-    certificate.summary = summary;
-    certificate.issued_at = issued_at;
-    certificate.issued_by = "ConveySafe automation";
-    certificate.download_url = "https://certs.conveysafe.example/" + job_id + "/" + certificate.id + ".pdf";
-    certificate.verification_code = security::DeriveScopedToken("certificate", job_id + certificate.id);
-    certificate.verified = true;
-    it->second.certificate = certificate;
-    return true;
-  }
-
-  bool UnlockContact(const std::string &job_id, const std::string &actor_role) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = jobs_.find(job_id);
-    if (it == jobs_.end()) {
-      return false;
-    }
-    if (!it->second.contact_policy.unlocked) {
-      it->second.contact_policy.unlocked = true;
-      it->second.contact_policy.unlocked_by_role = actor_role;
-      it->second.contact_policy.unlocked_at = NowIso8601();
-      it->second.compliance_notes = "Contact released post-payment verification";
-    }
-    return true;
-  }
-
-  std::optional<ContactPolicy> GetContactPolicy(const std::string &job_id) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (auto it = jobs_.find(job_id); it != jobs_.end()) {
-      return it->second.contact_policy;
-    }
-    return std::nullopt;
-  }
-
-  std::optional<CallSession> CreateCallSession(const std::string &job_id, const std::string &type,
-                                               const std::string &created_by,
-                                               const std::vector<std::string> &participants) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = jobs_.find(job_id);
-    if (it == jobs_.end()) {
-      return std::nullopt;
-    }
-    CallSession session;
-    session.id = GenerateId("call_");
-    session.type = type;
-    session.status = "scheduled";
-    session.created_at = NowIso8601();
-    session.created_by = created_by;
-    session.participants = participants;
-    session.join_url = ComposeJoinUrl(session.id);
-    session.access_token = security::DeriveScopedToken("call", session.id);
-    it->second.calls.push_back(session);
-    it->second.last_activity_at = session.created_at;
-    return session;
-  }
-
-  std::vector<CallSession> ListCalls(const std::string &job_id) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (auto it = jobs_.find(job_id); it != jobs_.end()) {
-      return it->second.calls;
-    }
-    return {};
-  }
-
-  std::optional<CompletionCertificate> GetCertificate(const std::string &job_id) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (auto it = jobs_.find(job_id); it != jobs_.end()) {
-      return it->second.certificate;
-    }
-    return std::nullopt;
-  }
-
-  bool ApplyTemplate(const std::string &job_id, const TemplateDefinition &definition,
-                     const std::string &start_date) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = jobs_.find(job_id);
-    if (it == jobs_.end()) {
-      return false;
-    }
-    for (const auto &task : definition.tasks) {
-      Milestone milestone;
-      milestone.id = GenerateId("ms_");
-      milestone.title = task.title;
-      milestone.status = "pending";
-      milestone.due_date = AddDaysToDate(start_date, task.due_in_days);
-      milestone.escrow_funded = task.escrow_required;
-      milestone.assigned_to = task.default_assignee.empty() ? it->second.conveyancer_id : task.default_assignee;
-      milestone.updated_at = NowIso8601();
-      it->second.milestones.push_back(milestone);
-    }
-    it->second.last_activity_at = NowIso8601();
-    return true;
-  }
-
-  json AdminContactPolicies() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    json response = json::array();
-    for (const auto &[job_id, job] : jobs_) {
-      json entry = JobSummaryToJson(job);
-      entry["contact_policy"] = ContactPolicyToJson(job, true, true);
-      entry["call_sessions"] = json::array();
-      for (const auto &call : job.calls) {
-        entry["call_sessions"].push_back(CallSessionToJson(call, true));
-      }
-      entry["compliance_flags"] = job.compliance_flags;
-      entry["quote_issued_at"] = job.quote_issued_at;
-      entry["last_activity_at"] = job.last_activity_at;
-      entry["buyer_ip"] = job.buyer_ip;
-      entry["seller_ip"] = job.seller_ip;
-      response.push_back(entry);
-    }
-    return response;
-  }
-
-  json AdminInsights() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    json signals = json::array();
-    int active_jobs = 0;
-    std::map<std::pair<std::string, std::string>, int> ip_pairs;
-    for (const auto &[_, job] : jobs_) {
-      if (job.status != "completed") {
-        active_jobs += 1;
-      }
-      ip_pairs[{job.buyer_ip, job.seller_ip}] += 1;
-      if (!job.compliance_flags.empty()) {
-        signals.push_back(json{{"type", "contact_signal"},
-                               {"job_id", job.id},
-                               {"severity", job.contact_policy.unlocked ? "info" : "warning"},
-                               {"evidence", job.compliance_flags},
-                               {"detail", "Messages indicate attempted contact exchange."}});
-      }
-      if (job.contact_policy.unlocked && job.status != "completed" && job.messages.size() < 3) {
-        signals.push_back(json{{"type", "payment_without_activity"},
-                               {"job_id", job.id},
-                               {"detail", "Payment initiated but conversation stalled."}});
-      }
-    }
-
-    for (const auto &[pair, count] : ip_pairs) {
-      if (count > 1) {
-        signals.push_back(json{{"type", "ip_correlation"},
-                               {"buyer_ip", pair.first},
-                               {"seller_ip", pair.second},
-                               {"occurrences", count},
-                               {"detail", "Repeated buyer/seller IP pairing detected."}});
-      }
-    }
-
-    const int total_jobs = static_cast<int>(jobs_.size());
-    if (total_jobs > 0 && active_jobs < std::max(1, total_jobs / 2)) {
-      signals.push_back(json{{"type", "active_jobs_drop"},
-                             {"detail", "Active pipeline dropped below historical average."},
-                             {"active_jobs", active_jobs},
-                             {"total_jobs", total_jobs}});
-    }
-
-    json message_metadata = json::array();
-    for (const auto &[_, job] : jobs_) {
-      const auto avg_length = job.messages.empty()
-                                  ? 0.0
-                                  : std::accumulate(job.messages.begin(), job.messages.end(), 0.0,
-                                                    [](double acc, const Message &msg) {
-                                                      return acc + static_cast<double>(msg.body.size());
-                                                    }) /
-                                        job.messages.size();
-      message_metadata.push_back(json{{"job_id", job.id},
-                                      {"message_count", job.messages.size()},
-                                      {"average_length", avg_length},
-                                      {"last_activity_at", job.last_activity_at}});
-    }
-
-    json payment_activity = json::array();
-    for (const auto &[_, job] : jobs_) {
-      payment_activity.push_back(json{{"job_id", job.id},
-                                      {"contact_unlocked", job.contact_policy.unlocked},
-                                      {"completed_at", job.completed_at.value_or("")},
-                                      {"quote_issued_at", job.quote_issued_at}});
-    }
-
-    json retention = json{{"completed_jobs", std::count_if(jobs_.begin(), jobs_.end(), [](const auto &entry) {
-                            return entry.second.status == "completed";
-                          })}};
-
-    json ip_correlation = json::array();
-    for (const auto &[pair, count] : ip_pairs) {
-      ip_correlation.push_back(json{{"buyer_ip", pair.first}, {"seller_ip", pair.second}, {"count", count}});
-    }
-
-    return json{{"generated_at", NowIso8601()},
-                {"signals", signals},
-                {"training_inputs", json{{"message_metadata", message_metadata},
-                                           {"payment_activity", payment_activity},
-                                           {"user_retention_metrics", retention},
-                                           {"ip_correlation", ip_correlation}}}};
   }
 
  private:
-  void Seed() {
-    Milestone deposit{"ms_1", "Deposit paid", "completed", "2024-02-05", true,
-                      "Sydney Settlements", NowIso8601()};
-    Milestone finance{"ms_2", "Finance approved", "completed", "2024-02-18", true,
-                      "Sydney Settlements", NowIso8601()};
-    Milestone searches{"ms_3", "Searches lodged", "in_progress", "2024-03-01", true,
-                       "Sydney Settlements", NowIso8601()};
-    Milestone settlement{"ms_4", "Settlement", "scheduled", "2024-03-15", false,
-                         "Sydney Settlements", NowIso8601()};
-
-    Job job1;
-    job1.id = "job_2001";
-    job1.title = "Residential purchase";
-    job1.state = "NSW";
-    job1.status = "in_progress";
-    job1.conveyancer_id = "pro_1002";
-    job1.buyer_name = "Emily Carter";
-    job1.seller_name = "Liam Nguyen";
-    job1.escrow_enabled = true;
-    job1.opened_at = "2024-02-01T01:00:00Z";
-    job1.milestones = {deposit, finance, searches, settlement};
-    job1.messages = {{"msg_1", "Emily Carter", "Thanks for the update on finance.",
-                      "2024-02-18T08:42:00+11:00"},
-                     {"msg_2", "Sydney Settlements", "Searches lodged with LPI.",
-                      "2024-02-20T14:10:00+11:00"}};
-    job1.documents = {
-        BuildSeedDocument(job1.id, "doc_1", "Contract of sale", "application/pdf", false, true,
-                          job1.conveyancer_id, "2024-02-05T00:00:00Z",
-                          {"buyer", "seller", "conveyancer"}),
-        BuildSeedDocument(job1.id, "doc_2", "Identification verification", "application/pdf", true,
-                          false, job1.conveyancer_id, "2024-02-12T00:00:00Z",
-                          {"buyer", "seller", "conveyancer"})};
-    job1.compliance_notes = "KYC complete for both parties";
-    job1.contact_policy = GenerateContactPolicy(job1.id, job1.conveyancer_id,
-                                                "emily.carter@propertymail.example", "+61400987654",
-                                                "liam.nguyen@sellers.example", "+61418882211");
-    job1.contact_policy.unlocked = true;
-    job1.contact_policy.unlocked_by_role = "finance_admin";
-    job1.contact_policy.unlocked_at = std::string{"2024-02-12T00:30:00Z"};
-    job1.quote_issued_at = "2024-01-25T22:00:00Z";
-    job1.last_activity_at = "2024-02-20T14:10:00+11:00";
-    job1.buyer_ip = "203.0.113.18";
-    job1.seller_ip = "198.51.100.22";
-    job1.compliance_flags = {"contact_coordinates:msg_1"};
-    CallSession review_call{"call_5001",
-                            "video",
-                            "recorded",
-                            "2024-02-14T03:00:00Z",
-                            "Sydney Settlements",
-                            {"Emily Carter", "Sydney Settlements"},
-                            ComposeJoinUrl("call_5001"),
-                            security::DeriveScopedToken("call", "call_5001")};
-    job1.calls.push_back(review_call);
-
-    Job job2 = job1;
-    job2.id = "job_2002";
-    job2.title = "Off-the-plan apartment";
-    job2.state = "VIC";
-    job2.status = "awaiting_client";
-    job2.conveyancer_id = "pro_1001";
-    job2.buyer_name = "Oliver Bennett";
-    job2.seller_name = "Southbank Developments";
-    job2.opened_at = "2024-01-10T01:00:00Z";
-    job2.documents = {BuildSeedDocument(job2.id, "doc_1", "Disclosure statement", "application/pdf",
-                                        false, false, job2.conveyancer_id, "2024-01-10T00:00:00Z",
-                                        {"buyer", "seller", "conveyancer"}, "in_review")};
-    job2.contact_policy = GenerateContactPolicy(job2.id, job2.conveyancer_id,
-                                                "oliver.bennett@buyers.example", "+61415555510",
-                                                "developer@vendor.example", "+61295550123");
-    job2.contact_policy.unlocked = false;
-    job2.contact_policy.unlocked_by_role = "";
-    job2.quote_issued_at = "2023-12-18T09:00:00Z";
-    job2.last_activity_at = "2024-01-10T01:00:00Z";
-    job2.buyer_ip = "203.0.113.34";
-    job2.seller_ip = "198.51.100.40";
-    job2.calls.clear();
-    job2.compliance_flags.clear();
-
-    Job job3 = job1;
-    job3.id = "job_2003";
-    job3.title = "Refinance settlement";
-    job3.state = "NSW";
-    job3.status = "completed";
-    job3.conveyancer_id = "pro_1001";
-    job3.buyer_name = "Sophie Walker";
-    job3.seller_name = "National Bank";
-    job3.opened_at = "2023-11-20T04:00:00Z";
-    job3.quote_issued_at = "2023-11-19T22:00:00Z";
-    job3.completed_at = std::string{"2024-01-15T02:10:00Z"};
-    job3.last_activity_at = *job3.completed_at;
-    job3.compliance_notes = "Settlement complete, certificate issued";
-    job3.contact_policy = GenerateContactPolicy(job3.id, job3.conveyancer_id,
-                                                "sophie.walker@clientmail.example", "+61400011222",
-                                                "portfolio.team@nationalbank.example", "+61280008888");
-    job3.contact_policy.unlocked = true;
-    job3.contact_policy.unlocked_by_role = "finance_admin";
-    job3.contact_policy.unlocked_at = std::string{"2023-12-01T01:00:00Z"};
-    job3.buyer_ip = "203.0.113.50";
-    job3.seller_ip = "198.51.100.51";
-    job3.calls.clear();
-    job3.compliance_flags = {"off_platform_hint:msg_1"};
-    job3.certificate = CompletionCertificate{"cert_seed_1",
-                                              job3.id,
-                                              "Refinance settled with all funds reconciled",
-                                              *job3.completed_at,
-                                              "ConveySafe automation",
-                                              "https://certs.conveysafe.example/job_2003/cert_seed_1.pdf",
-                                              security::DeriveScopedToken("certificate", job3.id + "cert_seed_1"),
-                                              true};
-
-    jobs_[job1.id] = job1;
-    jobs_[job2.id] = job2;
-    jobs_[job3.id] = job3;
+  static bool ContainsEicar(const std::vector<unsigned char> &data) {
+    static const std::string kEicar =
+        "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
+    const std::string sample(reinterpret_cast<const char *>(data.data()), data.size());
+    return sample.find(kEicar) != std::string::npos;
   }
 
-  mutable std::mutex mutex_;
-  std::unordered_map<std::string, Job> jobs_;
+  std::string host_;
+  int port_ = 0;
 };
 
-JobStore &Store() {
-  static JobStore store;
-  return store;
+json JobToJson(const persistence::JobRecord &job) {
+  return {{"id", job.id},
+          {"customerId", job.customer_id},
+          {"conveyancerId", job.conveyancer_id},
+          {"state", job.state},
+          {"propertyType", job.property_type},
+          {"status", job.status},
+          {"createdAt", job.created_at}};
 }
 
-json MilestoneToJson(const Milestone &milestone) {
-  return json{{"id", milestone.id},
-              {"title", milestone.title},
-              {"status", milestone.status},
-              {"due_date", milestone.due_date},
-              {"escrow_funded", milestone.escrow_funded},
-              {"assigned_to", milestone.assigned_to},
-              {"updated_at", milestone.updated_at}};
+json MilestoneToJson(const persistence::MilestoneRecord &milestone) {
+  return {{"id", milestone.id},
+          {"jobId", milestone.job_id},
+          {"name", milestone.name},
+          {"amountCents", milestone.amount_cents},
+          {"dueDate", milestone.due_date},
+          {"status", milestone.status}};
 }
 
-json MessageToJson(const Message &message) {
-  return json{{"id", message.id},
-              {"sender", message.sender},
-              {"body", message.body},
-              {"sent_at", message.sent_at}};
-}
-
-json DocumentVersionToJson(const DocumentVersion &version) {
-  json payload{{"version", version.version},
-               {"uploaded_at", version.uploaded_at},
-               {"uploaded_by", version.uploaded_by},
-               {"content_type", version.content_type},
-               {"storage_path", version.storage_path},
-               {"checksum", version.checksum},
-               {"encrypted", version.encrypted},
-               {"scanned", version.scanned}};
-  if (!version.signed_off_at.empty()) {
-    payload["signed_off_at"] = version.signed_off_at;
-  }
-  return payload;
-}
-
-json DocumentToJson(const Document &document, bool include_signed_url) {
-  const int current_version = document.versions.empty() ? 0 : document.versions.back().version;
-  const bool encrypted =
-      document.versions.empty() ? false : document.versions.back().encrypted;
-  const std::string latest_checksum =
-      document.versions.empty() ? std::string{} : document.versions.back().checksum;
-
-  json payload{{"id", document.id},
-               {"name", document.name},
-               {"status", document.status},
-               {"requires_signature", document.requires_signature},
-               {"signed", document.is_signed},
-               {"current_version", current_version},
-               {"encrypted", encrypted},
-               {"latest_checksum", latest_checksum},
-               {"access_roles", document.access_roles},
-               {"encryption", json{{"bucket", document.storage_bucket},
-                                     {"key_id", document.encryption_key_id}}}};
-
-  payload["versions"] = json::array();
-  for (const auto &version : document.versions) {
-    payload["versions"].push_back(DocumentVersionToJson(version));
-  }
-
-  if (include_signed_url && !document.signed_url.empty()) {
-    payload["signed_url"] = document.signed_url;
-  }
-
-  return payload;
-}
-
-json DisputeToJson(const Dispute &dispute) {
-  return json{{"id", dispute.id},
-              {"type", dispute.type},
-              {"description", dispute.description},
-              {"status", dispute.status},
-              {"created_at", dispute.created_at},
-              {"evidence_urls", dispute.evidence_urls}};
-}
-
-json CallSessionToJson(const CallSession &session, bool include_token) {
-  json payload{{"id", session.id},
-               {"type", session.type},
-               {"status", session.status},
-               {"created_at", session.created_at},
-               {"created_by", session.created_by},
-               {"participants", session.participants},
-               {"join_url", session.join_url}};
-  if (include_token) {
-    payload["access_token"] = session.access_token;
-  }
-  return payload;
-}
-
-json CertificateToJson(const CompletionCertificate &certificate) {
-  return json{{"id", certificate.id},
-              {"job_id", certificate.job_id},
-              {"summary", certificate.summary},
-              {"issued_at", certificate.issued_at},
-              {"issued_by", certificate.issued_by},
-              {"download_url", certificate.download_url},
-              {"verification_code", certificate.verification_code},
-              {"verified", certificate.verified}};
-}
-
-json ContactPolicyToJson(const Job &job, bool reveal_full, bool include_internal) {
-  const auto &policy = job.contact_policy;
-  json masked{{"buyer", json{{"email", policy.buyer_email_masked}, {"phone", policy.buyer_phone_masked}}},
-              {"seller", json{{"email", policy.seller_email_masked}, {"phone", policy.seller_phone_masked}}},
-              {"conveyancer",
-               json{{"email", policy.conveyancer_email_masked}, {"phone", policy.conveyancer_phone_masked}}}};
-  json payload{{"unlocked", policy.unlocked},
-               {"requires_payment", !policy.unlocked},
-               {"masked", masked}};
-  if (reveal_full) {
-    payload["full"] = json{{"buyer", json{{"email", policy.buyer_email}, {"phone", policy.buyer_phone}}},
-                            {"seller", json{{"email", policy.seller_email}, {"phone", policy.seller_phone}}},
-                            {"conveyancer",
-                             json{{"email", policy.conveyancer_email}, {"phone", policy.conveyancer_phone}}}};
-  }
-  if (include_internal) {
-    payload["unlock_token"] = security::DeriveScopedToken("contact", job.id);
-    payload["unlocked_at"] = policy.unlocked_at.value_or("");
-    payload["unlocked_by_role"] = policy.unlocked_by_role;
-  }
-  return payload;
-}
-
-json TemplateToJson(const TemplateDefinition &definition) {
-  json tasks = json::array();
-  for (const auto &task : definition.tasks) {
-    tasks.push_back(json{{"id", task.id},
-                        {"title", task.title},
-                        {"default_assignee", task.default_assignee},
-                        {"due_in_days", task.due_in_days},
-                        {"escrow_required", task.escrow_required}});
-  }
-  return json{{"id", definition.id},
-              {"name", definition.name},
-              {"jurisdiction", definition.jurisdiction},
-              {"description", definition.description},
-              {"tasks", tasks}};
-}
-
-int CountCompleted(const Job &job) {
-  return static_cast<int>(std::count_if(job.milestones.begin(), job.milestones.end(), [](const Milestone &m) {
-    return m.status == "completed";
-  }));
-}
-
-json JobSummaryToJson(const Job &job) {
-  json summary{{"id", job.id},
-               {"title", job.title},
-               {"state", job.state},
-               {"status", job.status},
-               {"conveyancer_id", job.conveyancer_id},
-               {"buyer_name", job.buyer_name},
-               {"seller_name", job.seller_name},
-               {"escrow_enabled", job.escrow_enabled},
-               {"opened_at", job.opened_at},
-               {"completed_at", job.completed_at.value_or("")},
-               {"milestones_completed", CountCompleted(job)},
-               {"milestones_total", job.milestones.size()},
-               {"risk_level", job.risk_level},
-               {"compliance_notes", job.compliance_notes},
-               {"contact_unlocked", job.contact_policy.unlocked},
-               {"quote_issued_at", job.quote_issued_at},
-               {"last_activity_at", job.last_activity_at}};
-  return summary;
-}
-
-json JobDetailToJson(const Job &job, bool reveal_contact, bool include_internal,
-                     std::string_view actor_role) {
-  json payload = JobSummaryToJson(job);
-  payload["milestones"] = json::array();
-  for (const auto &milestone : job.milestones) {
-    payload["milestones"].push_back(MilestoneToJson(milestone));
-  }
-  payload["messages"] = json::array();
-  for (const auto &message : job.messages) {
-    payload["messages"].push_back(MessageToJson(message));
-  }
-  payload["documents"] = json::array();
-  for (const auto &document : job.documents) {
-    if (!DocumentAllowsRole(document, actor_role)) {
-      continue;
-    }
-    payload["documents"].push_back(DocumentToJson(document, true));
-  }
-  payload["disputes"] = json::array();
-  for (const auto &dispute : job.disputes) {
-    payload["disputes"].push_back(DisputeToJson(dispute));
-  }
-  payload["contact_policy"] = ContactPolicyToJson(job, reveal_contact, include_internal);
-  payload["calls"] = json::array();
-  for (const auto &call : job.calls) {
-    payload["calls"].push_back(CallSessionToJson(call, include_internal));
-  }
-  if (job.certificate.has_value()) {
-    payload["completion_certificate"] = CertificateToJson(*job.certificate);
-  }
-  return payload;
-}
-
-json ParseJson(const httplib::Request &req, httplib::Response &res) {
-  try {
-    return json::parse(req.body);
-  } catch (...) {
-    res.status = 400;
-    res.set_content(R"({"error":"invalid_json"})", "application/json");
-    return json{};
-  }
-}
-
-void RespondInvalidPayload(httplib::Response &res) {
-  res.status = 400;
-  res.set_content(R"({"error":"invalid_payload"})", "application/json");
-}
-
-bool RequireFields(const json &payload, httplib::Response &res,
-                   const std::vector<std::string> &fields) {
-  for (const auto &field : fields) {
-    if (!payload.contains(field) || payload[field].is_null()) {
-      res.status = 400;
-      res.set_content(json{{"error", "missing_field"}, {"field", field}}.dump(), "application/json");
-      return false;
-    }
-  }
-  return true;
+json DocumentToJson(const persistence::DocumentRecord &document) {
+  return {{"id", document.id},
+          {"jobId", document.job_id},
+          {"docType", document.doc_type},
+          {"url", document.url},
+          {"checksum", document.checksum},
+          {"uploadedBy", document.uploaded_by},
+          {"version", document.version},
+          {"createdAt", document.created_at}};
 }
 
 }  // namespace
 
 int main() {
   env::LoadEnvironment();
+
+  const auto database_url = GetEnvOrDefault("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/conveyancers");
+  auto config = persistence::MakePostgresConfigFromEnv("DATABASE_URL", database_url);
+
+  persistence::JobsRepository jobs(config);
+  persistence::AuditRepository audit(config);
+
+  RedisAdapter redis(GetEnvOrDefault("REDIS_HOST", ""),
+                     ParseInt(GetEnvOrDefault("REDIS_PORT", ""), 0),
+                     GetEnvOrDefault("REDIS_PASSWORD", ""));
+  MinioAdapter minio(GetEnvOrDefault("MINIO_ENDPOINT", ""), GetEnvOrDefault("MINIO_BUCKET", "documents"),
+                     GetEnvOrDefault("MINIO_ACCESS_KEY", ""), GetEnvOrDefault("MINIO_SECRET_KEY", ""),
+                     GetEnvOrDefault("MINIO_REGION", "us-east-1"));
+  ClamAvAdapter clamav(GetEnvOrDefault("CLAMAV_HOST", ""), ParseInt(GetEnvOrDefault("CLAMAV_PORT", ""), 0));
+
   httplib::Server server;
 
-  security::AttachStandardHandlers(server, "jobs");
-  security::ExposeMetrics(server, "jobs");
-
-  server.Get("/healthz", [](const httplib::Request &, httplib::Response &res) {
-    res.set_content("{\"ok\":true}", "application/json");
+  server.Get("/health", [](const httplib::Request &, httplib::Response &res) {
+    SendJson(res, json{{"status", "ok"}});
   });
 
-  server.Get("/jobs", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs",
-                               "list_jobs")) {
-      return;
-    }
-    std::optional<std::string> state;
-    std::optional<std::string> conveyancer;
-    if (req.has_param("state")) {
-      state = req.get_param_value("state");
-    }
-    if (req.has_param("conveyancer_id")) {
-      conveyancer = req.get_param_value("conveyancer_id");
-    }
-    json response = json::array();
-    for (const auto &job : Store().ListJobs(state, conveyancer)) {
-      response.push_back(JobSummaryToJson(job));
-    }
-    res.set_content(response.dump(), "application/json");
-  });
-
-  server.Post("/jobs", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"conveyancer", "admin"}, "jobs", "create_job")) {
-      return;
-    }
-    auto payload = ParseJson(req, res);
-    if (res.status == 400 && !res.body.empty()) {
-      return;
-    }
-    if (!RequireFields(payload, res,
-                       {"title", "state", "conveyancer_id", "buyer_name", "seller_name", "escrow_enabled"})) {
-      return;
-    }
+  server.Post("/jobs", [&](const httplib::Request &req, httplib::Response &res) {
     try {
-      const auto conveyancer_id = payload["conveyancer_id"].get<std::string>();
-      std::vector<Milestone> milestones;
-      if (payload.contains("milestones") && payload["milestones"].is_array()) {
-        for (const auto &entry : payload["milestones"]) {
-          Milestone milestone;
-          milestone.id = entry.value("id", "");
-          milestone.title = entry.value("title", "Client milestone");
-          milestone.status = entry.value("status", "pending");
-          milestone.due_date = entry.value("due_date", "");
-          milestone.escrow_funded = entry.value("escrow_funded", false);
-          milestone.assigned_to = entry.value("assigned_to", conveyancer_id);
-          milestone.updated_at = entry.value("updated_at", "");
-          milestones.push_back(milestone);
+      const auto body = json::parse(req.body);
+      persistence::JobCreateInput input;
+      input.customer_id = body.value("customerId", "");
+      input.conveyancer_id = body.value("conveyancerId", "");
+      input.state = body.value("state", "");
+      input.property_type = body.value("propertyType", "");
+      input.status = body.value("status", "quote_pending");
+      const auto job = jobs.CreateJob(input);
+      audit.RecordEvent(input.customer_id, "job_created", job.id,
+                        json{{"conveyancerId", input.conveyancer_id}, {"state", input.state}}, req.remote_addr);
+      SendJson(res, JobToJson(job), 201);
+    } catch (const std::exception &ex) {
+      security::LogEvent("jobs", "error", "create_job_failed", ex.what());
+      SendJson(res, json{{"error", "create_job_failed"}}, 500);
+    }
+  });
+
+  server.Get("/jobs", [&](const httplib::Request &req, httplib::Response &res) {
+    try {
+      const std::string account_id = req.get_param_value("accountId");
+      int limit = 25;
+      if (const auto limit_param = req.get_param_value("limit"); !limit_param.empty()) {
+        try {
+          limit = std::clamp(std::stoi(limit_param), 1, 100);
+        } catch (...) {
+          limit = 25;
         }
       }
-      auto job = Store().Create(payload["title"].get<std::string>(), payload["state"].get<std::string>(),
-                                conveyancer_id, payload["buyer_name"].get<std::string>(),
-                                payload["seller_name"].get<std::string>(),
-                                payload["escrow_enabled"].get<bool>(), milestones);
+      const auto records = jobs.ListJobsForAccount(account_id, limit);
+      json array = json::array();
+      for (const auto &record : records) {
+        array.push_back(JobToJson(record));
+      }
+      SendJson(res, json{{"jobs", array}});
+    } catch (const std::exception &ex) {
+      security::LogEvent("jobs", "error", "list_jobs_failed", ex.what());
+      SendJson(res, json{{"error", "list_jobs_failed"}}, 500);
+    }
+  });
+
+  server.Get(R"(/jobs/(.+))", [&](const httplib::Request &req, httplib::Response &res) {
+    try {
+      const auto job = jobs.GetJobById(req.matches[1]);
       if (!job) {
-        res.status = 500;
-        res.set_content(R"({"error":"job_creation_failed"})", "application/json");
+        SendJson(res, json{{"error", "not_found"}}, 404);
         return;
       }
-      const auto role = req.get_header_value("X-Actor-Role");
-      const bool include_internal = role == "admin" || role == "finance_admin";
-      const bool reveal_contact = include_internal || job->contact_policy.unlocked;
-      res.status = 201;
-      res.set_content(JobDetailToJson(*job, reveal_contact, include_internal, role).dump(),
-                      "application/json");
-    } catch (const json::exception &) {
-      RespondInvalidPayload(res);
+      SendJson(res, JobToJson(*job));
+    } catch (const std::exception &ex) {
+      security::LogEvent("jobs", "error", "get_job_failed", ex.what());
+      SendJson(res, json{{"error", "get_job_failed"}}, 500);
     }
   });
 
-  server.Get(R"(/jobs/([\w_-]+))", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs",
-                               "job_detail")) {
-      return;
-    }
-    const auto job_id = req.matches[1].str();
-    if (auto job = Store().Get(job_id)) {
-      const auto role = req.get_header_value("X-Actor-Role");
-      const bool include_internal = role == "admin" || role == "finance_admin";
-      const bool reveal_contact = include_internal || job->contact_policy.unlocked;
-      res.set_content(JobDetailToJson(*job, reveal_contact, include_internal, role).dump(),
-                      "application/json");
-      return;
-    }
-    res.status = 404;
-    res.set_content(R"({"error":"job_not_found"})", "application/json");
-  });
-
-  server.Get(R"(/jobs/([\w_-]+)/milestones)", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs",
-                               "job_milestones")) {
-      return;
-    }
-    const auto job_id = req.matches[1].str();
-    if (auto job = Store().Get(job_id)) {
-      json response = json::array();
-      for (const auto &milestone : job->milestones) {
-        response.push_back(MilestoneToJson(milestone));
-      }
-      res.set_content(response.dump(), "application/json");
-      return;
-    }
-    res.status = 404;
-    res.set_content(R"({"error":"job_not_found"})", "application/json");
-  });
-
-  server.Post(R"(/jobs/([\w_-]+)/milestones)", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"conveyancer", "admin"}, "jobs", "create_milestone")) {
-      return;
-    }
-    const auto job_id = req.matches[1].str();
-    auto payload = ParseJson(req, res);
-    if (res.status == 400 && !res.body.empty()) {
-      return;
-    }
-    if (!RequireFields(payload, res, {"title", "due_date", "assigned_to"})) {
-      return;
-    }
+  server.Post(R"(/jobs/(.+)/milestones)", [&](const httplib::Request &req, httplib::Response &res) {
     try {
-      if (auto milestone = Store().AddMilestone(job_id, payload["title"].get<std::string>(),
-                                               payload["due_date"].get<std::string>(),
-                                               payload["assigned_to"].get<std::string>())) {
-        res.status = 201;
-        res.set_content(MilestoneToJson(*milestone).dump(), "application/json");
+      const auto body = json::parse(req.body);
+      persistence::MilestoneInput input;
+      input.job_id = req.matches[1];
+      input.name = body.value("name", "");
+      input.amount_cents = body.value("amountCents", 0);
+      input.due_date = body.value("dueDate", "");
+      const auto milestone = jobs.CreateMilestone(input);
+      audit.RecordEvent(body.value("actorId", ""), "milestone_created", input.job_id,
+                        json{{"milestoneId", milestone.id}, {"amountCents", milestone.amount_cents}}, req.remote_addr);
+      SendJson(res, MilestoneToJson(milestone), 201);
+    } catch (const std::exception &ex) {
+      security::LogEvent("jobs", "error", "create_milestone_failed", ex.what());
+      SendJson(res, json{{"error", "create_milestone_failed"}}, 500);
+    }
+  });
+
+  server.Get(R"(/jobs/(.+)/milestones)", [&](const httplib::Request &req, httplib::Response &res) {
+    try {
+      const auto milestones = jobs.ListMilestones(req.matches[1]);
+      json array = json::array();
+      for (const auto &item : milestones) {
+        array.push_back(MilestoneToJson(item));
+      }
+      SendJson(res, json{{"milestones", array}});
+    } catch (const std::exception &ex) {
+      security::LogEvent("jobs", "error", "list_milestones_failed", ex.what());
+      SendJson(res, json{{"error", "list_milestones_failed"}}, 500);
+    }
+  });
+
+  server.Post(R"(/jobs/(.+)/documents)", [&](const httplib::Request &req, httplib::Response &res) {
+    try {
+      const auto body = json::parse(req.body);
+      const std::string job_id = req.matches[1];
+      const std::string uploader = body.value("uploadedBy", "");
+      const std::string file_name = body.value("fileName", "document.bin");
+      const std::string doc_type = body.value("docType", "general");
+      const std::string content_base64 = body.value("content", "");
+      if (content_base64.empty()) {
+        SendJson(res, json{{"error", "content_required"}}, 400);
         return;
       }
-      res.status = 404;
-      res.set_content(R"({"error":"job_not_found"})", "application/json");
-    } catch (const json::exception &) {
-      RespondInvalidPayload(res);
-    }
-  });
-
-  server.Patch(R"(/jobs/([\w_-]+)/milestones/([\w_-]+))",
-               [](const httplib::Request &req, httplib::Response &res) {
-                 if (!security::Authorize(req, res, "jobs")) {
-                   return;
-                 }
-                 if (!security::RequireRole(req, res, {"conveyancer", "admin"}, "jobs",
-                                              "update_milestone")) {
-                   return;
-                 }
-                 const auto job_id = req.matches[1].str();
-                 const auto milestone_id = req.matches[2].str();
-                 auto payload = ParseJson(req, res);
-                 if (res.status == 400 && !res.body.empty()) {
-                   return;
-                 }
-                try {
-                  const auto status = payload.value("status", std::string{"pending"});
-                  auto due_date = std::optional<std::string>{};
-                  if (payload.contains("due_date") && payload["due_date"].is_string()) {
-                    due_date = payload["due_date"].get<std::string>();
-                  }
-                  const auto escrow_funded = payload.value("escrow_funded", false);
-                  if (Store().UpdateMilestone(job_id, milestone_id, status, due_date, escrow_funded)) {
-                    res.set_content(R"({"ok":true})", "application/json");
-                    return;
-                  }
-                  res.status = 404;
-                  res.set_content(R"({"error":"milestone_not_found"})", "application/json");
-                } catch (const json::exception &) {
-                  RespondInvalidPayload(res);
-                }
-              });
-
-  server.Get(R"(/jobs/([\w_-]+)/chat)", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs",
-                               "job_chat")) {
-      return;
-    }
-    const auto job_id = req.matches[1].str();
-    if (auto job = Store().Get(job_id)) {
-      json response = json::array();
-      for (const auto &message : job->messages) {
-        response.push_back(MessageToJson(message));
-      }
-      res.set_content(response.dump(), "application/json");
-      return;
-    }
-    res.status = 404;
-    res.set_content(R"({"error":"job_not_found"})", "application/json");
-  });
-
-  server.Post(R"(/jobs/([\w_-]+)/chat)", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs",
-                               "post_message")) {
-      return;
-    }
-    const auto job_id = req.matches[1].str();
-    auto payload = ParseJson(req, res);
-    if (res.status == 400 && !res.body.empty()) {
-      return;
-    }
-    if (!RequireFields(payload, res, {"sender", "body"})) {
-      return;
-    }
-    try {
-      if (auto message = Store().AddMessage(job_id, payload["sender"].get<std::string>(),
-                                            payload["body"].get<std::string>())) {
-        res.status = 201;
-        res.set_content(MessageToJson(*message).dump(), "application/json");
+      const auto data = Base64Decode(content_base64);
+      std::string reason;
+      if (!clamav.Scan(data, &reason)) {
+        SendJson(res, json{{"error", "virus_detected"}, {"reason", reason}}, 422);
         return;
       }
-      res.status = 404;
-      res.set_content(R"({"error":"job_not_found"})", "application/json");
-    } catch (const json::exception &) {
-      RespondInvalidPayload(res);
+      const std::string object_key = job_id + "/" + file_name;
+      const std::string checksum = Sha256Hex(data);
+      const std::string upload_url =
+          minio.Configured() ? minio.GeneratePresignedPut(object_key, std::chrono::minutes(15)) : std::string{};
+      const std::string object_url =
+          minio.Configured() ? minio.ObjectUrl(object_key) : ("https://storage.local/" + object_key);
+      persistence::DocumentRecord record;
+      record.job_id = job_id;
+      record.doc_type = doc_type;
+      record.url = object_url;
+      record.checksum = checksum;
+      record.uploaded_by = uploader;
+      record.version = 1;
+      const auto document = jobs.StoreDocument(record);
+      audit.RecordEvent(uploader, "document_uploaded", job_id,
+                        json{{"documentId", document.id}, {"checksum", checksum}}, req.remote_addr);
+      json response = DocumentToJson(document);
+      response["uploadUrl"] = upload_url;
+      SendJson(res, response, 201);
+    } catch (const std::exception &ex) {
+      security::LogEvent("jobs", "error", "store_document_failed", ex.what());
+      SendJson(res, json{{"error", "store_document_failed"}}, 500);
     }
   });
 
-  server.Get(R"(/jobs/([\w_-]+)/documents)", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs",
-                               "job_documents")) {
-      return;
-    }
-    const auto job_id = req.matches[1].str();
-    if (auto job = Store().Get(job_id)) {
-      const auto role = req.get_header_value("X-Actor-Role");
-      json response = json::array();
-      for (const auto &document : job->documents) {
-        if (!DocumentAllowsRole(document, role)) {
-          continue;
-        }
-        response.push_back(DocumentToJson(document, true));
-      }
-      res.set_content(response.dump(), "application/json");
-      return;
-    }
-    res.status = 404;
-    res.set_content(R"({"error":"job_not_found"})", "application/json");
-  });
-
-  server.Post(R"(/jobs/([\w_-]+)/documents)", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"conveyancer", "admin"}, "jobs", "create_document")) {
-      return;
-    }
-    const auto job_id = req.matches[1].str();
-    auto payload = ParseJson(req, res);
-    if (res.status == 400 && !res.body.empty()) {
-      return;
-    }
-    if (!RequireFields(payload, res,
-                       {"name", "requires_signature", "content_type", "uploaded_by"})) {
-      return;
-    }
+  server.Get(R"(/jobs/(.+)/documents)", [&](const httplib::Request &req, httplib::Response &res) {
     try {
-      std::vector<std::string> access_roles;
-      if (payload.contains("access_roles") && payload["access_roles"].is_array()) {
-        for (const auto &entry : payload["access_roles"]) {
-          if (entry.is_string()) {
-            access_roles.push_back(entry.get<std::string>());
-          }
-        }
+      const auto documents = jobs.ListDocuments(req.matches[1]);
+      json array = json::array();
+      for (const auto &doc : documents) {
+        array.push_back(DocumentToJson(doc));
       }
-      const auto checksum = payload.value("checksum", std::string{});
-      const bool encrypted = payload.value("encrypted", true);
-      if (auto document = Store().AddDocument(job_id, payload["name"].get<std::string>(),
-                                              payload["requires_signature"].get<bool>(),
-                                              payload["content_type"].get<std::string>(),
-                                              payload["uploaded_by"].get<std::string>(), access_roles,
-                                              checksum, encrypted)) {
-        res.status = 201;
-        res.set_content(DocumentToJson(*document, true).dump(), "application/json");
-        return;
-      }
-      res.status = 404;
-      res.set_content(R"({"error":"job_not_found"})", "application/json");
-    } catch (const json::exception &) {
-      RespondInvalidPayload(res);
+      SendJson(res, json{{"documents", array}});
+    } catch (const std::exception &ex) {
+      security::LogEvent("jobs", "error", "list_documents_failed", ex.what());
+      SendJson(res, json{{"error", "list_documents_failed"}}, 500);
     }
   });
 
-  server.Post(R"(/jobs/([\w_-]+)/documents/([\w_-]+)/sign)",
-              [](const httplib::Request &req, httplib::Response &res) {
-                if (!security::Authorize(req, res, "jobs")) {
-                  return;
-                }
-                if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"},
-                                             "jobs", "sign_document")) {
-                  return;
-                }
-                const auto job_id = req.matches[1].str();
-                const auto document_id = req.matches[2].str();
-                auto payload = ParseJson(req, res);
-                if (res.status == 400 && !res.body.empty()) {
-                  return;
-                }
-                const auto signed_flag = payload.value("signed", true);
-                if (Store().MarkDocumentSigned(job_id, document_id, signed_flag)) {
-                  res.set_content(R"({"ok":true})", "application/json");
-                  return;
-                }
-                res.status = 404;
-                res.set_content(R"({"error":"document_not_found"})", "application/json");
-              });
-
-  server.Post(R"(/jobs/([\w_-]+)/documents/([\w_-]+)/versions)",
-              [](const httplib::Request &req, httplib::Response &res) {
-                if (!security::Authorize(req, res, "jobs")) {
-                  return;
-                }
-                if (!security::RequireRole(req, res, {"conveyancer", "admin"}, "jobs",
-                                             "document_new_version")) {
-                  return;
-                }
-                const auto job_id = req.matches[1].str();
-                const auto document_id = req.matches[2].str();
-                const auto role = req.get_header_value("X-Actor-Role");
-                if (auto existing = Store().GetDocument(job_id, document_id)) {
-                  if (!DocumentAllowsRole(*existing, role)) {
-                    res.status = 403;
-                    res.set_content(R"({"error":"forbidden"})", "application/json");
-                    return;
-                  }
-                } else {
-                  res.status = 404;
-                  res.set_content(R"({"error":"document_not_found"})", "application/json");
-                  return;
-                }
-
-                auto payload = ParseJson(req, res);
-                if (res.status == 400 && !res.body.empty()) {
-                  return;
-                }
-                if (!RequireFields(payload, res, {"uploaded_by", "content_type"})) {
-                  return;
-                }
-                try {
-                  const auto checksum = payload.value("checksum", std::string{});
-                  const bool encrypted = payload.value("encrypted", true);
-                  if (auto updated = Store().AppendDocumentVersion(job_id, document_id,
-                                                                   payload["uploaded_by"].get<std::string>(),
-                                                                   payload["content_type"].get<std::string>(),
-                                                                   checksum, encrypted)) {
-                    res.set_content(DocumentToJson(*updated, true).dump(), "application/json");
-                    return;
-                  }
-                  res.status = 404;
-                  res.set_content(R"({"error":"document_not_found"})", "application/json");
-                } catch (const json::exception &) {
-                  RespondInvalidPayload(res);
-                }
-              });
-
-  server.Post(R"(/jobs/([\w_-]+)/complete)", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"conveyancer", "admin"}, "jobs", "complete_job")) {
-      return;
-    }
-    const auto job_id = req.matches[1].str();
-    auto payload = ParseJson(req, res);
-    if (res.status == 400 && !res.body.empty()) {
-      return;
-    }
+  server.Post(R"(/jobs/(.+)/messages)", [&](const httplib::Request &req, httplib::Response &res) {
     try {
-      const auto summary = payload.value("summary", std::string{"Escrow release pending"});
-      if (Store().CompleteJob(job_id, summary)) {
-        res.set_content(R"({"ok":true})", "application/json");
-        return;
-      }
-      res.status = 404;
-      res.set_content(R"({"error":"job_not_found"})", "application/json");
-    } catch (const json::exception &) {
-      RespondInvalidPayload(res);
+      const auto body = json::parse(req.body);
+      const std::string job_id = req.matches[1];
+      const std::string author_id = body.value("authorId", "");
+      const std::string content = body.value("content", "");
+      const json attachments = body.value("attachments", json::array());
+      jobs.AppendMessage(job_id, author_id, content, attachments);
+      json payload{{"jobId", job_id}, {"authorId", author_id}, {"content", content}, {"attachments", attachments}};
+      redis.Publish("jobs:" + job_id, payload);
+      SendJson(res, payload, 201);
+    } catch (const std::exception &ex) {
+      security::LogEvent("jobs", "error", "append_message_failed", ex.what());
+      SendJson(res, json{{"error", "append_message_failed"}}, 500);
     }
   });
 
-  server.Post(R"(/jobs/([\w_-]+)/disputes)", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs",
-                               "open_dispute")) {
-      return;
-    }
-    const auto job_id = req.matches[1].str();
-    auto payload = ParseJson(req, res);
-    if (res.status == 400 && !res.body.empty()) {
-      return;
-    }
-    if (!RequireFields(payload, res, {"type", "description"})) {
-      return;
-    }
+  server.Get(R"(/jobs/(.+)/messages)", [&](const httplib::Request &req, httplib::Response &res) {
     try {
-      if (auto dispute = Store().CreateDispute(job_id, payload["type"].get<std::string>(),
-                                               payload["description"].get<std::string>())) {
-        res.status = 201;
-        res.set_content(DisputeToJson(*dispute).dump(), "application/json");
-        return;
-      }
-      res.status = 404;
-      res.set_content(R"({"error":"job_not_found"})", "application/json");
-    } catch (const json::exception &) {
-      RespondInvalidPayload(res);
+      const auto messages = jobs.FetchMessages(req.matches[1], 100);
+      SendJson(res, json{{"messages", messages}});
+    } catch (const std::exception &ex) {
+      security::LogEvent("jobs", "error", "list_messages_failed", ex.what());
+      SendJson(res, json{{"error", "list_messages_failed"}}, 500);
     }
   });
 
-  server.Get(R"(/jobs/([\w_-]+)/disputes)", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs",
-                               "view_disputes")) {
-      return;
-    }
-    const auto job_id = req.matches[1].str();
-    if (auto job = Store().Get(job_id)) {
-      json response = json::array();
-      for (const auto &dispute : job->disputes) {
-        response.push_back(DisputeToJson(dispute));
-      }
-      res.set_content(response.dump(), "application/json");
-      return;
-    }
-    res.status = 404;
-    res.set_content(R"({"error":"job_not_found"})", "application/json");
-  });
-
-  server.Post(R"(/jobs/([\w_-]+)/disputes/([\w_-]+)/status)",
-              [](const httplib::Request &req, httplib::Response &res) {
-                if (!security::Authorize(req, res, "jobs")) {
-                  return;
-                }
-                if (!security::RequireRole(req, res, {"admin"}, "jobs", "update_dispute")) {
-                  return;
-                }
-                const auto job_id = req.matches[1].str();
-                const auto dispute_id = req.matches[2].str();
-                auto payload = ParseJson(req, res);
-                if (res.status == 400 && !res.body.empty()) {
-                  return;
-                }
-                if (!RequireFields(payload, res, {"status"})) {
-                  return;
-                }
-                try {
-                  std::vector<std::string> evidence;
-                  if (payload.contains("evidence_urls") && payload["evidence_urls"].is_array()) {
-                    for (const auto &value : payload["evidence_urls"]) {
-                      if (value.is_string()) {
-                        evidence.push_back(value.get<std::string>());
-                      }
-                    }
-                  }
-                  if (Store().UpdateDisputeStatus(job_id, dispute_id,
-                                                  payload["status"].get<std::string>(), evidence)) {
-                    res.set_content(R"({"ok":true})", "application/json");
-                    return;
-                  }
-                  res.status = 404;
-                  res.set_content(R"({"error":"dispute_not_found"})", "application/json");
-                } catch (const json::exception &) {
-                  RespondInvalidPayload(res);
-                }
-              });
-
-  server.Get(R"(/jobs/([\w_-]+)/contact)", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "finance_admin", "admin"},
-                               "jobs", "view_contact")) {
-      return;
-    }
-    const auto job_id = req.matches[1].str();
-    if (auto job = Store().Get(job_id)) {
-      const auto role = req.get_header_value("X-Actor-Role");
-      const bool include_internal = role == "admin" || role == "finance_admin";
-      const bool reveal_contact = include_internal || job->contact_policy.unlocked;
-      res.set_content(ContactPolicyToJson(*job, reveal_contact, include_internal).dump(), "application/json");
-      return;
-    }
-    res.status = 404;
-    res.set_content(R"({"error":"job_not_found"})", "application/json");
-  });
-
-  server.Post(R"(/jobs/([\w_-]+)/contact/unlock)", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"finance_admin", "admin"}, "jobs", "unlock_contact")) {
-      return;
-    }
-    const auto job_id = req.matches[1].str();
-    auto payload = ParseJson(req, res);
-    if (res.status == 400 && !res.body.empty()) {
-      return;
-    }
-    if (!RequireFields(payload, res, {"token"})) {
-      return;
-    }
-    std::string token;
-    try {
-      token = payload["token"].get<std::string>();
-    } catch (const json::exception &) {
-      RespondInvalidPayload(res);
-      return;
-    }
-    if (!security::VerifyScopedToken("contact", job_id, token)) {
-      res.status = 403;
-      res.set_content(R"({"error":"invalid_token"})", "application/json");
-      return;
-    }
-    const auto role = req.get_header_value("X-Actor-Role");
-    if (!Store().UnlockContact(job_id, role.empty() ? "finance_admin" : role)) {
-      res.status = 404;
-      res.set_content(R"({"error":"job_not_found"})", "application/json");
-      return;
-    }
-    if (auto job = Store().Get(job_id)) {
-      res.set_content(ContactPolicyToJson(*job, true, true).dump(), "application/json");
-      return;
-    }
-    res.status = 404;
-    res.set_content(R"({"error":"job_not_found"})", "application/json");
-  });
-
-  server.Post(R"(/jobs/([\w_-]+)/calls)", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs", "schedule_call")) {
-      return;
-    }
-    const auto job_id = req.matches[1].str();
-    auto payload = ParseJson(req, res);
-    if (res.status == 400 && !res.body.empty()) {
-      return;
-    }
-    if (!RequireFields(payload, res, {"type", "created_by"})) {
-      return;
-    }
-    std::string type;
-    std::string created_by;
-    std::vector<std::string> participants;
-    try {
-      type = payload["type"].get<std::string>();
-      if (payload.contains("participants") && payload["participants"].is_array()) {
-        for (const auto &value : payload["participants"]) {
-          if (value.is_string()) {
-            participants.push_back(value.get<std::string>());
-          }
-        }
-      }
-      created_by = payload["created_by"].get<std::string>();
-    } catch (const json::exception &) {
-      RespondInvalidPayload(res);
-      return;
-    }
-    if (type != "voice" && type != "video") {
-      res.status = 400;
-      res.set_content(R"({"error":"invalid_call_type"})", "application/json");
-      return;
-    }
-    if (auto session = Store().CreateCallSession(job_id, type, created_by, participants)) {
-      const auto role = req.get_header_value("X-Actor-Role");
-      const bool include_internal = role == "admin";
-      res.status = 201;
-      res.set_content(CallSessionToJson(*session, include_internal).dump(), "application/json");
-      return;
-    }
-    res.status = 404;
-    res.set_content(R"({"error":"job_not_found"})", "application/json");
-  });
-
-  server.Get(R"(/jobs/([\w_-]+)/calls)", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"buyer", "seller", "conveyancer", "admin"}, "jobs", "list_calls")) {
-      return;
-    }
-    const auto job_id = req.matches[1].str();
-    const auto role = req.get_header_value("X-Actor-Role");
-    const bool include_internal = role == "admin";
-    json response = json::array();
-    for (const auto &session : Store().ListCalls(job_id)) {
-      response.push_back(CallSessionToJson(session, include_internal));
-    }
-    res.set_content(response.dump(), "application/json");
-  });
-
-  server.Get(R"(/jobs/([\w_-]+)/completion-certificate)",
-             [](const httplib::Request &req, httplib::Response &res) {
-               if (!security::Authorize(req, res, "jobs")) {
-                 return;
-               }
-               if (!security::RequireRole(req, res,
-                                          {"buyer", "seller", "conveyancer", "finance_admin", "admin"}, "jobs",
-                                          "view_certificate")) {
-                 return;
-               }
-               const auto job_id = req.matches[1].str();
-               if (auto certificate = Store().GetCertificate(job_id)) {
-                 res.set_content(CertificateToJson(*certificate).dump(), "application/json");
-                 return;
-               }
-               res.status = 404;
-               res.set_content(R"({"error":"certificate_not_ready"})", "application/json");
-             });
-
-  server.Get("/jobs/templates", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"conveyancer", "admin", "finance_admin"}, "jobs", "list_templates")) {
-      return;
-    }
-    json response = json::array();
-    for (const auto &definition : Templates().List()) {
-      response.push_back(TemplateToJson(definition));
-    }
-    res.set_content(response.dump(), "application/json");
-  });
-
-  server.Post("/jobs/templates", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"admin"}, "jobs", "create_template")) {
-      return;
-    }
-    auto payload = ParseJson(req, res);
-    if (res.status == 400 && !res.body.empty()) {
-      return;
-    }
-    if (!RequireFields(payload, res, {"name", "jurisdiction", "description", "tasks"})) {
-      return;
-    }
-    if (!payload["tasks"].is_array() || payload["tasks"].empty()) {
-      res.status = 400;
-      res.set_content(R"({"error":"invalid_tasks"})", "application/json");
-      return;
-    }
-    try {
-      std::vector<TemplateTask> tasks;
-      for (const auto &entry : payload["tasks"]) {
-        TemplateTask task;
-        task.id = entry.value("id", GenerateId("tt_"));
-        task.title = entry.value("title", std::string{"Checklist item"});
-        task.default_assignee = entry.value("default_assignee", std::string{});
-        task.due_in_days = entry.value("due_in_days", 0);
-        task.escrow_required = entry.value("escrow_required", false);
-        tasks.push_back(task);
-      }
-      auto created = Templates().Create(payload["name"].get<std::string>(),
-                                        payload["jurisdiction"].get<std::string>(),
-                                        payload["description"].get<std::string>(), tasks);
-      res.status = 201;
-      res.set_content(TemplateToJson(created).dump(), "application/json");
-    } catch (const json::exception &) {
-      RespondInvalidPayload(res);
-    }
-  });
-
-  server.Post(R"(/jobs/([\w_-]+)/templates/apply)", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"conveyancer", "admin"}, "jobs", "apply_template")) {
-      return;
-    }
-    const auto job_id = req.matches[1].str();
-    auto payload = ParseJson(req, res);
-    if (res.status == 400 && !res.body.empty()) {
-      return;
-    }
-    if (!RequireFields(payload, res, {"template_id"})) {
-      return;
-    }
-    std::string template_id;
-    try {
-      template_id = payload["template_id"].get<std::string>();
-    } catch (const json::exception &) {
-      RespondInvalidPayload(res);
-      return;
-    }
-    auto definition = Templates().Get(template_id);
-    if (!definition) {
-      res.status = 404;
-      res.set_content(R"({"error":"template_not_found"})", "application/json");
-      return;
-    }
-    std::string start_date;
-    if (payload.contains("start_date") && payload["start_date"].is_string()) {
-      start_date = payload["start_date"].get<std::string>();
-    } else if (auto job = Store().Get(job_id)) {
-      start_date = job->opened_at.substr(0, 10);
-    }
-    if (start_date.empty()) {
-      start_date = NowIso8601().substr(0, 10);
-    }
-    if (!Store().ApplyTemplate(job_id, *definition, start_date)) {
-      res.status = 404;
-      res.set_content(R"({"error":"job_not_found"})", "application/json");
-      return;
-    }
-    if (auto job = Store().Get(job_id)) {
-      const auto role = req.get_header_value("X-Actor-Role");
-      const bool include_internal = role == "admin";
-      const bool reveal_contact = include_internal || job->contact_policy.unlocked;
-      res.set_content(JobDetailToJson(*job, reveal_contact, include_internal, role).dump(),
-                      "application/json");
-      return;
-    }
-    res.status = 404;
-    res.set_content(R"({"error":"job_not_found"})", "application/json");
-  });
-
-  server.Get("/admin/contact-policies", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"admin"}, "jobs", "admin_contact_policies")) {
-      return;
-    }
-    res.set_content(Store().AdminContactPolicies().dump(), "application/json");
-  });
-
-  server.Get("/admin/ml/insights", [](const httplib::Request &req, httplib::Response &res) {
-    if (!security::Authorize(req, res, "jobs")) {
-      return;
-    }
-    if (!security::RequireRole(req, res, {"admin"}, "jobs", "admin_ml_insights")) {
-      return;
-    }
-    res.set_content(Store().AdminInsights().dump(), "application/json");
-  });
-
-  constexpr auto kBindAddress = "0.0.0.0";
-  constexpr int kPort = 9002;
-  std::cout << "Jobs service listening on " << kBindAddress << ":" << kPort << "\n";
-  server.listen(kBindAddress, kPort);
+  const int port = ParseInt(GetEnvOrDefault("JOBS_PORT", "8082"), 8082);
+  security::LogEvent("jobs", "info", "starting_jobs_service", json{{"port", port}}.dump());
+  server.listen("0.0.0.0", port);
   return 0;
 }
