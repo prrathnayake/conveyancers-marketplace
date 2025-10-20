@@ -1,6 +1,9 @@
 #include "jobs_repository.h"
+#include "postgres.h"
 
 #include <pqxx/pqxx>
+
+#include "jobs_repository_utils.h"
 
 namespace persistence {
 namespace {
@@ -42,36 +45,28 @@ DocumentRecord RowToDocument(const pqxx::row &row) {
 }
 
 TemplateRecord RowToTemplate(const pqxx::row &row) {
-  TemplateRecord record;
-  record.id = row["id"].c_str();
-  record.name = row["name"].c_str();
-  record.jurisdiction = row["jurisdiction"].is_null() ? std::string{} : row["jurisdiction"].c_str();
-  record.description = row["description"].is_null() ? std::string{} : row["description"].c_str();
-  record.integration_url = row["integration_url"].is_null() ? std::string{} : row["integration_url"].c_str();
-  record.integration_auth = row["integration_auth"].is_null()
-                                 ? nlohmann::json::object()
-                                 : nlohmann::json::parse(row["integration_auth"].c_str());
-  record.latest_version = row["latest_version"].is_null() ? 0 : row["latest_version"].as<int>();
-  const std::string payload_str = row["payload"].is_null() ? "{}" : row["payload"].c_str();
-  nlohmann::json payload = nlohmann::json::parse(payload_str.empty() ? "{}" : payload_str);
-  if (payload.contains("tasks") && payload["tasks"].is_array()) {
-    for (const auto &task : payload["tasks"]) {
-      TemplateTaskRecord task_record;
-      task_record.name = task.value("name", "");
-      task_record.due_days = task.value("dueDays", 0);
-      task_record.assigned_role = task.value("assignedRole", "");
-      record.tasks.push_back(std::move(task_record));
-    }
+  detail::TemplateRowData data;
+  data.id = row["id"].c_str();
+  data.name = row["name"].c_str();
+  if (!row["jurisdiction"].is_null()) {
+    data.jurisdiction = row["jurisdiction"].c_str();
   }
-  if (payload.contains("syncMetadata")) {
-    record.metadata = payload["syncMetadata"];
-  } else {
-    record.metadata = payload;
+  if (!row["description"].is_null()) {
+    data.description = row["description"].c_str();
   }
-  if (!record.metadata.is_object()) {
-    record.metadata = nlohmann::json::object();
+  if (!row["integration_url"].is_null()) {
+    data.integration_url = row["integration_url"].c_str();
   }
-  return record;
+  if (!row["integration_auth"].is_null()) {
+    data.integration_auth_json = row["integration_auth"].c_str();
+  }
+  if (!row["latest_version"].is_null()) {
+    data.latest_version = row["latest_version"].as<int>();
+  }
+  if (!row["payload"].is_null()) {
+    data.payload_json = row["payload"].c_str();
+  }
+  return detail::BuildTemplateRecord(data);
 }
 
 }  // namespace

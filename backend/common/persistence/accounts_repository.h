@@ -1,16 +1,14 @@
 #ifndef CONVEYANCERS_MARKETPLACE_PERSISTENCE_ACCOUNTS_REPOSITORY_H
 #define CONVEYANCERS_MARKETPLACE_PERSISTENCE_ACCOUNTS_REPOSITORY_H
 
-#include <nlohmann/json.hpp>
-
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
-#include "postgres.h"
-
 namespace persistence {
+
+class PostgresConfig;
 
 struct AccountRecord {
   std::string id;

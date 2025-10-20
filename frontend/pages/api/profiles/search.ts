@@ -20,7 +20,7 @@ type SearchRow = {
   review_count: number
 }
 
-const parseSpecialties = (value: string): string[] => {
+export const parseSpecialties = (value: string): string[] => {
   try {
     const parsed = JSON.parse(value)
     if (Array.isArray(parsed)) {

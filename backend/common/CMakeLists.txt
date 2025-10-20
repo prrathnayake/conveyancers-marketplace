@@ -3,8 +3,10 @@ cmake_minimum_required(VERSION 3.20)
 add_library(common_persistence
     persistence/postgres.cpp
     persistence/accounts_repository.cpp
+    persistence/accounts_repository_utils.cpp
     persistence/audit_repository.cpp
     persistence/jobs_repository.cpp
+    persistence/jobs_repository_utils.cpp
     persistence/escrow_repository.cpp)
 
 find_package(PkgConfig REQUIRED)
