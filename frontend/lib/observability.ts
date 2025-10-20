@@ -75,3 +75,17 @@ export const logTrace = (correlationId: string, category: string, details: Recor
     ...details,
   })
 }
+
+export const logError = (
+  correlationId: string | null | undefined,
+  category: string,
+  details: Record<string, unknown>
+): void => {
+  appendLog({
+    correlationId: correlationId ?? 'untracked',
+    category,
+    level: 'error',
+    timestamp: new Date().toISOString(),
+    ...details,
+  })
+}
