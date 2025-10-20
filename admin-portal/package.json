@@ -9,9 +9,10 @@
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
-    "cookie": "^1.0.2",
     "better-sqlite3": "^12.4.1",
+    "cookie": "^1.0.2",
     "jsonwebtoken": "^9.0.2",
+    "nanoid": "^5.1.6",
     "next": "14.2.3",
     "nodemailer": "^7.0.9",
     "react": "18.2.0",
@@ -25,8 +26,8 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "20.12.7",
     "@types/nodemailer": "^7.0.2",
-    "@types/twilio": "^3.19.3",
     "@types/react": "18.2.64",
-    "@types/react-dom": "18.2.21"
+    "@types/react-dom": "18.2.21",
+    "@types/twilio": "^3.19.3"
   }
 }
