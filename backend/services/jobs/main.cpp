@@ -5,9 +5,12 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <iomanip>
+#include <memory>
 #include <optional>
 #include <random>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -37,6 +40,35 @@
 using json = nlohmann::json;
 
 namespace {
+
+int ParseInt(const std::string &value, int fallback);
+
+struct ParsedUrl {
+  std::string scheme;
+  std::string host;
+  int port = 0;
+  std::string path;
+  bool secure = false;
+};
+
+ParsedUrl ParseUrl(const std::string &url) {
+  static const std::regex kRegex(R"(^([a-zA-Z][a-zA-Z0-9+.-]*)://([^/ :]+)(:([0-9]+))?(.*)$)");
+  std::smatch matches;
+  if (!std::regex_match(url, matches, kRegex)) {
+    throw std::runtime_error("invalid_url");
+  }
+  ParsedUrl parsed;
+  parsed.scheme = matches[1];
+  parsed.host = matches[2];
+  parsed.path = matches[5].str().empty() ? std::string{"/"} : matches[5].str();
+  parsed.secure = parsed.scheme == "https" || parsed.scheme == "wss";
+  if (matches[4].matched) {
+    parsed.port = ParseInt(matches[4], parsed.secure ? 443 : 80);
+  } else {
+    parsed.port = parsed.secure ? 443 : 80;
+  }
+  return parsed;
+}
 
 class TcpSocket {
  public:
@@ -179,6 +211,95 @@ std::string Sha256Hex(const std::vector<unsigned char> &data) {
     output.push_back(kHex[value & 0x0F]);
   }
   return output;
+}
+
+struct TemplateSyncResult {
+  std::vector<persistence::TemplateTaskRecord> tasks;
+  json metadata;
+  json source;
+};
+
+TemplateSyncResult SyncTemplateFromPortal(const std::string &url, const json &auth) {
+  if (url.empty()) {
+    throw std::runtime_error("portal_url_missing");
+  }
+  const ParsedUrl parsed = ParseUrl(url);
+  std::unique_ptr<httplib::Client> client;
+  if (parsed.secure) {
+#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
+    auto ssl_client = std::make_unique<httplib::SSLClient>(parsed.host, parsed.port);
+    ssl_client->enable_server_certificate_verification(false);
+    client = std::move(ssl_client);
+#else
+    throw std::runtime_error("ssl_not_supported");
+#endif
+  } else {
+    client = std::make_unique<httplib::Client>(parsed.host, parsed.port);
+  }
+  if (!client) {
+    throw std::runtime_error("client_init_failed");
+  }
+  client->set_read_timeout(10, 0);
+  client->set_connection_timeout(5, 0);
+  httplib::Headers headers;
+  if (auth.is_object()) {
+    if (const auto api_key = auth.find("apiKey"); api_key != auth.end() && api_key->is_string()) {
+      headers.emplace("Authorization", "Bearer " + api_key->get<std::string>());
+    }
+    if (const auto header_values = auth.find("headers"); header_values != auth.end() && header_values->is_object()) {
+      for (const auto &item : header_values->items()) {
+        if (item.value().is_string()) {
+          headers.emplace(item.key(), item.value().get<std::string>());
+        }
+      }
+    }
+  }
+  const auto response = client->Get(parsed.path.c_str(), headers);
+  if (!response) {
+    throw std::runtime_error("portal_request_failed");
+  }
+  if (response->status >= 400) {
+    throw std::runtime_error("portal_request_failed");
+  }
+  json payload = json::parse(response->body);
+  TemplateSyncResult result;
+  result.metadata = json::object();
+  const auto now = std::chrono::system_clock::now();
+  std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+  std::tm tm{};
+#ifdef _WIN32
+  gmtime_s(&tm, &now_time);
+#else
+  gmtime_r(&now_time, &tm);
+#endif
+  std::ostringstream timestamp;
+  timestamp << std::put_time(&tm, "%FT%TZ");
+  result.metadata["syncedAt"] = timestamp.str();
+  result.metadata["statusCode"] = response->status;
+  result.source = json{{"type", "portal"}, {"url", url}, {"statusCode", response->status}};
+  if (payload.contains("version")) {
+    result.metadata["portalVersion"] = payload["version"];
+    result.source["version"] = payload["version"];
+  }
+  const auto *tasks_ptr = &payload;
+  if (payload.contains("tasks")) {
+    tasks_ptr = &payload["tasks"];
+  } else if (payload.contains("workflow") && payload["workflow"].is_object() && payload["workflow"].contains("tasks")) {
+    tasks_ptr = &payload["workflow"]["tasks"];
+  }
+  if (!tasks_ptr->is_array()) {
+    throw std::runtime_error("portal_tasks_missing");
+  }
+  for (const auto &task : *tasks_ptr) {
+    persistence::TemplateTaskRecord task_record;
+    if (task.is_object()) {
+      task_record.name = task.value("name", task.value("title", ""));
+      task_record.due_days = task.value("dueDays", task.value("due_days", 0));
+      task_record.assigned_role = task.value("assignedRole", task.value("owner", ""));
+    }
+    result.tasks.push_back(std::move(task_record));
+  }
+  return result;
 }
 
 class RedisAdapter {
@@ -435,6 +556,22 @@ json DocumentToJson(const persistence::DocumentRecord &document) {
           {"createdAt", document.created_at}};
 }
 
+json TemplateToJson(const persistence::TemplateRecord &record) {
+  json tasks = json::array();
+  for (const auto &task : record.tasks) {
+    tasks.push_back({{"name", task.name}, {"dueDays", task.due_days}, {"assignedRole", task.assigned_role}});
+  }
+  return {{"id", record.id},
+          {"name", record.name},
+          {"jurisdiction", record.jurisdiction},
+          {"description", record.description},
+          {"integrationUrl", record.integration_url},
+          {"integrationAuthConfigured", !record.integration_auth.empty()},
+          {"latestVersion", record.latest_version},
+          {"tasks", tasks},
+          {"metadata", record.metadata}};
+}
+
 }  // namespace
 
 int main() {
@@ -499,6 +636,98 @@ int main() {
     } catch (const std::exception &ex) {
       security::LogEvent("jobs", "error", "list_jobs_failed", ex.what());
       SendJson(res, json{{"error", "list_jobs_failed"}}, 500);
+    }
+  });
+
+  server.Get("/jobs/templates", [&](const httplib::Request &, httplib::Response &res) {
+    try {
+      const auto templates = jobs.ListTemplates();
+      json payload = json::array();
+      for (const auto &record : templates) {
+        payload.push_back(TemplateToJson(record));
+      }
+      SendJson(res, json{{"templates", payload}});
+    } catch (const std::exception &ex) {
+      security::LogEvent("jobs", "error", "list_templates_failed", ex.what());
+      SendJson(res, json{{"error", "list_templates_failed"}}, 500);
+    }
+  });
+
+  server.Post("/jobs/templates", [&](const httplib::Request &req, httplib::Response &res) {
+    try {
+      const auto body = json::parse(req.body);
+      const std::string actor_id = body.value("actorId", "");
+      persistence::TemplateUpsertInput input;
+      input.template_id = body.value("templateId", std::string{});
+      input.name = body.value("name", std::string{});
+      if (input.name.empty()) {
+        SendJson(res, json{{"error", "name_required"}}, 400);
+        return;
+      }
+      input.jurisdiction = body.value("jurisdiction", std::string{});
+      input.description = body.value("description", std::string{});
+      input.integration_url = body.value("integrationUrl", std::string{});
+      input.integration_auth = body.contains("integrationAuth") && body["integrationAuth"].is_object()
+                                   ? body["integrationAuth"]
+                                   : json::object();
+      input.source = body.contains("source") && body["source"].is_object() ? body["source"] : json::object();
+      input.metadata = body.contains("metadata") && body["metadata"].is_object() ? body["metadata"] : json::object();
+
+      bool synced_from_portal = false;
+      if (input.source.value("type", "") == "portal" || body.value("syncFromPortal", false)) {
+        const auto sync = SyncTemplateFromPortal(input.integration_url, input.integration_auth);
+        input.tasks = sync.tasks;
+        input.metadata = sync.metadata;
+        input.source = sync.source;
+        synced_from_portal = true;
+      } else {
+        const auto tasks_json = body.value("tasks", json::array());
+        if (!tasks_json.is_array()) {
+          SendJson(res, json{{"error", "tasks_invalid"}}, 400);
+          return;
+        }
+        for (const auto &task_json : tasks_json) {
+          if (!task_json.is_object()) {
+            continue;
+          }
+          persistence::TemplateTaskRecord task;
+          task.name = task_json.value("name", std::string{});
+          task.due_days = task_json.value("dueDays", 0);
+          task.assigned_role = task_json.value("assignedRole", std::string{});
+          if (task.name.empty()) {
+            continue;
+          }
+          input.tasks.push_back(std::move(task));
+        }
+        if (input.tasks.empty()) {
+          SendJson(res, json{{"error", "tasks_required"}}, 400);
+          return;
+        }
+        if (input.source.empty()) {
+          input.source = json{{"type", "manual"}};
+        }
+      }
+
+      if (input.metadata.is_null() || !input.metadata.is_object()) {
+        input.metadata = json::object();
+      }
+      if (!input.metadata.contains("syncedFromPortal")) {
+        input.metadata["syncedFromPortal"] = synced_from_portal;
+      }
+
+      const auto record = jobs.UpsertTemplateVersion(input);
+      json audit_details = {{"latestVersion", record.latest_version},
+                            {"templateName", record.name},
+                            {"tasks", record.tasks.size()},
+                            {"source", input.source}};
+      if (!input.metadata.empty()) {
+        audit_details["metadata"] = input.metadata;
+      }
+      audit.RecordEvent(actor_id, "template_version_created", record.id, audit_details, req.remote_addr);
+      SendJson(res, TemplateToJson(record), input.template_id.empty() ? 201 : 200);
+    } catch (const std::exception &ex) {
+      security::LogEvent("jobs", "error", "upsert_template_failed", ex.what());
+      SendJson(res, json{{"error", "upsert_template_failed"}}, 500);
     }
   });
 

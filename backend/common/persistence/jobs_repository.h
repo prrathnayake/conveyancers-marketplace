@@ -57,6 +57,36 @@ struct DocumentRecord {
   std::string created_at;
 };
 
+struct TemplateTaskRecord {
+  std::string name;
+  int due_days = 0;
+  std::string assigned_role;
+};
+
+struct TemplateRecord {
+  std::string id;
+  std::string name;
+  std::string jurisdiction;
+  std::string description;
+  std::string integration_url;
+  nlohmann::json integration_auth = nlohmann::json::object();
+  int latest_version = 0;
+  std::vector<TemplateTaskRecord> tasks;
+  nlohmann::json metadata = nlohmann::json::object();
+};
+
+struct TemplateUpsertInput {
+  std::string template_id;
+  std::string name;
+  std::string jurisdiction;
+  std::string description;
+  std::string integration_url;
+  nlohmann::json integration_auth = nlohmann::json::object();
+  std::vector<TemplateTaskRecord> tasks;
+  nlohmann::json source = nlohmann::json::object();
+  nlohmann::json metadata = nlohmann::json::object();
+};
+
 class JobsRepository {
  public:
   explicit JobsRepository(std::shared_ptr<PostgresConfig> config);
@@ -72,6 +102,8 @@ class JobsRepository {
                      const nlohmann::json &attachments) const;
   std::vector<nlohmann::json> FetchMessages(const std::string &job_id, int limit) const;
   void UpdateJobStatus(const std::string &job_id, const std::string &status) const;
+  TemplateRecord UpsertTemplateVersion(const TemplateUpsertInput &input) const;
+  std::vector<TemplateRecord> ListTemplates() const;
 
  private:
   std::shared_ptr<PostgresConfig> config_;

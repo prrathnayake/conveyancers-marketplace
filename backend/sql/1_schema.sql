@@ -79,6 +79,27 @@ create table if not exists documents (
   version int default 1, created_at timestamptz default now()
 );
 
+create table if not exists job_templates (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  jurisdiction text,
+  description text,
+  integration_url text,
+  integration_auth jsonb default '{}'::jsonb,
+  latest_version int default 0,
+  created_at timestamptz default now()
+);
+
+create table if not exists job_template_versions (
+  id bigserial primary key,
+  template_id uuid references job_templates(id) on delete cascade,
+  version int not null,
+  payload jsonb not null,
+  source jsonb default '{}'::jsonb,
+  created_at timestamptz default now(),
+  unique(template_id, version)
+);
+
 create table if not exists reviews (
   id uuid primary key default gen_random_uuid(),
   job_id uuid references jobs(id) unique,
