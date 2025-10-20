@@ -1,57 +1,51 @@
 #include "accounts_repository.h"
+#include "postgres.h"
 
 #include <pqxx/pqxx>
 
 #include <sstream>
 #include <stdexcept>
 
+#include "accounts_repository_utils.h"
+
 namespace persistence {
 namespace {
 
-std::string ToJsonArray(const std::vector<std::string> &values) {
-  nlohmann::json json_array = values;
-  return json_array.dump();
-}
-
-std::vector<std::string> ParseJsonArray(const pqxx::row &row, const char *column) {
-  if (row[column].is_null()) {
-    return {};
+AccountRecord RowToAccount(const pqxx::row &row) {
+  detail::AccountRowData data;
+  data.id = row["id"].c_str();
+  data.email = row["email"].c_str();
+  data.role = row["role"].c_str();
+  data.full_name = row["full_name"].is_null() ? std::string{} : row["full_name"].c_str();
+  data.state = row["state"].is_null() ? std::string{} : row["state"].c_str();
+  data.suburb = row["suburb"].is_null() ? std::string{} : row["suburb"].c_str();
+  data.phone = row["phone"].is_null() ? std::string{} : row["phone"].c_str();
+  data.password_hash = row["password_hash"].c_str();
+  data.password_salt = row["password_salt"].c_str();
+  if (!row["two_factor_secret"].is_null()) {
+    data.two_factor_secret = row["two_factor_secret"].c_str();
   }
-  const auto value = nlohmann::json::parse(row[column].c_str());
-  if (!value.is_array()) {
-    return {};
-  }
-  std::vector<std::string> result;
-  result.reserve(value.size());
-  for (const auto &item : value) {
-    if (item.is_string()) {
-      result.push_back(item.get<std::string>());
+  if (row.size() > 10) {
+    if (!row["licence_number"].is_null()) {
+      data.licence_number = row["licence_number"].c_str();
+    }
+    if (!row["licence_state"].is_null()) {
+      data.licence_state = row["licence_state"].c_str();
+    }
+    if (!row["verified"].is_null()) {
+      data.verified = row["verified"].as<bool>();
+    }
+    if (!row["bio"].is_null()) {
+      data.biography = row["bio"].c_str();
+    }
+    if (!row["specialties"].is_null()) {
+      data.specialties_json = row["specialties"].c_str();
+    }
+    if (!row["services"].is_null()) {
+      data.services_json = row["services"].c_str();
     }
   }
-  return result;
-}
-
-AccountRecord RowToAccount(const pqxx::row &row) {
-  AccountRecord record;
-  record.id = row["id"].c_str();
-  record.email = row["email"].c_str();
-  record.role = row["role"].c_str();
-  record.full_name = row["full_name"].is_null() ? std::string{} : row["full_name"].c_str();
-  record.state = row["state"].is_null() ? std::string{} : row["state"].c_str();
-  record.suburb = row["suburb"].is_null() ? std::string{} : row["suburb"].c_str();
-  record.phone = row["phone"].is_null() ? std::string{} : row["phone"].c_str();
-  record.password_hash = row["password_hash"].c_str();
-  record.password_salt = row["password_salt"].c_str();
-  record.two_factor_secret = row["two_factor_secret"].is_null() ? std::string{} : row["two_factor_secret"].c_str();
-  if (row.columns() > 10) {
-    record.licence_number = row["licence_number"].is_null() ? std::string{} : row["licence_number"].c_str();
-    record.licence_state = row["licence_state"].is_null() ? std::string{} : row["licence_state"].c_str();
-    record.verified = row["verified"].is_null() ? false : row["verified"].as<bool>();
-    record.biography = row["bio"].is_null() ? std::string{} : row["bio"].c_str();
-    record.specialties = ParseJsonArray(row, "specialties");
-    record.services = ParseJsonArray(row, "services");
-  }
-  return record;
+  return detail::BuildAccountRecord(data);
 }
 
 }  // namespace
@@ -81,7 +75,7 @@ AccountRecord AccountsRepository::CreateAccount(const AccountRegistrationInput &
         user_id,
         input.licence_number.empty() ? pqxx::null() : pqxx::zview(input.licence_number.c_str()),
         input.licence_state.empty() ? pqxx::null() : pqxx::zview(input.licence_state.c_str()),
-        ToJsonArray(input.specialties), ToJsonArray(input.services),
+        detail::SerializeStringArray(input.specialties), detail::SerializeStringArray(input.services),
         input.insurance_policy.empty() ? pqxx::null() : pqxx::zview(input.insurance_policy.c_str()),
         input.insurance_expiry.empty() ? pqxx::null() : pqxx::zview(input.insurance_expiry.c_str()),
         input.biography.empty() ? pqxx::null() : pqxx::zview(input.biography.c_str()), input.verified);

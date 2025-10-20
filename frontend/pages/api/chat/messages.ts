@@ -7,7 +7,7 @@ import { listConversationPerspectives } from '../../../lib/conversationPerspecti
 import { emailPattern, phonePattern, offPlatformKeywords } from '../../../lib/policySignals'
 import { assessSensitiveContent, SENSITIVE_RISK_THRESHOLD } from '../../../lib/ml/sensitive'
 
-const detectPolicyWarning = (message: string): { flagType: string; reason: string } | null => {
+export const detectPolicyWarning = (message: string): { flagType: string; reason: string } | null => {
   if (emailPattern.test(message)) {
     return {
       flagType: 'contact_email',

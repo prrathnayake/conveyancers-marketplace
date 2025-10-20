@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
 project(gateway CXX)
 set(CMAKE_CXX_STANDARD 20)
-add_executable(gateway src/main.cpp)
+add_executable(gateway src/main.cpp src/http_utils.cpp)
 target_include_directories(gateway PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party)
