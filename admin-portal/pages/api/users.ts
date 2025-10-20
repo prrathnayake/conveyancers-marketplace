@@ -107,8 +107,9 @@ const generatePassword = (): string => {
 
 const ensureConveyancerProfile = (userId: number) => {
   db.prepare(
-    `INSERT OR IGNORE INTO conveyancer_profiles (user_id, firm_name, bio, phone, state, suburb, website)
-     VALUES (?, '', '', '', '', '', '')`
+    `INSERT INTO conveyancer_profiles (user_id, firm_name, bio, phone, state, suburb, website)
+     VALUES (?, '', '', '', '', '', '')
+     ON CONFLICT(user_id) DO NOTHING`
   ).run(userId)
 }
 

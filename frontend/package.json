@@ -9,13 +9,12 @@
   "dependencies": {
     "@types/pg": "^8.15.5",
     "bcryptjs": "^3.0.2",
-    "better-sqlite3": "^12.4.1",
     "cookie": "^1.0.2",
     "formidable": "^3.5.0",
     "jsonwebtoken": "^9.0.2",
     "next": "14.2.3",
     "nodemailer": "^7.0.9",
-    "pg": "^8.16.3",
+    "pg": "^8.11.3",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "twilio": "^5.10.3",
@@ -23,11 +22,11 @@
     "zustand": "4.5.2"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/formidable": "^3.4.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "20.12.7",
     "@types/nodemailer": "^7.0.2",
+    "@types/pg": "^8.10.9",
     "@types/react": "18.2.64",
     "@types/react-dom": "18.2.21"
   }

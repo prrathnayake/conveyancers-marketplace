@@ -1,8 +1,8 @@
 # Conveyancers Marketplace (AU)
 
-> A simulation-focused starter kit for exploring conveyancing workflows with seeded data, SQLite persistence, and optional C++ microservice mocks.
+> A simulation-focused starter kit for exploring conveyancing workflows with seeded data, PostgreSQL persistence, and optional C++ microservice mocks.
 
-This repository now reflects the code that actually ships in the main applications: two Next.js 14 projects (public marketplace + admin portal) that share a SQLite database and deliver the documented user journeys through API routes. The C++ services that were part of the original brief remain in the tree as standalone HTTP demos, but the production UI relies on the Node.js stack instead of delegating to those processes. Docker Compose is provided to wire Nginx, the Next.js apps, and the demo services together for local exploration.
+This repository now reflects the code that actually ships in the main applications: two Next.js 14 projects (public marketplace + admin portal) that share a PostgreSQL database and deliver the documented user journeys through API routes. The C++ services that were part of the original brief remain in the tree as standalone HTTP demos, but the production UI relies on the Node.js stack instead of delegating to those processes. Docker Compose is provided to wire Nginx, the Next.js apps, and the demo services together for local exploration.
 
 ## Who is this starter for?
 
@@ -16,9 +16,9 @@ If you are evaluating whether this starter is a fit, scan the [feature report](d
 
 | Layer | Primary tooling | Notes |
 |-------|-----------------|-------|
-| Web experience | Next.js 14 (public marketplace) | Pages router + API routes backed by SQLite and shared session helpers. |
+| Web experience | Next.js 14 (public marketplace) | Pages router + API routes backed by PostgreSQL and shared session helpers. |
 | Operations UI | Next.js 14 (admin portal) | Shares libraries with the public app for authentication, auditing, and notifications. |
-| Data persistence | SQLite via `better-sqlite3` | Stored in `data/app.db` (or `PLATFORM_DATA_DIR`), seeded on demand for demos. |
+| Data persistence | PostgreSQL via `pg` | Provisioned via SQL migrations, configurable with `DB_URL`. |
 | Backend demos | C++20 + `cpp-httplib` | Mock identity/jobs/payments services exposed over HTTP at `https://api.localhost`. |
 | Infrastructure | Docker Compose, Nginx | TLS termination for `localhost`, `admin.localhost`, and `api.localhost`; reverse proxies to the apps. |
 | Observability | Structured logging helpers | Request correlation IDs + metrics endpoints provided by app middleware. |
@@ -65,7 +65,7 @@ The architecture is intentionally modular: the admin portal and the public marke
 - Shared security helpers provide request IDs, role enforcement, and metrics endpoints for each service.【F:backend/common/security.h†L300-L356】
 
 ### Infrastructure (Docker Compose)
-- PostgreSQL and SQLite storage for the Next.js apps, plus an Nginx reverse proxy with TLS termination.
+- PostgreSQL storage for the Next.js apps, plus an Nginx reverse proxy with TLS termination.
 - Optional C++ demo services reachable at `https://api.localhost` when the compose stack is running.【F:infra/docker-compose.yml†L119-L186】
 - TLS helper script for regenerating certificates with SANs covering `localhost`, `admin.localhost`, and `api.localhost`.【F:infra/tls/dev_certs.sh†L1-L36】
 
@@ -91,8 +91,9 @@ The architecture is intentionally modular: the admin portal and the public marke
                └────────────┬──────────────┘
                             │
                    ┌────────▼────────┐
-                   │   SQLite data   │
-                   │  (`data/app.db`)│
+                   │ PostgreSQL DB   │
+                   │ (configured via │
+                   │     `DB_URL`)   │
                    └────────┬────────┘
                             │
          ┌──────────────────▼───────────────────┐
@@ -101,7 +102,7 @@ The architecture is intentionally modular: the admin portal and the public marke
          └──────────────────────────────────────┘
 ```
 
-The UIs call their own Next.js API routes backed by SQLite. The C++ services can be explored independently (for example through `https://api.localhost`) but are not wired into the production flows without additional integration work.
+The UIs call their own Next.js API routes backed by PostgreSQL. The C++ services can be explored independently (for example through `https://api.localhost`) but are not wired into the production flows without additional integration work.
 
 ---
 
@@ -185,12 +186,12 @@ All example files are safe defaults. Replace placeholders before deploying to a 
 
 ### Service endpoints
 
-The web applications now communicate with the consolidated identity service (or API gateway) instead of the local SQLite helpers. Configure either of the following variables for local development or staging deployments:
+The web applications now communicate with the consolidated identity service (or API gateway) while persisting state in PostgreSQL. Configure the following variables for local development or staging deployments:
 
 - `IDENTITY_SERVICE_URL` – direct URL of the identity service (takes precedence when defined).
 - `GATEWAY_BASE_URL` – fallback URL when the identity-specific override is not provided.
 
-When neither variable is configured the apps fall back to the legacy SQLite logic for demos, so you can opt into the new flow incrementally.
+Set `DB_URL` to point at your PostgreSQL instance; migrations run automatically on startup and seed helpers repopulate demo data when tables are empty.
 
 ---
 
@@ -239,7 +240,7 @@ Run individual services locally by supplying the generated `.env` files or expor
 
 ### Local development tips
 
-- **Resetting the demo data** – Delete `data/app.db` (or the path referenced by `PLATFORM_DATA_DIR`) to reseed the SQLite database on the next request.【F:frontend/lib/db.ts†L1-L118】
+- **Resetting the demo data** – Drop and recreate the PostgreSQL schema (for example `psql "$DB_URL" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'`) and restart the app so migrations and seed helpers repopulate the data.【F:frontend/lib/db.ts†L1-L210】
 - **Inspecting logs** – API routes append structured entries to `logs/api-observability.log`. Configure `LOG_DIRECTORY` in `.env` to write elsewhere.【F:frontend/lib/observability.ts†L1-L61】
 - **Verifying notifications** – Provide working SMTP/Twilio credentials; otherwise helpers warn and skip delivery to avoid test spam.【F:frontend/lib/notifications.ts†L15-L66】
 
@@ -256,8 +257,8 @@ Automated test suites have not been implemented yet for the Next.js applications
 The repository focuses on demonstrable guardrails rather than fully-automated regulator integrations:
 
 - Conveyancers registered in QLD or ACT remain hidden unless they are verified or the viewer has elevated privileges, keeping jurisdictional restrictions visible in the demo flows.【F:frontend/pages/api/profiles/[id].ts†L7-L148】
-- Admin actions invoke a shared audit helper that records the actor, entity, and metadata inside the SQLite database for traceability.【F:frontend/lib/audit.ts†L1-L13】
-- All persisted data lives inside the SQLite file controlled by `PLATFORM_DATA_DIR`, so relocate the database to compliant storage before handling production records.【F:frontend/lib/db.ts†L1-L118】
+- Admin actions invoke a shared audit helper that records the actor, entity, and metadata inside the PostgreSQL database for traceability.【F:frontend/lib/audit.ts†L1-L13】
+- All persisted data lives inside the PostgreSQL instance referenced by `DB_URL`, so provision compliant storage before handling production records.【F:frontend/lib/db.ts†L1-L210】
 
 Refer to [`docs/compliance.md`](docs/compliance.md) for the broader regulatory commentary that accompanied the original brief.
 
@@ -292,7 +293,7 @@ Tail `logs/api-observability.log` or point `LOG_DIRECTORY` at a shared location.
 ## Extending the platform
 
 1. **Swap in real integrations** – Replace the seeded workflows in the Next.js API routes (for example `admin-portal/pages/api/users.ts`) with calls to your production services or vendor SDKs.【F:admin-portal/pages/api/users.ts†L1-L120】
-2. **Evolve the data model** – Extend the SQLite schema inside `frontend/lib/db.ts` or migrate to an external database before onboarding real customers.【F:frontend/lib/db.ts†L61-L158】
+2. **Evolve the data model** – Extend the PostgreSQL schema via the SQL migrations in `frontend/lib/migrations/` before onboarding real customers.【F:frontend/lib/migrations/001_initial_schema.sql†L1-L200】
 3. **Optional service tier** – The C++ demos under `backend/services/*` expose HTTP endpoints that you can either harden or replace with your preferred language stack.【F:backend/services/jobs/main.cpp†L2037-L2058】
 4. **Automate validation** – Add unit and integration tests so regressions are caught automatically when expanding the platform.
 

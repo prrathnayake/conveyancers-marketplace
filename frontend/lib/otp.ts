@@ -22,10 +22,6 @@ const MAX_CODE_ATTEMPTS = 5
 const OTP_EXPIRY_MINUTES = 10
 const MIN_RESEND_INTERVAL_SECONDS = 60
 
-const toIsoDate = (date: Date): string => {
-  return date.toISOString().replace('T', ' ').replace('Z', '')
-}
-
 const hashCode = (code: string, salt: string): string => {
   return crypto.createHash('sha256').update(`${salt}:${code}`).digest('hex')
 }
@@ -39,7 +35,7 @@ const generateCode = (): string => {
 const pruneExpired = (userId: number, channel: VerificationChannel) => {
   db.prepare(
     `DELETE FROM user_verification_codes
-      WHERE user_id = ? AND channel = ? AND datetime(expires_at) <= datetime('now')`
+      WHERE user_id = ? AND channel = ? AND expires_at <= NOW()`
   ).run(userId, channel)
 }
 
@@ -56,7 +52,7 @@ export const issueVerificationCode = (userId: number, channel: VerificationChann
     .prepare(
       `SELECT created_at FROM user_verification_codes
          WHERE user_id = ? AND channel = ?
-     ORDER BY datetime(created_at) DESC
+     ORDER BY created_at DESC
         LIMIT 1`
     )
     .get(userId, channel) as { created_at: string } | undefined
@@ -80,7 +76,7 @@ export const issueVerificationCode = (userId: number, channel: VerificationChann
     `INSERT INTO user_verification_codes (user_id, channel, code_hash, code_salt, metadata, attempts, max_attempts, expires_at)
      VALUES (?, ?, ?, ?, ?, 0, ?, ?)`
   )
-  stmt.run(userId, channel, codeHash, salt, metadata, MAX_CODE_ATTEMPTS, toIsoDate(expiresAt))
+  stmt.run(userId, channel, codeHash, salt, metadata, MAX_CODE_ATTEMPTS, expiresAt.toISOString())
 
   const payload: IssuedCode = { code, expiresAt: expiresAt.toISOString() }
   if (process.env.NODE_ENV !== 'production') {
@@ -99,7 +95,7 @@ const fetchActiveRecord = (userId: number, channel: VerificationChannel): Verifi
       `SELECT id, code_hash, code_salt, attempts, max_attempts, expires_at
          FROM user_verification_codes
         WHERE user_id = ? AND channel = ?
-     ORDER BY datetime(created_at) DESC
+     ORDER BY created_at DESC
         LIMIT 1`
     )
     .get(userId, channel) as VerificationRecord | undefined

@@ -55,7 +55,9 @@ export const ensureAdminSeeded = (): void => {
   }
 
   db.prepare(
-    'INSERT OR IGNORE INTO users (email, password_hash, role, full_name) VALUES (?, ?, ?, ?)'
+    `INSERT INTO users (email, password_hash, role, full_name)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(email) DO NOTHING`
   ).run(normalizeEmail(seedEmail), passwordHash, 'admin', 'Platform Administrator')
   seeded = true
 }
