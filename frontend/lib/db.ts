@@ -88,6 +88,35 @@ const db = new Database(databasePath)
 
 db.pragma('busy_timeout = 5000')
 
+const busyErrorCodes = new Set(['SQLITE_BUSY', 'SQLITE_BUSY_SNAPSHOT'])
+
+const isBusyError = (error: unknown): error is { code?: string } => {
+  return Boolean(error && typeof error === 'object' && 'code' in error)
+}
+
+const sleep = (ms: number): void => {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+const runWithBusyRetry = <T>(operation: () => T, attempts = 5): T => {
+  let lastError: unknown
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return operation()
+    } catch (error) {
+      lastError = error
+      if (!isBusyError(error) || !error.code || !busyErrorCodes.has(error.code)) {
+        throw error
+      }
+
+      const backoff = (attempt + 1) * 150
+      sleep(backoff)
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('SQLite busy retry exhausted')
+}
+
 const ensureWalJournalMode = (): void => {
   try {
     db.pragma('journal_mode = WAL')
@@ -942,7 +971,9 @@ export const ensureSeedData = (): void => {
   if (artifactsSeeded) {
     return
   }
-  seedArtifacts()
+  runWithBusyRetry(() => {
+    seedArtifacts()
+  })
   artifactsSeeded = true
 }
 
