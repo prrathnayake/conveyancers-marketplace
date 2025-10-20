@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            frontend/package-lock.json
+            admin-portal/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Run frontend tests
+        run: npm test
+        working-directory: frontend
+
+      - name: Install admin portal dependencies
+        run: npm ci
+        working-directory: admin-portal
+
+      - name: Run admin portal tests
+        run: npm test
+        working-directory: admin-portal
+
+      - name: Install C++ dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libpqxx-dev libssl-dev nlohmann-json3-dev
+
+      - name: Configure backend
+        run: cmake -S backend -B backend/build
+
+      - name: Build backend tests
+        run: cmake --build backend/build --target repository_logic_test gateway_http_test
+
+      - name: Run backend tests
+        run: ctest --test-dir backend/build --output-on-failure

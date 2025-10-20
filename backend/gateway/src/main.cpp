@@ -6,48 +6,7 @@
 #include "../common/env_loader.h"
 #include "../common/security.h"
 #include "httplib.h"
-
-namespace {
-
-std::string IdentityHost() {
-  if (const char *env = std::getenv("IDENTITY_HOST")) {
-    return env;
-  }
-  return "127.0.0.1";
-}
-
-int IdentityPort() {
-  if (const char *env = std::getenv("IDENTITY_PORT")) {
-    try {
-      return std::stoi(env);
-    } catch (...) {
-    }
-  }
-  return 7001;
-}
-
-std::string ForwardQueryString(const httplib::Params &params) {
-  if (params.empty()) {
-    return {};
-  }
-  std::ostringstream oss;
-  bool first = true;
-  for (const auto &p : params) {
-    if (!first) {
-      oss << '&';
-    }
-    first = false;
-    const auto encoded_key = httplib::detail::encode_url(p.first);
-    const auto encoded_value = httplib::detail::encode_url(p.second);
-    oss << encoded_key;
-    if (!p.second.empty()) {
-      oss << '=' << encoded_value;
-    }
-  }
-  return oss.str();
-}
-
-}  // namespace
+#include "http_utils.h"
 
 int main() {
   env::LoadEnvironment();
@@ -59,7 +18,10 @@ int main() {
   });
   // Minimal facade endpoints
   svr.Post("/api/auth/login", [](const httplib::Request &req, httplib::Response &res) {
-    httplib::Client client(IdentityHost(), IdentityPort());
+    const char *host_env = std::getenv("IDENTITY_HOST");
+    const char *port_env = std::getenv("IDENTITY_PORT");
+    httplib::Client client(gateway::http_utils::ResolveIdentityHost(host_env).c_str(),
+                           gateway::http_utils::ResolveIdentityPort(port_env));
     client.set_connection_timeout(1, 0);
     client.set_read_timeout(1, 0);
     client.set_write_timeout(1, 0);
@@ -90,7 +52,10 @@ int main() {
                                "search_profiles")) {
       return;
     }
-    httplib::Client client(IdentityHost(), IdentityPort());
+    const char *host_env = std::getenv("IDENTITY_HOST");
+    const char *port_env = std::getenv("IDENTITY_PORT");
+    httplib::Client client(gateway::http_utils::ResolveIdentityHost(host_env).c_str(),
+                           gateway::http_utils::ResolveIdentityPort(port_env));
     client.set_connection_timeout(1, 0);    // 1 second
     client.set_read_timeout(1, 0);          // 1 second
     client.set_write_timeout(1, 0);         // 1 second
@@ -105,7 +70,7 @@ int main() {
 
     std::string path = "/profiles/search";
     if (!req.params.empty()) {
-      path += '?' + ForwardQueryString(req.params);
+      path += '?' + gateway::http_utils::ForwardQueryString(req.params);
     }
 
     if (auto identity_res = client.Get(path.c_str())) {

@@ -8,9 +8,9 @@
 #include <string>
 #include <vector>
 
-#include "postgres.h"
-
 namespace persistence {
+
+class PostgresConfig;
 
 struct JobCreateInput {
   std::string customer_id;

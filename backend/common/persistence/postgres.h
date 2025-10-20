@@ -3,8 +3,16 @@
 
 #include <pqxx/pqxx>
 
+#include <cstddef>
 #include <memory>
 #include <string>
+
+#ifndef PQXX_COMPAT_NULL_DEFINED
+#define PQXX_COMPAT_NULL_DEFINED
+namespace pqxx {
+inline std::nullptr_t null() noexcept { return nullptr; }
+}  // namespace pqxx
+#endif
 
 namespace persistence {
 
