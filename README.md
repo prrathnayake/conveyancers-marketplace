@@ -183,6 +183,15 @@ docker compose -f infra/docker-compose.yml down --remove-orphans
 
 All example files are safe defaults. Replace placeholders before deploying to a shared environment. Never commit secrets—use your platform’s secret store.
 
+### Service endpoints
+
+The web applications now communicate with the consolidated identity service (or API gateway) instead of the local SQLite helpers. Configure either of the following variables for local development or staging deployments:
+
+- `IDENTITY_SERVICE_URL` – direct URL of the identity service (takes precedence when defined).
+- `GATEWAY_BASE_URL` – fallback URL when the identity-specific override is not provided.
+
+When neither variable is configured the apps fall back to the legacy SQLite logic for demos, so you can opt into the new flow incrementally.
+
 ---
 
 ## Developer workflows

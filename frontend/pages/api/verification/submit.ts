@@ -1,10 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 
-import { verifyCode } from '../../../lib/otp'
-import { recomputeVerificationStatus } from '../../../lib/verification'
 import { requireAuth } from '../../../lib/session'
+import { recordVerificationEvent } from '../../../lib/services/identity'
 
-const handler = (req: NextApiRequest, res: NextApiResponse): void => {
+const handler = async (req: NextApiRequest, res: NextApiResponse): Promise<void> => {
   const user = requireAuth(req, res)
   if (!user) {
     return
@@ -32,14 +31,21 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
     return
   }
 
-  const result = verifyCode(user.id, channel, normalized)
-  if (!result.ok) {
-    res.status(400).json({ error: result.reason })
-    return
+  try {
+    const result = await recordVerificationEvent({
+      userId: user.id,
+      channel,
+      code: normalized,
+    })
+    res.status(200).json({ ok: true, verification: result.verification })
+  } catch (error) {
+    const code = typeof error === 'object' && error && 'code' in error ? (error as { code?: string }).code : undefined
+    if (code === 'missing_code' || code === 'invalid_code') {
+      res.status(400).json({ error: 'invalid_code' })
+      return
+    }
+    res.status(400).json({ error: code ?? 'verification_failed' })
   }
-
-  const verification = recomputeVerificationStatus(user.id)
-  res.status(200).json({ ok: true, verifiedAt: result.verifiedAt, verification })
 }
 
 export default handler
