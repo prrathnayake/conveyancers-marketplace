@@ -31,6 +31,12 @@ const generateId = (prefix: string): string => `${prefix}_${crypto.randomUUID()}
 
 const hash = (value: string): string => crypto.createHash('sha256').update(value).digest('hex')
 
+const ensureRealProvider = (client: { id: string }, operation: string): void => {
+  if (client.id === 'mock' && process.env.NODE_ENV === 'production') {
+    throw new Error(`esign_provider_not_configured.${operation}`)
+  }
+}
+
 const latestAuditHash = (signatureId: string): string => {
   const row = db
     .prepare(
@@ -239,6 +245,7 @@ export const createSignatureEnvelope = async (
   }
 ): Promise<SignatureEnvelopeRecord> => {
   const providerClient = resolveESignProvider()
+  ensureRealProvider(providerClient, 'create')
   const providerEnvelope = await providerClient.createEnvelope({
     jobId: input.jobId,
     documentId: input.documentId,
@@ -364,6 +371,7 @@ export const completeSignatureEnvelope = async (
   })
 
   const providerClient = resolveESignProvider()
+  ensureRealProvider(providerClient, 'certificate')
   const certificateDetails = await providerClient.downloadCertificate(input.signatureId)
   const completedBy = normalizeCompletedSigners(certificateDetails.completedBy)
 
@@ -413,6 +421,7 @@ export const syncSignatureEnvelopeFromProvider = async (input: {
   let providerReference = remote.providerReference ?? existing.providerReference
 
   if (input.includeCertificate && !certificate) {
+    ensureRealProvider(providerClient, 'certificate')
     try {
       const certificateDetails = await providerClient.downloadCertificate(input.signatureId)
       certificate = certificateDetails.certificate

@@ -276,6 +276,109 @@ const createMockProvider = (): ESignProviderClient => {
   }
 }
 
+const createVendorProviderClient = (providerId: string): ESignProviderClient => {
+  const baseUrl = process.env.ESIGN_VENDOR_BASE_URL?.trim()
+  const apiKey = process.env.ESIGN_VENDOR_API_KEY?.trim()
+  const apiSecret = process.env.ESIGN_VENDOR_API_SECRET?.trim()
+  const apiPrefix = process.env.ESIGN_VENDOR_API_PREFIX?.trim() ?? '/v1'
+  const accountId = process.env.ESIGN_VENDOR_ACCOUNT_ID?.trim() ?? null
+
+  if (!baseUrl || baseUrl.length === 0) {
+    throw new Error('esign_provider_missing_base_url')
+  }
+  if (!apiKey || apiKey.length === 0 || !apiSecret || apiSecret.length === 0) {
+    throw new Error('esign_provider_missing_credentials')
+  }
+
+  const endpoint = baseUrl.replace(/\/$/, '')
+  const authHeader = Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')
+
+  const request = async (path: string, options: { method?: string; body?: unknown } = {}) => {
+    const method = options.method ?? 'GET'
+    const headers: Record<string, string> = {
+      accept: 'application/json',
+      authorization: `Basic ${authHeader}`,
+    }
+    let bodyText: string | null = null
+    if (options.body !== undefined) {
+      bodyText = JSON.stringify(options.body)
+      headers['content-type'] = 'application/json'
+    }
+    const response = await fetch(`${endpoint}${path}`, {
+      method,
+      headers,
+      body: bodyText,
+    })
+    const text = await response.text()
+    let payload: unknown = text
+    if (text.length > 0) {
+      try {
+        payload = JSON.parse(text)
+      } catch {
+        payload = text
+      }
+    } else {
+      payload = null
+    }
+    if (!response.ok) {
+      const error = new Error(`esign_provider_${response.status}`)
+      ;(error as Error & { payload?: unknown }).payload = payload
+      throw error
+    }
+    return payload
+  }
+
+  const normalizePath = (target: string): string => {
+    if (target.startsWith('http://') || target.startsWith('https://')) {
+      return target
+    }
+    const normalizedPrefix = apiPrefix.startsWith('/') ? apiPrefix : `/${apiPrefix}`
+    const normalizedTarget = target.startsWith('/') ? target : `/${target}`
+    return `${normalizedPrefix}${normalizedTarget}`
+  }
+
+  return {
+    id: providerId,
+    async createEnvelope(input) {
+      const payload = await request(
+        normalizePath('/envelopes'),
+        {
+          method: 'POST',
+          body: {
+            externalId: input.jobId,
+            documentId: input.documentId,
+            signers: input.signers.map((signer) => ({
+              name: signer.name,
+              email: signer.email,
+            })),
+            ...(accountId ? { accountId } : {}),
+          },
+        }
+      )
+      return normalizeEnvelopePayload(payload)
+    },
+    async getEnvelope(envelopeId) {
+      const payload = await request(normalizePath(`/envelopes/${encodeURIComponent(envelopeId)}`))
+      return normalizeEnvelopePayload(payload, envelopeId)
+    },
+    async downloadCertificate(envelopeId) {
+      const payload = await request(normalizePath(`/envelopes/${encodeURIComponent(envelopeId)}/certificate`))
+      const normalized = normalizeEnvelopePayload(payload, envelopeId)
+      if (!normalized.certificate || normalized.certificate.length === 0) {
+        throw new Error('esign_provider_missing_certificate')
+      }
+      return {
+        envelopeId: normalized.envelopeId,
+        providerReference: normalized.providerReference ?? null,
+        status: normalized.status ?? null,
+        certificate: normalized.certificate,
+        completedBy: normalized.completedBy ?? [],
+        raw: payload,
+      }
+    },
+  }
+}
+
 const createHttpProviderClient = (providerId: string, baseUrl: string, secret: string | null): ESignProviderClient => {
   const endpoint = baseUrl.replace(/\/$/, '')
 
@@ -369,6 +472,11 @@ export const resolveESignProvider = (): ESignProviderClient => {
   const configured = process.env.ESIGN_PROVIDER?.trim()
   if (!configured || configured.length === 0 || configured.toLowerCase() === 'mock') {
     cachedProvider = mockProvider
+    return cachedProvider
+  }
+  const vendorBaseUrl = process.env.ESIGN_VENDOR_BASE_URL?.trim()
+  if (vendorBaseUrl && vendorBaseUrl.length > 0) {
+    cachedProvider = createVendorProviderClient(configured)
     return cachedProvider
   }
   const providerId = configured
