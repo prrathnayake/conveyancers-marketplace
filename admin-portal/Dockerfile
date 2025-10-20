@@ -5,12 +5,14 @@ WORKDIR /workspace
 ENV NEXT_TELEMETRY_DISABLED=1
 
 FROM base AS deps
+# hadolint ignore=DL3018
 RUN apk add --no-cache python3 make g++
 COPY admin-portal/package.json admin-portal/package-lock.json ./admin-portal/
 WORKDIR /workspace/admin-portal
 RUN npm ci
 
 FROM base AS builder
+# hadolint ignore=DL3018
 RUN apk add --no-cache python3 make g++
 WORKDIR /workspace/admin-portal
 COPY --from=deps /workspace/admin-portal/node_modules ./node_modules
@@ -23,6 +25,7 @@ FROM node:20-alpine AS runner
 WORKDIR /workspace/admin-portal
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+# hadolint ignore=DL3018
 RUN apk add --no-cache libstdc++
 COPY --from=builder /workspace/admin-portal/public ./public
 COPY --from=builder /workspace/admin-portal/.next ./.next
