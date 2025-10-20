@@ -1,4 +1,4 @@
-import { customAlphabet } from 'nanoid'
+import { randomBytes } from 'crypto'
 import db from './db'
 
 export type AiChatPersona = 'assistant' | 'cat'
@@ -49,7 +49,16 @@ export type AiChatEscalation = {
   createdAt: string
 }
 
-const createSessionId = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 18)
+const alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'
+
+const createSessionId = () => {
+  const bytes = randomBytes(18)
+  let id = ''
+  for (let i = 0; i < bytes.length; i += 1) {
+    id += alphabet[bytes[i] % alphabet.length]
+  }
+  return id
+}
 
 const mapSession = (row: AiChatSessionRow): AiChatSession => ({
   id: row.id,
