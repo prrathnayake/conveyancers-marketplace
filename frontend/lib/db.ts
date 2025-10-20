@@ -108,6 +108,418 @@ const insertCustomerProfiles = async (client: PoolClient): Promise<void> => {
   const { rows } = await client.query<{ id: number; role: 'buyer' | 'seller' }>(
     `SELECT id, role FROM users WHERE role IN ('buyer','seller')`
   )
+ensureWalJournalMode()
+
+const applySchema = (): void => {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('buyer','seller','conveyancer','admin')),
+      full_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','invited')),
+      phone TEXT DEFAULT '',
+      email_verified_at DATETIME,
+      phone_verified_at DATETIME,
+      is_verified INTEGER NOT NULL DEFAULT 0,
+      profile_image_data TEXT DEFAULT '',
+      profile_image_mime TEXT DEFAULT '',
+      profile_image_updated_at DATETIME,
+      last_login_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS conveyancer_profiles (
+      user_id INTEGER PRIMARY KEY,
+      firm_name TEXT DEFAULT '',
+      bio TEXT DEFAULT '',
+      phone TEXT DEFAULT '',
+      state TEXT DEFAULT '',
+      suburb TEXT DEFAULT '',
+      website TEXT DEFAULT '',
+      remote_friendly INTEGER DEFAULT 0,
+      turnaround TEXT DEFAULT '',
+      response_time TEXT DEFAULT '',
+      specialties TEXT DEFAULT '[]',
+      verified INTEGER DEFAULT 0,
+      gov_status TEXT NOT NULL DEFAULT 'pending',
+      gov_check_reference TEXT DEFAULT '',
+      gov_verified_at DATETIME,
+      gov_denial_reason TEXT DEFAULT '',
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS customer_profiles (
+      user_id INTEGER PRIMARY KEY,
+      role TEXT NOT NULL CHECK (role IN ('buyer','seller')),
+      preferred_contact_method TEXT NOT NULL DEFAULT 'email',
+      notes TEXT DEFAULT '',
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS conveyancer_reviews (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conveyancer_id INTEGER NOT NULL,
+      reviewer_name TEXT NOT NULL,
+      rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+      comment TEXT NOT NULL,
+      job_reference TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(conveyancer_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS product_reviews (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      reviewer_id INTEGER,
+      reviewer_name TEXT NOT NULL,
+      rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+      comment TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(reviewer_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS customer_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL,
+      conveyancer_id INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending','in_progress','completed','canceled')),
+      reference TEXT DEFAULT '',
+      completed_at DATETIME,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(customer_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(conveyancer_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      actor_id INTEGER,
+      action TEXT NOT NULL,
+      entity TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      metadata TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(actor_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE TRIGGER IF NOT EXISTS admin_audit_log_prevent_update
+    BEFORE UPDATE ON admin_audit_log
+    BEGIN
+      SELECT RAISE(ABORT, 'admin_audit_log_immutable');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS admin_audit_log_prevent_delete
+    BEFORE DELETE ON admin_audit_log
+    BEGIN
+      SELECT RAISE(ABORT, 'admin_audit_log_immutable');
+    END;
+
+    CREATE TABLE IF NOT EXISTS conversations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      participant_a INTEGER NOT NULL,
+      participant_b INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(participant_a, participant_b),
+      FOREIGN KEY(participant_a) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(participant_b) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS conversation_perspectives (
+      conversation_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      perspective TEXT NOT NULL CHECK (perspective IN ('buyer','seller')),
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (conversation_id, user_id),
+      FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id INTEGER NOT NULL,
+      sender_id INTEGER NOT NULL,
+      iv TEXT NOT NULL,
+      auth_tag TEXT NOT NULL,
+      ciphertext TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS message_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id INTEGER NOT NULL,
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      iv TEXT NOT NULL,
+      auth_tag TEXT NOT NULL,
+      ciphertext BLOB NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS message_policy_flags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      flag_type TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS call_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'scheduled',
+      join_url TEXT NOT NULL,
+      access_token TEXT NOT NULL,
+      created_by INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_call_sessions_conversation
+      ON call_sessions (conversation_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS ai_chat_sessions (
+      id TEXT PRIMARY KEY,
+      persona TEXT NOT NULL DEFAULT 'assistant',
+      origin TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      summary TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      escalated_at DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_chat_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('user','assistant','system')),
+      content TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(session_id) REFERENCES ai_chat_sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_chat_escalations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(session_id) REFERENCES ai_chat_sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS document_signatures (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      provider_reference TEXT DEFAULT '',
+      certificate_hash TEXT DEFAULT '',
+      signed_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS document_signature_signers (
+      id TEXT PRIMARY KEY,
+      signature_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      completed INTEGER DEFAULT 0,
+      completed_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(signature_id) REFERENCES document_signatures(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS document_signature_audit (
+      id TEXT PRIMARY KEY,
+      signature_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      metadata TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      previous_hash TEXT DEFAULT '',
+      entry_hash TEXT NOT NULL,
+      FOREIGN KEY(signature_id) REFERENCES document_signatures(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS milestone_quotes (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      milestone_id TEXT NOT NULL,
+      description TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      issued_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME,
+      last_notified_at DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS quote_notifications (
+      id TEXT PRIMARY KEY,
+      quote_id TEXT NOT NULL,
+      message TEXT NOT NULL,
+      delivered INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(quote_id) REFERENCES milestone_quotes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS trust_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conveyancer_id INTEGER NOT NULL,
+      account_name TEXT NOT NULL,
+      account_number TEXT NOT NULL,
+      bsb TEXT NOT NULL,
+      compliance_status TEXT NOT NULL DEFAULT 'pending',
+      last_reconciled_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(account_number, bsb),
+      FOREIGN KEY(conveyancer_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS trust_payout_reports (
+      id TEXT PRIMARY KEY,
+      trust_account_id INTEGER NOT NULL,
+      payment_id TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      processed_at DATETIME NOT NULL,
+      reviewer TEXT NOT NULL,
+      notes TEXT DEFAULT '',
+      certificate_hash TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(trust_account_id) REFERENCES trust_accounts(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS auth_refresh_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      revoked INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_document_signatures_job ON document_signatures(job_id);
+    CREATE INDEX IF NOT EXISTS idx_document_signatures_document ON document_signatures(document_id);
+    CREATE INDEX IF NOT EXISTS idx_milestone_quotes_job ON milestone_quotes(job_id);
+    CREATE INDEX IF NOT EXISTS idx_trust_accounts_conveyancer ON trust_accounts(conveyancer_id);
+    CREATE INDEX IF NOT EXISTS idx_auth_refresh_tokens_user ON auth_refresh_tokens(user_id);
+    CREATE INDEX IF NOT EXISTS idx_product_reviews_created ON product_reviews(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_customer_jobs_lookup ON customer_jobs(customer_id, conveyancer_id, status);
+
+    CREATE TABLE IF NOT EXISTS chat_invoices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id INTEGER NOT NULL,
+      creator_id INTEGER NOT NULL,
+      recipient_id INTEGER NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'AUD',
+      description TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sent','accepted','released','cancelled')),
+      service_fee_cents INTEGER DEFAULT 0,
+      escrow_cents INTEGER DEFAULT 0,
+      refunded_cents INTEGER DEFAULT 0,
+      psp_reference TEXT DEFAULT '',
+      psp_status TEXT DEFAULT '',
+      psp_failure_reason TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      accepted_at DATETIME,
+      released_at DATETIME,
+      cancelled_at DATETIME,
+      FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY(creator_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_invoice_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoice_id INTEGER NOT NULL,
+      actor_id INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      payload TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(invoice_id) REFERENCES chat_invoices(id) ON DELETE CASCADE,
+      FOREIGN KEY(actor_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS platform_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS user_verification_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      channel TEXT NOT NULL CHECK (channel IN ('email','phone')),
+      code_hash TEXT NOT NULL,
+      code_salt TEXT NOT NULL,
+      metadata TEXT DEFAULT '{}',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 5,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_verification_lookup ON user_verification_codes(user_id, channel, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS service_catalogue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      slug TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      audience TEXT DEFAULT '',
+      preview_markdown TEXT DEFAULT '',
+      features TEXT DEFAULT '[]',
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS conveyancer_job_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conveyancer_id INTEGER NOT NULL,
+      matter_type TEXT NOT NULL,
+      completed_at DATETIME NOT NULL,
+      location TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      clients TEXT DEFAULT '',
+      FOREIGN KEY(conveyancer_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS conveyancer_document_badges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conveyancer_id INTEGER NOT NULL,
+      label TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('valid','expiring','expired')),
+      reference TEXT NOT NULL,
+      last_verified DATETIME NOT NULL,
+      expires_at DATETIME,
+      FOREIGN KEY(conveyancer_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS content_pages (
+      slug TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      meta_description TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS homepage_sections (
+      key TEXT PRIMARY KEY,
+      content TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `)
+}
 
   for (const row of rows) {
     await client.query(
@@ -130,6 +542,25 @@ const insertConveyancerArtifacts = async (client: PoolClient): Promise<void> => 
   const { rows: customers } = await client.query<{ id: number }>(
     `SELECT id FROM users WHERE role IN ('buyer','seller')`
   )
+  ensureColumn('users', 'last_login_at', 'last_login_at DATETIME')
+  ensureColumn('users', 'phone', "phone TEXT DEFAULT ''")
+  ensureColumn('users', 'email_verified_at', 'email_verified_at DATETIME')
+  ensureColumn('users', 'phone_verified_at', 'phone_verified_at DATETIME')
+  ensureColumn('users', 'is_verified', 'is_verified INTEGER NOT NULL DEFAULT 0')
+  ensureColumn('users', 'profile_image_data', "profile_image_data TEXT DEFAULT ''")
+  ensureColumn('users', 'profile_image_mime', "profile_image_mime TEXT DEFAULT ''")
+  ensureColumn('users', 'profile_image_updated_at', 'profile_image_updated_at DATETIME')
+  ensureColumn('service_catalogue', 'audience', "audience TEXT DEFAULT ''")
+  ensureColumn('service_catalogue', 'preview_markdown', "preview_markdown TEXT DEFAULT ''")
+  ensureColumn('service_catalogue', 'features', "features TEXT DEFAULT '[]'")
+  ensureColumn('chat_invoices', 'refunded_cents', 'refunded_cents INTEGER DEFAULT 0')
+  ensureColumn('chat_invoices', 'psp_reference', "psp_reference TEXT DEFAULT ''")
+  ensureColumn('chat_invoices', 'psp_status', "psp_status TEXT DEFAULT ''")
+  ensureColumn('chat_invoices', 'psp_failure_reason', "psp_failure_reason TEXT DEFAULT ''")
+  ensureColumn('document_signature_signers', 'created_at', 'created_at DATETIME DEFAULT CURRENT_TIMESTAMP')
+  ensureColumn('conveyancer_reviews', 'job_reference', "job_reference TEXT DEFAULT ''")
+  schemaInitialized = true
+}
 
   const now = new Date()
   const iso = (offsetDays: number): string => {
