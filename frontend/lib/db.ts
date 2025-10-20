@@ -55,6 +55,17 @@ const readMigrations = (): Array<{ id: string; sql: string }> => {
     })
 }
 
+const ensureWalJournalMode = (): void => {
+  // PostgreSQL enables WAL semantics by default; retained for compatibility with
+  // earlier SQLite-based implementations where the call ensured durability.
+}
+
+const ensureColumn = (_table: string, _column: string, _definition: string): void => {
+  // Column backfills are managed via migrations in the Postgres implementation.
+}
+
+let schemaInitialized = false
+
 const runMigrations = async (): Promise<void> => {
   const client = await pool.connect()
   try {
@@ -111,6 +122,8 @@ const insertCustomerProfiles = async (client: PoolClient): Promise<void> => {
 ensureWalJournalMode()
 
 const applySchema = (): void => {
+  return
+  /*
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -330,6 +343,7 @@ const applySchema = (): void => {
       signature_id TEXT NOT NULL,
       name TEXT NOT NULL,
       email TEXT NOT NULL,
+      signing_url TEXT DEFAULT '',
       completed INTEGER DEFAULT 0,
       completed_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -519,6 +533,7 @@ const applySchema = (): void => {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `)
+  */
 }
 
   for (const row of rows) {
@@ -532,10 +547,10 @@ const applySchema = (): void => {
 }
 
 const insertConveyancerArtifacts = async (client: PoolClient): Promise<void> => {
-  const { rows: conveyancers } = await client.query<{ user_id: number }>(
+  const { rows: conveyancerRows } = await client.query<{ user_id: number }>(
     'SELECT user_id FROM conveyancer_profiles'
   )
-  if (conveyancers.length === 0) {
+  if (conveyancerRows.length === 0) {
     return
   }
 
@@ -558,9 +573,9 @@ const insertConveyancerArtifacts = async (client: PoolClient): Promise<void> => 
   ensureColumn('chat_invoices', 'psp_status', "psp_status TEXT DEFAULT ''")
   ensureColumn('chat_invoices', 'psp_failure_reason', "psp_failure_reason TEXT DEFAULT ''")
   ensureColumn('document_signature_signers', 'created_at', 'created_at DATETIME DEFAULT CURRENT_TIMESTAMP')
+  ensureColumn('document_signature_signers', 'signing_url', "signing_url TEXT DEFAULT ''")
   ensureColumn('conveyancer_reviews', 'job_reference', "job_reference TEXT DEFAULT ''")
   schemaInitialized = true
-}
 
   const now = new Date()
   const iso = (offsetDays: number): string => {
@@ -577,7 +592,7 @@ const insertConveyancerArtifacts = async (client: PoolClient): Promise<void> => 
 
   let customerCursor = 0
 
-  for (const { user_id: conveyancerId } of conveyancers) {
+  for (const { user_id: conveyancerId } of conveyancerRows) {
     const historyCount = await client.query<{ total: number }>(
       'SELECT COUNT(1) AS total FROM conveyancer_job_history WHERE conveyancer_id = $1',
       [conveyancerId]

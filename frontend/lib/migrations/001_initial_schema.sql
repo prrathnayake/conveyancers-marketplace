@@ -202,6 +202,7 @@ CREATE TABLE IF NOT EXISTS document_signature_signers (
   signature_id TEXT NOT NULL REFERENCES document_signatures(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   email TEXT NOT NULL,
+  signing_url TEXT DEFAULT '',
   completed BOOLEAN DEFAULT FALSE,
   completed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP

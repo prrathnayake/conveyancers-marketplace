@@ -1,28 +1,27 @@
 import type { NextApiResponse } from 'next'
-import { requireRole } from '../../../frontend/lib/session'
+import { requireRole } from '../../../../../frontend/lib/session'
 import {
   createSignatureEnvelope,
   completeSignatureEnvelope,
   listSignatureAudit,
   getSignatureEnvelope,
   listSignaturesForDocument,
-} from '../../../frontend/lib/signatures'
-import { withObservability, type ObservedRequest } from '../../../frontend/lib/observability'
+} from '../../../../../frontend/lib/signatures'
+import { withObservability, type ObservedRequest } from '../../../../../frontend/lib/observability'
 
-const handler = (req: ObservedRequest, res: NextApiResponse): void => {
+const handler = async (req: ObservedRequest, res: NextApiResponse): Promise<void> => {
   const actor = requireRole(req, res, ['admin'])
   if (!actor) {
     return
   }
 
   if (req.method === 'POST') {
-    const { jobId, documentId, provider, signers } = req.body as {
+    const { jobId, documentId, signers } = req.body as {
       jobId?: string
       documentId?: string
-      provider?: string
       signers?: Array<{ name?: string; email?: string }>
     }
-    if (!jobId || !documentId || !provider || !Array.isArray(signers) || signers.length === 0) {
+    if (!jobId || !documentId || !Array.isArray(signers) || signers.length === 0) {
       res.status(400).json({ error: 'invalid_payload' })
       return
     }
@@ -33,48 +32,49 @@ const handler = (req: ObservedRequest, res: NextApiResponse): void => {
       res.status(400).json({ error: 'invalid_signers' })
       return
     }
-    const envelope = createSignatureEnvelope({
-      jobId,
-      documentId,
-      provider,
-      signers: normalizedSigners,
-      actor: actor.email,
-      correlationId: req.correlationId,
-    })
-    res.status(201).json(envelope)
+    try {
+      const envelope = await createSignatureEnvelope({
+        jobId,
+        documentId,
+        signers: normalizedSigners,
+        actor: actor.email,
+        correlationId: req.correlationId,
+      })
+      res.status(201).json(envelope)
+    } catch (error) {
+      res.status(502).json({
+        error: 'provider_error',
+        detail: error instanceof Error ? error.message : 'unknown_error',
+      })
+    }
     return
   }
 
   if (req.method === 'PUT') {
-    const { id, certificate, providerReference, signers } = req.body as {
+    const { id } = req.body as {
       id?: string
-      certificate?: string
-      providerReference?: string
-      signers?: Array<{ email: string; completedAt?: string }>
     }
-    if (!id || !certificate || !providerReference) {
+    if (!id) {
       res.status(400).json({ error: 'invalid_payload' })
       return
     }
-    const completedBy = Array.isArray(signers)
-      ? signers.filter((entry) => entry.email).map((entry) => ({
-          email: entry.email.trim(),
-          completedAt: entry.completedAt,
-        }))
-      : []
-    const envelope = completeSignatureEnvelope({
-      signatureId: id,
-      certificate,
-      providerReference,
-      actor: actor.email,
-      completedBy,
-      correlationId: req.correlationId,
-    })
-    if (!envelope) {
-      res.status(404).json({ error: 'signature_not_found' })
-      return
+    try {
+      const envelope = await completeSignatureEnvelope({
+        signatureId: id,
+        actor: actor.email,
+        correlationId: req.correlationId,
+      })
+      if (!envelope) {
+        res.status(404).json({ error: 'signature_not_found' })
+        return
+      }
+      res.status(200).json(envelope)
+    } catch (error) {
+      res.status(502).json({
+        error: 'provider_error',
+        detail: error instanceof Error ? error.message : 'unknown_error',
+      })
     }
-    res.status(200).json(envelope)
     return
   }
 
