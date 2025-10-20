@@ -451,6 +451,9 @@ const applySchema = (): void => {
       service_fee_cents INTEGER DEFAULT 0,
       escrow_cents INTEGER DEFAULT 0,
       refunded_cents INTEGER DEFAULT 0,
+      psp_reference TEXT DEFAULT '',
+      psp_status TEXT DEFAULT '',
+      psp_failure_reason TEXT DEFAULT '',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       accepted_at DATETIME,
@@ -585,6 +588,9 @@ export const ensureSchema = (): void => {
   ensureColumn('service_catalogue', 'preview_markdown', "preview_markdown TEXT DEFAULT ''")
   ensureColumn('service_catalogue', 'features', "features TEXT DEFAULT '[]'")
   ensureColumn('chat_invoices', 'refunded_cents', 'refunded_cents INTEGER DEFAULT 0')
+  ensureColumn('chat_invoices', 'psp_reference', "psp_reference TEXT DEFAULT ''")
+  ensureColumn('chat_invoices', 'psp_status', "psp_status TEXT DEFAULT ''")
+  ensureColumn('chat_invoices', 'psp_failure_reason', "psp_failure_reason TEXT DEFAULT ''")
   ensureColumn('document_signature_signers', 'created_at', 'created_at DATETIME DEFAULT CURRENT_TIMESTAMP')
   ensureColumn('conveyancer_reviews', 'job_reference', "job_reference TEXT DEFAULT ''")
   schemaInitialized = true
