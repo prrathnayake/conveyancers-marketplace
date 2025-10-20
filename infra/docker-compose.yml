@@ -39,53 +39,6 @@ services:
       - ../backend/sql/1_schema.sql:/docker-entrypoint-initdb.d/1_schema.sql:ro
       - ../backend/sql/2_seed.sql:/docker-entrypoint-initdb.d/2_seed.sql:ro
     ports: ["5432:5432"]
-  redis:
-    <<: *common-env
-    image: redis:7-alpine
-    ports: ["6379:6379"]
-  minio:
-    <<: *common-env
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    volumes: [ "miniodata:/data" ]
-    ports: ["9000:9000","9001:9001"]
-  clamav:
-    <<: *common-env
-    image: clamav/clamav:1.4
-    environment:
-      CLAMD_CONF_LocalSocket: /run/clamav/clamd.sock
-      CLAMD_CONF_FixStaleSocket: "yes"
-      CLAMD_CONF_LogFile: /dev/stdout
-      CLAMD_CONF_LogTime: "yes"
-      CLAMD_STARTUP_TIMEOUT: 120
-      FRESHCLAM_CONF_LogFile: /dev/stdout
-      FRESHCLAM_CONF_LogTime: "yes"
-    ports: ["3310:3310"]
-    volumes:
-      - clamavdb:/var/lib/clamav
-  otel:
-    <<: *common-env
-    image: otel/opentelemetry-collector-contrib:0.93.0
-    command: ["--config=/etc/otel-config.yaml"]
-    volumes:
-      - ./otel/otel-config.yaml:/etc/otel-config.yaml:ro
-    ports: ["4317:4317", "8888:8888"]
-  loki:
-    <<: *common-env
-    image: grafana/loki:2.9.8
-    command: -config.file=/etc/loki/local-config.yaml
-    ports: ["3100:3100"]
-  prom:
-    <<: *common-env
-    image: prom/prometheus:latest
-    volumes:
-      - ./prometheus/prom.yml:/etc/prometheus/prometheus.yml:ro
-    ports: ["9090:9090"]
-  grafana:
-    <<: *common-env
-    image: grafana/grafana:10.4.3
-    ports: ["3000:3000"]
-    depends_on: [prom, loki]
   frontend:
     <<: *common-env
     build:
@@ -132,16 +85,12 @@ services:
       dockerfile: gateway/Dockerfile
     environment:
       DB_URL: ${DB_URL}
-      REDIS_URL: ${REDIS_URL}
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       JWT_SECRET: ${JWT_SECRET}
       IDENTITY_HOST: ${IDENTITY_HOST}
       IDENTITY_PORT: ${IDENTITY_PORT}
       PSP_PROVIDER: ${PSP_PROVIDER}
       PSP_SECRET: ${PSP_SECRET}
-    depends_on: [postgres, redis, minio, identity, jobs, payments]
+    depends_on: [postgres, identity, jobs, payments]
     ports: ["8080:8080"]
   identity:
     <<: *common-env
@@ -159,12 +108,7 @@ services:
       dockerfile: services/jobs/Dockerfile
     environment:
       DB_URL: ${DB_URL}
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-      CLAMAV_HOST: ${CLAMAV_HOST}
-      CLAMAV_PORT: ${CLAMAV_PORT}
-    depends_on: [postgres, minio, clamav]
+    depends_on: [postgres]
     ports: ["9002:9002"]  # WebSocket chat
   payments:
     <<: *common-env
@@ -178,5 +122,3 @@ services:
     depends_on: [postgres]
 volumes:
   pgdata: {}
-  miniodata: {}
-  clamavdb: {}

@@ -21,7 +21,31 @@ fi
 
 cd "$SCRIPT_DIR"
 umask 077
+cat > dev.cnf <<'EOF'
+[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+C = AU
+ST = VIC
+L = Melbourne
+O = Convey
+OU = Dev
+CN = localhost
+
+[v3_req]
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = localhost
+DNS.2 = admin.localhost
+DNS.3 = api.localhost
+EOF
+
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -keyout dev.key -out dev.crt \
-  -subj "/C=AU/ST=VIC/L=Melbourne/O=Convey/OU=Dev/CN=localhost"
+  -config dev.cnf -extensions v3_req
+rm -f dev.cnf
 echo "Generated dev certs in infra/tls"

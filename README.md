@@ -1,8 +1,8 @@
 # Conveyancers Marketplace (AU)
 
-> A production-ready starter kit for launching an Australian conveyancing marketplace with escrow-style milestone payments, licence-aware workflows, secure document exchange, and rich observability baked in.
+> A simulation-focused starter kit for exploring conveyancing workflows with seeded data, SQLite persistence, and optional C++ microservice mocks.
 
-This repository brings together a full-stack reference implementation spanning a Next.js 14 frontend, a modern C++ services backend, and a Docker Compose infrastructure layer that mirrors an enterprise-ready topology. It is intended to give founders and platform teams a compliant baseline that they can extend with vendor integrations (PSP, KYC, e-signature, etc.) and bespoke product features.
+This repository now reflects the code that actually ships in the main applications: two Next.js 14 projects (public marketplace + admin portal) that share a SQLite database and deliver the documented user journeys through API routes. The C++ services that were part of the original brief remain in the tree as standalone HTTP demos, but the production UI relies on the Node.js stack instead of delegating to those processes. Docker Compose is provided to wire Nginx, the Next.js apps, and the demo services together for local exploration.
 
 ## Who is this starter for?
 
@@ -10,18 +10,19 @@ This repository brings together a full-stack reference implementation spanning a
 - **Innovation teams** inside established firms that want to prototype new customer journeys without rebuilding commodity capabilities.
 - **Delivery partners** or consultants who need a demo-ready environment to validate integrations and workflows before implementing them inside a client’s tenancy.
 
-If you are evaluating whether this starter is a fit, scan the [feature report](docs/feature-report.md) for an end-to-end capability checklist and the [system requirements](docs/System%20Requirements%20for%20Australian%20Conveyancer%20Marketplace.pdf) for infrastructure sizing guidance.
+If you are evaluating whether this starter is a fit, scan the [feature report](docs/feature-report.md) for an end-to-end capability checklist rooted in the implemented code and the [system requirements](docs/System%20Requirements%20for%20Australian%20Conveyancer%20Marketplace.pdf) for the original aspirational brief.
 
 ## Tech stack at a glance
 
-| Layer | Primary tooling | Notable extras |
-|-------|-----------------|----------------|
-| Web experience | Next.js 14, TypeScript, Tailwind CSS | DaisyUI theme packs, real-time chat via WebSockets |
-| Operations UI | Next.js (separate admin portal) | Feature flags, operational log viewer, seeded admin account |
-| Services | C++20, gRPC, Protobuf | Shared validation middleware, adapter interfaces for PSP/KYC vendors |
-| Data & messaging | PostgreSQL, Redis, MinIO, ClamAV | Database migrations under `backend/sql`, document AV scanning, signed URLs |
-| Observability | OpenTelemetry Collector, Prometheus, Grafana, Loki | Prebuilt dashboards and alert exemplars |
-| Tooling | Docker Compose, CMake, npm workspaces | `tooling/load-env.js` helper for sourcing `.env` files |
+| Layer | Primary tooling | Notes |
+|-------|-----------------|-------|
+| Web experience | Next.js 14 (public marketplace) | Pages router + API routes backed by SQLite and shared session helpers. |
+| Operations UI | Next.js 14 (admin portal) | Shares libraries with the public app for authentication, auditing, and notifications. |
+| Data persistence | SQLite via `better-sqlite3` | Stored in `data/app.db` (or `PLATFORM_DATA_DIR`), seeded on demand for demos. |
+| Backend demos | C++20 + `cpp-httplib` | Mock identity/jobs/payments services exposed over HTTP at `https://api.localhost`. |
+| Infrastructure | Docker Compose, Nginx | TLS termination for `localhost`, `admin.localhost`, and `api.localhost`; reverse proxies to the apps. |
+| Observability | Structured logging helpers | Request correlation IDs + metrics endpoints provided by app middleware. |
+| Tooling | Docker Compose, CMake, npm workspaces | `tooling/load-env.js` helper for sourcing `.env` files. |
 
 The architecture is intentionally modular: the admin portal and the public marketplace can be deployed independently, and the gRPC layer cleanly separates domain logic so additional surfaces (e.g. partner APIs or mobile applications) can be added without reworking core services.
 
@@ -58,41 +59,49 @@ The architecture is intentionally modular: the admin portal and the public marke
 - Admin console with feature toggles and operational tooling.
 - ConveySafe policy banners that detect off-platform contact attempts to preserve the evidentiary trail.
 
-### Backend (Modern C++)
-- **Gateway service** that exposes a REST façade for the frontend and delegates to gRPC services.
-- **Identity service** for authentication, profile management, KYC webhook handling, and ConveySafe licence/insurance verification with digital badges.
-- **Jobs service** for job listings, milestone tracking, chat, document exchange (via signed URLs + AV scans), and dispute resolution.
-- **Payments service** that orchestrates escrow holds, releases, refunds, third-party PSP webhooks with idempotency safeguards, and ConveySafe loyalty pricing for trusted conveyancers.
-- Shared protobuf contracts, request validation, and centralised logging/audit middleware.
+### Backend (C++ demos)
+- **Gateway service** that exposes a simple REST façade and forwards to in-memory demo services.
+- **Identity/Jobs/Payments services** implement seeded data and business rules for exploration but persist everything in process memory.
+- Shared security helpers provide request IDs, role enforcement, and metrics endpoints for each service.【F:backend/common/security.h†L300-L356】
 
 ### Infrastructure (Docker Compose)
-- Postgres, Redis, MinIO (S3-compatible object storage), ClamAV, Nginx reverse proxy with TLS termination.
-- Observability stack: OpenTelemetry Collector, Prometheus, Loki, Grafana (pre-configured dashboards).
-- Makefile helpers and shell scripts for bootstrapping certificates and migrations.
+- PostgreSQL and SQLite storage for the Next.js apps, plus an Nginx reverse proxy with TLS termination.
+- Optional C++ demo services reachable at `https://api.localhost` when the compose stack is running.【F:infra/docker-compose.yml†L119-L186】
+- TLS helper script for regenerating certificates with SANs covering `localhost`, `admin.localhost`, and `api.localhost`.【F:infra/tls/dev_certs.sh†L1-L36】
 
 ---
 
 ## Architecture overview
 
 ```text
-┌────────────┐      ┌─────────┐      ┌────────────┐
-│  Frontend  │◀────▶│ Gateway │◀────▶│  Services  │
-│ (Next.js)  │ HTTPS│  (C++)  │ gRPC │ Identity   │
-└────────────┘      └─────────┘      │ Jobs       │
-       ▲                ▲            │ Payments   │
-       │                │            └────────────┘
-       │                │                   ▲
-       │                │                   │
-       │           ┌────┴────┐    ┌─────────┴─────────┐
-       │           │  Nginx  │    │  Postgres / Redis │
-       │           └────┬────┘    └─────────┬─────────┘
-       │                │                  ...
-       ▼                ▼
-   Browsers         Observability
-                    (Prometheus, Grafana, Loki, OTel)
+                  ┌─────────────────────┐
+                  │      Browsers       │
+                  └──────────┬──────────┘
+                             │ HTTPS
+                     ┌───────▼───────┐
+                     │   Nginx TLS   │
+                     └───────┬───────┘
+               ┌─────────────┴─────────────┐
+               │                           │
+   ┌───────────▼──────────┐     ┌──────────▼──────────┐
+   │ Next.js marketplace │     │ Next.js admin portal│
+   │  (frontend service) │     │  (operations UI)    │
+   └───────────┬──────────┘     └──────────┬──────────┘
+               │                           │
+               └────────────┬──────────────┘
+                            │
+                   ┌────────▼────────┐
+                   │   SQLite data   │
+                   │  (`data/app.db`)│
+                   └────────┬────────┘
+                            │
+         ┌──────────────────▼───────────────────┐
+         │ Optional C++ demo services (HTTP)    │
+         │ identity/jobs/payments at api.localhost │
+         └──────────────────────────────────────┘
 ```
 
-Each service communicates through well-defined gRPC APIs while the gateway offers a developer-friendly REST/JSON surface. Domain events (e.g. milestone funded) are captured and emitted for downstream analytics or automation hooks.
+The UIs call their own Next.js API routes backed by SQLite. The C++ services can be explored independently (for example through `https://api.localhost`) but are not wired into the production flows without additional integration work.
 
 ---
 
@@ -133,25 +142,28 @@ The quickest way to experience the stack locally is via Docker Compose.
 # 1. Create the shared environment file used by every component
 cp .env.example .env
 
-# 2. Generate self-signed TLS certificates for the local nginx proxy
+# 2. Map the TLS-enabled hostnames to 127.0.0.1 (macOS/Linux example)
+printf "127.0.0.1 localhost admin.localhost api.localhost\n" | sudo tee -a /etc/hosts
+
+# 3. Generate self-signed TLS certificates for the local nginx proxy
 bash infra/tls/dev_certs.sh
 
-# 3. Build and start the full stack (frontend, backend, and infra)
+# 4. Build and start the stack (Next.js apps + optional C++ demos)
 docker compose --env-file .env -f infra/docker-compose.yml up -d --build
 
-# 4. (Optional) Install dependencies if you plan to run the Next.js dev server locally
+# 5. (Optional) Install dependencies if you plan to run a Next.js dev server locally
 (cd frontend && npm install)
 
-# 5. Sign in with the seeded administrator account using ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD
-#    (passwords shorter than 12 characters will be accepted for local use but will log a warning)
+# 6. Sign in with the seeded administrator account using ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD
+#    (passwords shorter than 12 characters are accepted for local use but log a warning)
 
-# 6. Access the stack
-# Frontend: https://localhost
-# Admin portal: http://localhost:5300
-# Grafana:  https://localhost/grafana (admin / admin)
+# 7. Access the stack
+# Public marketplace: https://localhost
+# Admin portal:       https://admin.localhost
+# Demo gateway:       https://api.localhost (C++ mocks; not used by the Next.js apps)
 ```
 
-> **Tip:** The compose file exposes the Postgres and MinIO ports so you can connect with preferred desktop tooling during development.
+> **Tip:** Only PostgreSQL is provisioned by default; Redis, MinIO, ClamAV, and the observability stack from the original brief were removed because the running code does not reference them.
 
 To stop everything cleanly:
 
@@ -180,9 +192,9 @@ All example files are safe defaults. Replace placeholders before deploying to a 
 ```bash
 cd frontend
 npm install
-npm run dev           # Dev server with hot reload
-npm run lint          # ESLint + TypeScript checks
-npm run test          # Vitest component/API tests
+npm run dev    # Dev server with hot reload (port 5173)
+npm run build  # Production build used by Docker
+npm run start  # Serve the built app on port 3000
 ```
 
 ### Admin portal (Next.js)
@@ -190,15 +202,14 @@ npm run test          # Vitest component/API tests
 ```bash
 cd admin-portal
 npm install
-npm run dev           # Runs the dashboard on http://localhost:5300
+npm run dev    # Dev server with hot reload (port 5300)
+npm run build
+npm run start  # Serve the built app on port 4300
 ```
 
 > The first administrator account is provisioned from `ADMIN_SEED_EMAIL` and `ADMIN_SEED_PASSWORD{,_HASH}` in your environment. Set the same `JWT_SECRET` for both the public site and the admin portal so that sessions are shared.
 
-Backend services emit structured JSON log lines to the repository-level `logs/` directory (override with the `LOG_DIRECTORY`
-environment variable). The “System logs” view inside the admin portal surfaces the most recent entries per service so operators
-can review workflow interactions without shell access. A consolidated `logs/errors.log` file now collects every error-level
-event across services to simplify post-incident reviews.
+Backend API routes emit structured JSON log lines to the repository-level `logs/` directory (override with `LOG_DIRECTORY`). The “System logs” view inside the admin portal surfaces the most recent entries so operators can review workflow interactions without shell access.【F:frontend/lib/observability.ts†L1-L60】【F:admin-portal/pages/system-logs.tsx†L1-L196】
 
 ### Backend (C++ services)
 
@@ -213,50 +224,41 @@ Run individual services locally by supplying the generated `.env` files or expor
 
 ### Infrastructure utilities
 
-- `infra/tls/dev_certs.sh` – regenerate local certificates.
-- `infra/docker-compose.yml` – runnable profile for local development.
-- `infra/migrate.sh` – helper for running database migrations inside the compose stack.
+- `infra/tls/dev_certs.sh` – regenerate local certificates for the nginx proxy.
+- `infra/docker-compose.yml` – runnable profile for the Next.js apps and demo services.
+- `tooling/load-env.js` – inspect the merged `.env` configuration that each runtime consumes.
 
 ### Local development tips
 
-- **Partial stack boot** – Use service profiles inside `infra/docker-compose.yml` (`gateway`, `identity`, `jobs`, `payments`) to start only what you are actively working on. Pair with `npm run dev` in the relevant frontend for faster feedback.
-- **Environment hydration** – Run `node tooling/load-env.js` to echo the merged environment values that will be injected into services. This mirrors how the compose stack loads shared secrets during container start.
-- **Database migrations** – After changing SQL files under `backend/sql`, rebuild the `backend-migrator` image (`docker compose build backend-migrator`) to ensure the container picks up the latest scripts before running `infra/migrate.sh`.
-- **Iterating on contracts** – Update shared DTOs and gRPC interfaces inside the relevant `backend/services/*` directories, then run `cmake --build build` to regenerate any generated code and keep the gateway aligned with the services.
+- **Resetting the demo data** – Delete `data/app.db` (or the path referenced by `PLATFORM_DATA_DIR`) to reseed the SQLite database on the next request.【F:frontend/lib/db.ts†L1-L118】
+- **Inspecting logs** – API routes append structured entries to `logs/api-observability.log`. Configure `LOG_DIRECTORY` in `.env` to write elsewhere.【F:frontend/lib/observability.ts†L1-L61】
+- **Verifying notifications** – Provide working SMTP/Twilio credentials; otherwise helpers warn and skip delivery to avoid test spam.【F:frontend/lib/notifications.ts†L15-L66】
 
 ---
 
 ## Testing strategy
 
-| Layer | Tools | Notes |
-|-------|-------|-------|
-| Frontend | Vitest, Playwright (optional) | UI components, hooks, API client smoke tests. |
-| Backend | GoogleTest, gRPC contract tests | Service unit tests, integration suites via dockerised dependencies. |
-| End-to-end | Postman collection / k6 scripts | Exercise job lifecycle, escrow flows, and document uploads. |
-
-CI pipelines should run linting, unit tests, and container builds. Load and security testing are recommended before production launches.
+Automated test suites have not been implemented yet for the Next.js applications or the C++ demo services. Add regression coverage before extending the stack into production (for example with Vitest/Jest for API routes and GoogleTest for the C++ binaries), and wire those checks into CI alongside linting and container builds.
 
 ---
 
 ## Compliance & data residency
 
-The Australian conveyancing context requires careful handling of trust money, licence coverage, and document retention. This starter includes:
+The repository focuses on demonstrable guardrails rather than fully-automated regulator integrations:
 
-- Guardrails for state-based licence requirements (e.g. only solicitors in QLD/ACT).
-- Hooks for PSP escrow so the platform never directly holds trust money.
-- Audit logging and immutable trails for regulatory reviews.
-- References to NSW PI insurance obligations and ARNECC rules—see [`docs/compliance.md`](docs/compliance.md).
+- Conveyancers registered in QLD or ACT remain hidden unless they are verified or the viewer has elevated privileges, keeping jurisdictional restrictions visible in the demo flows.【F:frontend/pages/api/profiles/[id].ts†L7-L148】
+- Admin actions invoke a shared audit helper that records the actor, entity, and metadata inside the SQLite database for traceability.【F:frontend/lib/audit.ts†L1-L13】
+- All persisted data lives inside the SQLite file controlled by `PLATFORM_DATA_DIR`, so relocate the database to compliant storage before handling production records.【F:frontend/lib/db.ts†L1-L118】
 
-Always engage local counsel before production launches and configure region-aware storage for customer documents.
+Refer to [`docs/compliance.md`](docs/compliance.md) for the broader regulatory commentary that accompanied the original brief.
 
 ---
 
 ## Operations & observability
 
-- **Metrics** via Prometheus with pre-made Grafana dashboards.
-- **Logs** aggregated through Loki and accessible in Grafana’s Explore view.
-- **Tracing** supported end-to-end via OpenTelemetry exporters embedded in each service.
-- **Health checks** exposed on `/healthz` for REST and gRPC services to integrate with orchestrators.
+- **Application logs** – Every API route uses `withObservability`, producing structured entries with correlation IDs inside `logs/api-observability.log`. Point `LOG_DIRECTORY` elsewhere for shared environments.【F:frontend/lib/observability.ts†L1-L60】
+- **Demo service health checks** – The C++ gateway and services expose `/healthz` for liveness along with `/metrics` guarded by role checks for ad-hoc Prometheus scraping.【F:backend/gateway/src/main.cpp†L44-L55】【F:backend/common/security.h†L318-L356】
+- **Admin portal views** – The dashboard surfaces recent log lines so operators can triage issues without shell access.【F:admin-portal/pages/system-logs.tsx†L1-L196】
 
 See [`docs/DEPLOY.md`](docs/DEPLOY.md) for production hardening guidance (autoscaling, secret management, WAF, SSO, backups).
 
@@ -267,23 +269,23 @@ See [`docs/DEPLOY.md`](docs/DEPLOY.md) for production hardening guidance (autosc
 **Services fail to start in Docker Compose**  
 Check for port collisions (`lsof -i :443`) and confirm your `.env` file has been created from `.env.example`. Compose will log missing variables during startup—run `docker compose --env-file .env -f infra/docker-compose.yml logs -f gateway` to tail service output in real time.
 
-**Certificates appear invalid in the browser**  
-Regenerate them with `bash infra/tls/dev_certs.sh` and import `infra/tls/rootCA.pem` into your system keychain. Browsers such as Chrome may require a full restart before trusting the new CA.
+**Certificates appear invalid in the browser**
+Regenerate them with `bash infra/tls/dev_certs.sh` and trust `infra/tls/dev.crt` (the SAN covers `localhost`, `admin.localhost`, and `api.localhost`). Some browsers require a restart after importing the certificate.
 
 **Backend changes are not reflected**  
 If you rebuilt locally without pruning old artifacts, clear the `build/` directory under `backend` or run `cmake --build build --target clean` before compiling again. When running inside Docker, add `--build` to your compose invocation to ensure the service image is refreshed.
 
-**Where do I find aggregated errors?**  
-Tail `logs/errors.log` for the cross-service error stream and use the admin portal’s “System logs” panel for a UI-first view when you do not have shell access.
+**Where do I find aggregated errors?**
+Tail `logs/api-observability.log` or point `LOG_DIRECTORY` at a shared location. The admin portal’s “System logs” panel shows the latest entries without shell access.【F:frontend/lib/observability.ts†L1-L60】【F:admin-portal/pages/system-logs.tsx†L1-L196】
 
 ---
 
 ## Extending the platform
 
-1. **Integrate vendors:** Implement the adapter interfaces in `backend/services/*/adapters` for your chosen PSP, KYC provider, and e-signature vendor.
-2. **Custom business rules:** Extend domain models and protobuf definitions, regenerate stubs, and update the gateway mapping layer.
-3. **Workflow automation:** Use the event bus hooks to push updates into CRMs, analytics platforms, or case management tools.
-4. **Mobile & partner APIs:** Expose select gRPC methods through the gateway or stand up a dedicated partner API surface with OAuth scopes.
+1. **Swap in real integrations** – Replace the seeded workflows in the Next.js API routes (for example `admin-portal/pages/api/users.ts`) with calls to your production services or vendor SDKs.【F:admin-portal/pages/api/users.ts†L1-L120】
+2. **Evolve the data model** – Extend the SQLite schema inside `frontend/lib/db.ts` or migrate to an external database before onboarding real customers.【F:frontend/lib/db.ts†L61-L158】
+3. **Optional service tier** – The C++ demos under `backend/services/*` expose HTTP endpoints that you can either harden or replace with your preferred language stack.【F:backend/services/jobs/main.cpp†L2037-L2058】
+4. **Automate validation** – Add unit and integration tests so regressions are caught automatically when expanding the platform.
 
 ---
 
