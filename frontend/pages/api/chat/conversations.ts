@@ -3,6 +3,10 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import db from '../../../lib/db'
 import { requireAuth } from '../../../lib/session'
 import { ensureParticipant, getOrCreateConversation } from '../../../lib/conversations'
+import {
+  isConversationPerspective,
+  upsertConversationPerspective,
+} from '../../../lib/conversationPerspectives'
 
 const isAllowedPairing = (actorRole: string, partnerRole: string): boolean => {
   if (actorRole === 'admin') {
@@ -29,7 +33,7 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
     return
   }
 
-  const { partnerId } = req.body as { partnerId?: number }
+  const { partnerId, perspective } = req.body as { partnerId?: number; perspective?: string }
   if (!partnerId || Number.isNaN(Number(partnerId))) {
     res.status(400).json({ error: 'invalid_partner' })
     return
@@ -53,6 +57,18 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
   if (!ensureParticipant(conversation.id, user.id)) {
     res.status(403).json({ error: 'forbidden' })
     return
+  }
+
+  if (
+    perspective &&
+    isConversationPerspective(perspective) &&
+    (user.role === 'buyer' || user.role === 'seller' || user.role === 'admin')
+  ) {
+    try {
+      upsertConversationPerspective(conversation.id, user.id, perspective)
+    } catch (error) {
+      console.error('Failed to persist conversation perspective', error)
+    }
   }
 
   res.status(201).json({ conversationId: conversation.id })

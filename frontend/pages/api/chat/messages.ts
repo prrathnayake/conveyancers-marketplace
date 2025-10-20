@@ -3,6 +3,7 @@ import db from '../../../lib/db'
 import { requireAuth } from '../../../lib/session'
 import { encryptText, decryptText } from '../../../lib/secure'
 import { ensureParticipant, getOrCreateConversation } from '../../../lib/conversations'
+import { listConversationPerspectives } from '../../../lib/conversationPerspectives'
 import { emailPattern, phonePattern, offPlatformKeywords } from '../../../lib/policySignals'
 import { assessSensitiveContent, SENSITIVE_RISK_THRESHOLD } from '../../../lib/ml/sensitive'
 
@@ -165,7 +166,21 @@ const handler = (req: NextApiRequest, res: NextApiResponse): void => {
       cancelledAt: invoice.cancelled_at,
     }))
 
-    res.status(200).json({ conversationId: conversation.id, messages, hasMore, nextCursor, invoices })
+    const perspectiveRecords = listConversationPerspectives(conversation.id)
+    const viewerPerspective = perspectiveRecords.find((record) => record.userId === user.id) ?? null
+    const partnerPerspective = perspectiveRecords.find((record) => record.userId === Number(partnerId)) ?? null
+
+    res.status(200).json({
+      conversationId: conversation.id,
+      messages,
+      hasMore,
+      nextCursor,
+      invoices,
+      perspectives: {
+        viewer: viewerPerspective,
+        partner: partnerPerspective,
+      },
+    })
     return
   }
 

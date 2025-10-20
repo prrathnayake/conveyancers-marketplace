@@ -5,6 +5,7 @@ import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useSta
 import type { SessionUser } from '../lib/session'
 import { getSessionFromRequest } from '../lib/session'
 import { SENSITIVE_RISK_THRESHOLD } from '../lib/ml/sensitive'
+import { usePerspective, type ClientPerspective } from '../context/PerspectiveContext'
 
 interface ChatProps {
   user: SessionUser
@@ -53,16 +54,28 @@ type CallSession = {
   createdAt: string
 }
 
+type ConversationPerspectiveRecord = {
+  conversationId: number
+  userId: number
+  perspective: ClientPerspective
+  updatedAt: string
+}
+
 type MessageResponse = {
   conversationId: number
   messages: Message[]
   hasMore: boolean
   nextCursor: number | null
   invoices: Invoice[]
+  perspectives?: {
+    viewer: ConversationPerspectiveRecord | null
+    partner: ConversationPerspectiveRecord | null
+  }
 }
 
 const ChatPage = ({ user }: ChatProps): JSX.Element => {
   const router = useRouter()
+  const { perspective: globalPerspective, setPerspective: setGlobalPerspective } = usePerspective()
   const [partners, setPartners] = useState<Partner[]>([])
   const [selected, setSelected] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -89,8 +102,13 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
   const [invoiceActionError, setInvoiceActionError] = useState<{ id: number; message: string } | null>(null)
   const [callStatus, setCallStatus] = useState<'idle' | 'creating'>('idle')
   const [callError, setCallError] = useState<string | null>(null)
+  const [viewerPerspective, setViewerPerspective] = useState<ClientPerspective | null>(null)
+  const [partnerPerspective, setPartnerPerspective] = useState<ConversationPerspectiveRecord | null>(null)
+  const [perspectiveStatus, setPerspectiveStatus] = useState<'idle' | 'updating'>('idle')
+  const [perspectiveError, setPerspectiveError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const threadRef = useRef<HTMLDivElement | null>(null)
+  const autoPerspectiveAppliedRef = useRef<Record<number, boolean>>({})
 
   const fetchPartners = useCallback(async (): Promise<Partner[]> => {
     const response = await fetch('/api/chat/partners')
@@ -144,6 +162,7 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
       if (!selected) {
         return null
       }
+      const currentPartnerId = selected
       if (!silent) {
         setIsLoading(true)
       }
@@ -158,6 +177,19 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
         setInvoices(payload.invoices ?? [])
         setHasMore(payload.hasMore)
         setCursor(payload.nextCursor ?? null)
+        if (payload.perspectives) {
+          const viewerRecord = payload.perspectives.viewer ?? null
+          const partnerRecord = payload.perspectives.partner ?? null
+          setViewerPerspective(viewerRecord?.perspective ?? null)
+          if (viewerRecord?.perspective) {
+            setGlobalPerspective(viewerRecord.perspective)
+            autoPerspectiveAppliedRef.current[currentPartnerId] = true
+          }
+          setPartnerPerspective(partnerRecord)
+        } else {
+          setPartnerPerspective(null)
+        }
+        setPerspectiveError(null)
         if (!silent) {
           setIsLoading(false)
         }
@@ -178,7 +210,7 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
         return null
       }
     },
-    [scrollToBottom, selected]
+    [scrollToBottom, selected, setGlobalPerspective]
   )
 
   useEffect(() => {
@@ -194,12 +226,86 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
       setPendingInvoiceId(null)
       setCallSessions([])
       setCallError(null)
+      setViewerPerspective(null)
+      setPartnerPerspective(null)
+      setPerspectiveError(null)
+      setPerspectiveStatus('idle')
       return
     }
     const controller = new AbortController()
     void loadConversation({ signal: controller.signal })
     return () => controller.abort()
   }, [loadConversation, selected])
+
+  const handlePerspectiveSwitch = useCallback(
+    async (next: ClientPerspective) => {
+      if (!selected) {
+        return
+      }
+      if (viewerPerspective === next) {
+        setGlobalPerspective(next)
+        setPerspectiveError(null)
+        autoPerspectiveAppliedRef.current[selected] = true
+        return
+      }
+      if (perspectiveStatus === 'updating') {
+        return
+      }
+      setPerspectiveStatus('updating')
+      setPerspectiveError(null)
+      autoPerspectiveAppliedRef.current[selected] = true
+      try {
+        const response = await fetch('/api/chat/perspective', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ partnerId: selected, perspective: next }),
+        })
+        const payload = (await response.json().catch(() => null)) as
+          | {
+              viewer?: ConversationPerspectiveRecord | null
+              partner?: ConversationPerspectiveRecord | null
+              error?: string
+            }
+          | null
+        if (!response.ok) {
+          throw new Error(payload?.error ?? 'Unable to update perspective')
+        }
+        if (payload?.viewer?.perspective) {
+          setViewerPerspective(payload.viewer.perspective)
+          setGlobalPerspective(payload.viewer.perspective)
+        } else {
+          setViewerPerspective(null)
+        }
+        setPartnerPerspective(payload?.partner ?? null)
+      } catch (error) {
+        console.error(error)
+        setPerspectiveError(error instanceof Error ? error.message : 'Unable to update perspective')
+        autoPerspectiveAppliedRef.current[selected] = false
+      } finally {
+        setPerspectiveStatus('idle')
+      }
+    },
+    [perspectiveStatus, selected, setGlobalPerspective, viewerPerspective]
+  )
+
+  useEffect(() => {
+    if (!selected) {
+      return
+    }
+    if (viewerPerspective) {
+      return
+    }
+    if (user.role !== 'buyer' && user.role !== 'seller' && user.role !== 'admin') {
+      return
+    }
+    if (perspectiveStatus === 'updating') {
+      return
+    }
+    if (autoPerspectiveAppliedRef.current[selected]) {
+      return
+    }
+    void handlePerspectiveSwitch(globalPerspective)
+  }, [globalPerspective, handlePerspectiveSwitch, perspectiveStatus, selected, user.role, viewerPerspective])
 
   const loadCallSessions = useCallback(
     async ({ signal }: { signal?: AbortSignal } = {}) => {
@@ -309,6 +415,14 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
         throw new Error('failed_to_load_more')
       }
       const payload = (await response.json()) as MessageResponse
+      if (payload.perspectives) {
+        const viewerRecord = payload.perspectives.viewer ?? null
+        if (viewerRecord?.perspective) {
+          setViewerPerspective(viewerRecord.perspective)
+          setGlobalPerspective(viewerRecord.perspective)
+        }
+        setPartnerPerspective(payload.perspectives.partner ?? partnerPerspective)
+      }
       setMessages((prev) => [...payload.messages, ...prev])
       setInvoices(payload.invoices ?? [])
       setHasMore(payload.hasMore)
@@ -357,6 +471,9 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
   }
 
   const partner = partners.find((item) => item.id === selected) ?? null
+  const perspectiveOptions: ClientPerspective[] = ['buyer', 'seller']
+  const activePerspective = viewerPerspective ?? globalPerspective
+  const isPerspectiveUpdating = perspectiveStatus === 'updating'
 
   const threadItems = useMemo(() => {
     const mappedMessages = messages.map((message) => ({
@@ -550,6 +667,53 @@ const ChatPage = ({ user }: ChatProps): JSX.Element => {
                     ) : null}
                   </div>
                 </header>
+                {user.role === 'buyer' || user.role === 'seller' || user.role === 'admin' ? (
+                  <div className="chat-perspective" role="group" aria-label="Conversation perspective controls">
+                    <div className="chat-perspective__controls">
+                      <span className="chat-perspective__label">You are chatting as</span>
+                      <div className="chat-perspective__buttons">
+                        {perspectiveOptions.map((option) => (
+                          <button
+                            key={option}
+                          type="button"
+                          className={`chat-perspective__button${
+                            option === activePerspective ? ' chat-perspective__button--active' : ''
+                          }`}
+                          aria-pressed={option === activePerspective}
+                          onClick={() => void handlePerspectiveSwitch(option)}
+                          disabled={isPerspectiveUpdating}
+                        >
+                          {option === 'buyer' ? 'Buyer' : 'Seller'}
+                        </button>
+                      ))}
+                    </div>
+                      {isPerspectiveUpdating ? (
+                        <span className="chat-perspective__status" role="status">
+                          Updating…
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="chat-perspective__meta">
+                      <p className="chat-perspective__note">
+                        {viewerPerspective
+                          ? `You’ve shared that you’re engaging as a ${viewerPerspective}.`
+                          : 'Choose a perspective so the conveyancer knows whether you’re buying or selling.'}
+                      </p>
+                      <p className="chat-perspective__note">
+                        {partnerPerspective
+                          ? `${partner.fullName} has shared they are supporting a ${partnerPerspective.perspective} client (updated ${formatDateTime(
+                              partnerPerspective.updatedAt,
+                            )}).`
+                          : `${partner.fullName} hasn’t shared their perspective yet.`}
+                      </p>
+                      {perspectiveError ? (
+                        <p className="chat-perspective__error" role="alert">
+                          {perspectiveError}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
                 <section className="chat-call-panel" aria-label="Voice and video calls">
                   <div className="chat-call-panel__actions">
                     <button

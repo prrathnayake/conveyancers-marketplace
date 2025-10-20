@@ -1015,6 +1015,85 @@ button:focus-visible {
   border-bottom: 1px solid var(--border);
 }
 
+.chat-perspective {
+  margin: 1rem 1.75rem 0;
+  padding: 1rem 1.25rem;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: rgba(59, 130, 246, 0.08);
+  display: grid;
+  gap: 0.75rem;
+}
+
+.chat-perspective__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.chat-perspective__label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chat-perspective__buttons {
+  display: inline-flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.chat-perspective__button {
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: #ffffff;
+  color: var(--text-primary);
+  font-weight: 600;
+  padding: 0.4rem 1.1rem;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.chat-perspective__button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.18);
+}
+
+.chat-perspective__button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.chat-perspective__button--active {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 16px 32px rgba(37, 99, 235, 0.25);
+}
+
+.chat-perspective__status {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.chat-perspective__meta {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.chat-perspective__note {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.chat-perspective__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
 .chat-policy-banner {
   margin: 0 1.75rem;
   margin-top: 1rem;
