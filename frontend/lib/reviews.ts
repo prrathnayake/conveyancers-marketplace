@@ -32,7 +32,7 @@ export const listConveyancerReviews = (
     `SELECT id, reviewer_name, rating, comment, created_at
        FROM conveyancer_reviews
       WHERE conveyancer_id = ?
-   ORDER BY datetime(created_at) DESC`
+   ORDER BY created_at DESC`
   const stmt = limit
     ? db.prepare(`${baseQuery} LIMIT ?`).all(conveyancerId, limit)
     : db.prepare(baseQuery).all(conveyancerId)
@@ -44,7 +44,7 @@ export const listProductReviews = (options: { limit?: number } = {}): StoredRevi
   const baseQuery =
     `SELECT id, reviewer_name, rating, comment, created_at
        FROM product_reviews
-   ORDER BY datetime(created_at) DESC`
+   ORDER BY created_at DESC`
   const stmt = limit ? db.prepare(`${baseQuery} LIMIT ?`).all(limit) : db.prepare(baseQuery).all()
   return (stmt as any[]).map(mapRow)
 }
@@ -90,7 +90,7 @@ export const findLatestReviewableJob = (
          FROM customer_jobs
         WHERE customer_id = ? AND conveyancer_id = ?
           AND status IN ('completed','canceled')
-     ORDER BY datetime(COALESCE(completed_at, updated_at)) DESC
+     ORDER BY COALESCE(completed_at, updated_at) DESC
         LIMIT 1`,
     )
     .get(customerId, conveyancerId) as JobRecord | undefined

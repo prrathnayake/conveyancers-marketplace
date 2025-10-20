@@ -53,10 +53,8 @@ services:
       ADMIN_SEED_EMAIL: ${ADMIN_SEED_EMAIL}
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD}
       ADMIN_SEED_PASSWORD_HASH: ${ADMIN_SEED_PASSWORD_HASH}
-      PLATFORM_DATA_DIR: ${PLATFORM_DATA_DIR}
-    depends_on: [gateway]
-    volumes:
-      - ../data:/workspace/data
+      DB_URL: ${DB_URL}
+    depends_on: [gateway, postgres]
   admin-portal:
     <<: *common-env
     build:
@@ -72,11 +70,10 @@ services:
       ADMIN_SEED_EMAIL: ${ADMIN_SEED_EMAIL}
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD}
       ADMIN_SEED_PASSWORD_HASH: ${ADMIN_SEED_PASSWORD_HASH}
-      PLATFORM_DATA_DIR: ${PLATFORM_DATA_DIR}
-    depends_on: [gateway]
+      DB_URL: ${DB_URL}
+    depends_on: [gateway, postgres]
     ports: ["4300:4300"]
     volumes:
-      - ../data:/workspace/data
       - ../logs:/workspace/logs:ro
   gateway:
     <<: *common-env

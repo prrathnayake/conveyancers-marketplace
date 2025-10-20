@@ -9,11 +9,11 @@
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
-    "better-sqlite3": "^12.4.1",
     "cookie": "^1.0.2",
     "jsonwebtoken": "^9.0.2",
     "next": "14.2.3",
     "nodemailer": "^7.0.9",
+    "pg": "^8.11.3",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "twilio": "^5.10.3",
@@ -21,10 +21,10 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "20.12.7",
     "@types/nodemailer": "^7.0.2",
+    "@types/pg": "^8.10.9",
     "@types/react": "18.2.64",
     "@types/react-dom": "18.2.21",
     "@types/twilio": "^3.19.3"

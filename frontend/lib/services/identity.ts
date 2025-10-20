@@ -252,8 +252,8 @@ export const signup = async (payload: SignupPayload): Promise<SignupResult> => {
 
   if (process.env.NODE_ENV !== 'production') {
     result.debugCodes = {
-      email: emailCode.developmentCode,
-      phone: phoneCode.developmentCode,
+      email: emailCode.developmentCode ?? null,
+      phone: phoneCode.developmentCode ?? null,
     }
   }
 
