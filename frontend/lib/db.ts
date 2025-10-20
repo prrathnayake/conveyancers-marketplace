@@ -250,6 +250,16 @@ const applySchema = (): void => {
       FOREIGN KEY(participant_b) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS conversation_perspectives (
+      conversation_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      perspective TEXT NOT NULL CHECK (perspective IN ('buyer','seller')),
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (conversation_id, user_id),
+      FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       conversation_id INTEGER NOT NULL,

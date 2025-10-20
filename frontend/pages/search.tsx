@@ -5,6 +5,7 @@ import type { FormEvent } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import styles from '../styles/search.module.css'
+import { usePerspective } from '../context/PerspectiveContext'
 
 type ApiProfile = {
   id: string
@@ -65,6 +66,13 @@ const Search = (): JSX.Element => {
   const [error, setError] = useState<string | null>(null)
   const [chatLoadingId, setChatLoadingId] = useState<string | null>(null)
   const [chatError, setChatError] = useState<{ id: string; message: string } | null>(null)
+  const { perspective, setPerspective, availablePerspectives } = usePerspective()
+
+  const perspectiveSummary = useMemo(() => {
+    return perspective === 'buyer'
+      ? 'Preview support focused on purchase due diligence, escrow, and contract reviews.'
+      : 'Preview support tailored to vendor statements, settlement readiness, and marketing disclosures.'
+  }, [perspective])
 
   const fetchProfiles = useCallback(async (params?: { q?: string; state?: string }) => {
     setLoading(true)
@@ -178,7 +186,7 @@ const Search = (): JSX.Element => {
       const response = await fetch('/api/chat/conversations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partnerId: userId }),
+        body: JSON.stringify({ partnerId: userId, perspective }),
       })
       if (response.status === 401) {
         await router.push(`/login?next=${encodeURIComponent(`/chat?partnerId=${userId}`)}`)
@@ -211,6 +219,27 @@ const Search = (): JSX.Element => {
             <p>
               Search by state, speciality, and responsiveness. Every professional listed is licence-checked and escrow-ready.
             </p>
+            <div className={styles.perspectiveToolbar} role="group" aria-label="Select client perspective">
+              <span className={styles.perspectiveLabel}>Viewing as</span>
+              <div className={styles.perspectiveButtons}>
+                {availablePerspectives.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={
+                      option === perspective
+                        ? `${styles.perspectiveButton} ${styles.perspectiveButtonActive}`
+                        : styles.perspectiveButton
+                    }
+                    aria-pressed={option === perspective}
+                    onClick={() => setPerspective(option)}
+                  >
+                    {option === 'buyer' ? 'Buyer' : 'Seller'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className={styles.perspectiveSummary}>{perspectiveSummary}</p>
           </div>
           <div className={styles.insights} role="list" aria-label="Marketplace insights">
             <div role="listitem">

@@ -7,6 +7,7 @@ import { useState } from 'react'
 import type { SessionUser } from '../../lib/session'
 import { getSessionFromRequest } from '../../lib/session'
 import { listConveyancerReviews } from '../../lib/reviews'
+import { usePerspective } from '../../context/PerspectiveContext'
 
 type ConveyancerProfile = {
   id: string
@@ -86,6 +87,7 @@ const formatBadgeStatus = (status: ConveyancerProfile['documentBadges'][number][
 
 const ConveyancerProfilePage = ({ profile, viewer, reviews: initialReviews }: ConveyancerProfilePageProps): JSX.Element => {
   const router = useRouter()
+  const { perspective } = usePerspective()
   const [status, setStatus] = useState<'idle' | 'starting' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
   const [averageRating, setAverageRating] = useState<number>(profile.rating)
@@ -215,7 +217,7 @@ const ConveyancerProfilePage = ({ profile, viewer, reviews: initialReviews }: Co
       const response = await fetch('/api/chat/conversations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partnerId: profile.userId }),
+        body: JSON.stringify({ partnerId: profile.userId, perspective }),
       })
       if (!response.ok) {
         const message =
