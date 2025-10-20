@@ -1,0 +1,10 @@
+cmake_minimum_required(VERSION 3.20)
+
+add_executable(persistence_smoke_test persistence_smoke_test.cpp)
+set_target_properties(persistence_smoke_test PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
+
+target_link_libraries(persistence_smoke_test PRIVATE common_persistence)
+
+target_include_directories(persistence_smoke_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party)
+
+add_test(NAME persistence_smoke_test COMMAND persistence_smoke_test)

@@ -4,9 +4,19 @@ create table if not exists users (
   role text check (role in ('customer','conveyancer','admin')) not null,
   email text unique not null,
   phone text,
+  full_name text,
   state text,
+  suburb text,
   kyc_status text default 'pending',
   created_at timestamptz default now()
+);
+
+create table if not exists auth_credentials (
+  user_id uuid primary key references users(id) on delete cascade,
+  password_hash text not null,
+  password_salt text not null,
+  two_factor_secret text,
+  last_login_at timestamptz
 );
 
 create table if not exists conveyancer_profiles (
@@ -16,10 +26,12 @@ create table if not exists conveyancer_profiles (
   verified boolean default false,
   hourly_rate numeric,
   fixed_fee_options jsonb default '[]'::jsonb,
-  specialties text[],
+  specialties jsonb default '[]'::jsonb,
+  services jsonb default '[]'::jsonb,
   years_experience int,
   insurance_policy text,
-  insurance_expiry date
+  insurance_expiry date,
+  bio text
 );
 
 create table if not exists licences (
