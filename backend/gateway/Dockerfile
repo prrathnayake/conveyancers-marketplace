@@ -1,6 +1,12 @@
 FROM alpine:3.19 as build
 # hadolint ignore=DL3018
-RUN apk add --no-cache build-base cmake ninja openssl-dev
+RUN apk add --no-cache \
+        build-base \
+        cmake \
+        ninja \
+        openssl-dev \
+        libpqxx-dev \
+        postgresql-dev
 WORKDIR /app
 COPY . /app
 RUN rm -rf build \
@@ -10,7 +16,12 @@ RUN rm -rf build \
 FROM alpine:3.19
 WORKDIR /app
 # hadolint ignore=DL3018
-RUN apk add --no-cache libstdc++ libgcc openssl
+RUN apk add --no-cache \
+        libstdc++ \
+        libgcc \
+        openssl \
+        libpqxx \
+        postgresql-libs
 COPY --from=build /app/build/gateway/gateway /usr/local/bin/gateway
 EXPOSE 8080
 CMD ["/usr/local/bin/gateway"]
