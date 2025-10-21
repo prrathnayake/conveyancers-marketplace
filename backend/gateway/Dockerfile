@@ -23,7 +23,7 @@ RUN apt-get update \
         libgcc-s1 \
         libssl3 \
         libpq5 \
-        libpqxx-7.7 \
+        libpqxx-6.4 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/build/gateway/gateway /usr/local/bin/gateway
 EXPOSE 8080
