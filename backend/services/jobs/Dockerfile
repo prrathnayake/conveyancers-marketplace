@@ -24,7 +24,7 @@ RUN apt-get update \
         libgcc-s1 \
         libssl3 \
         libpq5 \
-        libpqxx-7.8t64 \
+        libpqxx-6.4 \
     && rm -rf /var/lib/apt/lists/*
 EXPOSE 9002
 CMD ["/usr/local/bin/jobs"]
