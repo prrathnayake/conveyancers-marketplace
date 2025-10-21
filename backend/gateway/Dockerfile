@@ -1,27 +1,30 @@
-FROM alpine:3.19 as build
-# hadolint ignore=DL3018
-RUN apk add --no-cache \
-        build-base \
+FROM debian:bookworm-slim as build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
         cmake \
-        ninja \
-        openssl-dev \
+        ninja-build \
+        libssl-dev \
+        libpq-dev \
         libpqxx-dev \
-        postgresql-dev
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY . /app
 RUN rm -rf build \
     && cmake -S . -B build \
     && cmake --build build -j --target gateway
 
-FROM alpine:3.19
+FROM debian:bookworm-slim
 WORKDIR /app
-# hadolint ignore=DL3018
-RUN apk add --no-cache \
-        libstdc++ \
-        libgcc \
-        openssl \
-        libpqxx \
-        postgresql-libs
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libstdc++6 \
+        libgcc-s1 \
+        libssl3 \
+        libpq5 \
+        libpqxx-7.8t64 \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/build/gateway/gateway /usr/local/bin/gateway
 EXPOSE 8080
 CMD ["/usr/local/bin/gateway"]
