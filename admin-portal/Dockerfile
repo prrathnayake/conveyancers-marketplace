@@ -19,6 +19,9 @@ COPY --from=deps /workspace/admin-portal/node_modules ./node_modules
 COPY admin-portal ./
 COPY frontend ./../frontend
 COPY tooling ./../tooling
+# Share admin-portal dependencies with the imported frontend code so TypeScript
+# can resolve modules like `pg` during the Next.js build.
+RUN ln -sfn ../admin-portal/node_modules ../frontend/node_modules
 RUN npm run build
 
 FROM node:20-alpine AS runner
@@ -35,6 +38,8 @@ COPY --from=builder /workspace/admin-portal/next.config.js ./next.config.js
 COPY --from=builder /workspace/admin-portal/tsconfig.json ./tsconfig.json
 COPY --from=builder /workspace/frontend ./../frontend
 COPY --from=builder /workspace/tooling ./../tooling
+# Recreate the dependency link in the runtime image for consistency.
+RUN ln -sfn ../admin-portal/node_modules ../frontend/node_modules
 RUN mkdir -p ../data
 EXPOSE 4300
 CMD ["npm", "run", "start"]
