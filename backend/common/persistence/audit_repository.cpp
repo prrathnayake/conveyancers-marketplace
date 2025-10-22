@@ -1,6 +1,5 @@
 #include "audit_repository.h"
 
-#include <pqxx/pqxx>
 
 namespace persistence {
 

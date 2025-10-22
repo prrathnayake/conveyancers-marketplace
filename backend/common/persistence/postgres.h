@@ -1,7 +1,7 @@
 #ifndef CONVEYANCERS_MARKETPLACE_PERSISTENCE_POSTGRES_H
 #define CONVEYANCERS_MARKETPLACE_PERSISTENCE_POSTGRES_H
 
-#include <pqxx/pqxx>
+#include "pqxx_compat.h"
 
 #include <cstddef>
 #include <memory>
