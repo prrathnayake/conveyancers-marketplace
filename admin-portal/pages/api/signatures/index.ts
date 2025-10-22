@@ -1,13 +1,13 @@
 import type { NextApiResponse } from 'next'
-import { requireRole } from '../../../../../frontend/lib/session'
+import { requireRole } from '@frontend/lib/session'
 import {
   createSignatureEnvelope,
   completeSignatureEnvelope,
   listSignatureAudit,
   getSignatureEnvelope,
   listSignaturesForDocument,
-} from '../../../../../frontend/lib/signatures'
-import { withObservability, type ObservedRequest } from '../../../../../frontend/lib/observability'
+} from '@frontend/lib/signatures'
+import { withObservability, type ObservedRequest } from '@frontend/lib/observability'
 
 const handler = async (req: ObservedRequest, res: NextApiResponse): Promise<void> => {
   const actor = requireRole(req, res, ['admin'])

@@ -13,7 +13,8 @@
     "baseUrl": ".",
     "paths": {
       "next": ["./node_modules/next"],
-      "next/*": ["./node_modules/next/*"]
+      "next/*": ["./node_modules/next/*"],
+      "@frontend/*": ["../frontend/*"]
     },
     "resolveJsonModule": true,
     "isolatedModules": true,

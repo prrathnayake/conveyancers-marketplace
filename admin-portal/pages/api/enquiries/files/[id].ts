@@ -1,8 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 
-import db from '../../../../../frontend/lib/db'
-import { requireRole } from '../../../../../frontend/lib/session'
-import { decryptBuffer } from '../../../../../frontend/lib/secure'
+import db from '@frontend/lib/db'
+import { requireRole } from '@frontend/lib/session'
+import { decryptBuffer } from '@frontend/lib/secure'
 
 const handler = (req: NextApiRequest, res: NextApiResponse): void => {
   const user = requireRole(req, res, ['admin'])
