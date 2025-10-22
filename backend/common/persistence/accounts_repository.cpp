@@ -65,19 +65,19 @@ AccountRecord AccountsRepository::CreateAccount(const AccountRegistrationInput &
   txn.exec_params(
       "insert into auth_credentials(user_id,password_hash,password_salt,two_factor_secret) values ($1,$2,$3,$4)",
       user_id, input.password_hash, input.password_salt,
-      input.two_factor_secret.empty() ? pqxx::null() : pqxx::zview(input.two_factor_secret.c_str()));
+      input.two_factor_secret.empty() ? nullptr : input.two_factor_secret.c_str());
 
   if (input.role == "conveyancer") {
     txn.exec_params(
         "insert into conveyancer_profiles(user_id, licence_number, licence_state, specialties, services, insurance_policy, "
         "insurance_expiry, bio, verified) values ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7::date,$8,$9)",
         user_id,
-        input.licence_number.empty() ? pqxx::null() : pqxx::zview(input.licence_number.c_str()),
-        input.licence_state.empty() ? pqxx::null() : pqxx::zview(input.licence_state.c_str()),
+        input.licence_number.empty() ? nullptr : input.licence_number.c_str(),
+        input.licence_state.empty() ? nullptr : input.licence_state.c_str(),
         detail::SerializeStringArray(input.specialties), detail::SerializeStringArray(input.services),
-        input.insurance_policy.empty() ? pqxx::null() : pqxx::zview(input.insurance_policy.c_str()),
-        input.insurance_expiry.empty() ? pqxx::null() : pqxx::zview(input.insurance_expiry.c_str()),
-        input.biography.empty() ? pqxx::null() : pqxx::zview(input.biography.c_str()), input.verified);
+        input.insurance_policy.empty() ? nullptr : input.insurance_policy.c_str(),
+        input.insurance_expiry.empty() ? nullptr : input.insurance_expiry.c_str(),
+        input.biography.empty() ? nullptr : input.biography.c_str(), input.verified);
   }
 
   txn.commit();
