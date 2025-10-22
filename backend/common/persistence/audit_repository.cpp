@@ -12,8 +12,8 @@ void AuditRepository::RecordEvent(const std::string &actor_id, const std::string
   pqxx::connection conn = config_->Connect();
   pqxx::work txn(conn);
   txn.exec_params("insert into audit_logs(actor, action, subject, details, ip) values ($1,$2,$3,$4::jsonb,$5)",
-                  actor_id.empty() ? pqxx::null() : pqxx::zview(actor_id.c_str()), action, subject,
-                  details.dump(), ip_address.empty() ? pqxx::null() : pqxx::zview(ip_address.c_str()));
+                  actor_id.empty() ? nullptr : actor_id.c_str(), action, subject,
+                  details.dump(), ip_address.empty() ? nullptr : ip_address.c_str());
   txn.commit();
 }
 

@@ -30,9 +30,9 @@ EscrowRecord EscrowRepository::CreateEscrow(const EscrowCreateInput &input) cons
       "insert into escrow_payments(job_id, milestone_id, amount_authorised_cents, amount_held_cents, provider_ref, status) "
       "values ($1,$2,$3,$3,$4,$5) returning id, job_id, milestone_id, amount_authorised_cents, amount_held_cents, "
       "amount_released_cents, provider_ref, status, created_at",
-      input.job_id, input.milestone_id.empty() ? pqxx::null() : pqxx::zview(input.milestone_id.c_str()),
+      input.job_id, input.milestone_id.empty() ? nullptr : input.milestone_id.c_str(),
       input.amount_authorised_cents,
-      input.provider_ref.empty() ? pqxx::null() : pqxx::zview(input.provider_ref.c_str()), pqxx::zview("held"));
+      input.provider_ref.empty() ? nullptr : input.provider_ref.c_str(), pqxx::zview("held"));
   txn.commit();
   return RowToEscrow(row);
 }

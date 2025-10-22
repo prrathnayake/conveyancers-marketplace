@@ -78,10 +78,10 @@ JobRecord JobsRepository::CreateJob(const JobCreateInput &input) const {
   const auto row = txn.exec_params1(
       "insert into jobs(customer_id, conveyancer_id, state, property_type, status) values ($1,$2,$3,$4,$5) "
       "returning id, customer_id, conveyancer_id, state, property_type, status, created_at",
-      input.customer_id.empty() ? pqxx::null() : pqxx::zview(input.customer_id.c_str()),
-      input.conveyancer_id.empty() ? pqxx::null() : pqxx::zview(input.conveyancer_id.c_str()),
-      input.state.empty() ? pqxx::null() : pqxx::zview(input.state.c_str()),
-      input.property_type.empty() ? pqxx::null() : pqxx::zview(input.property_type.c_str()),
+      input.customer_id.empty() ? nullptr : input.customer_id.c_str(),
+      input.conveyancer_id.empty() ? nullptr : input.conveyancer_id.c_str(),
+      input.state.empty() ? nullptr : input.state.c_str(),
+      input.property_type.empty() ? nullptr : input.property_type.c_str(),
       input.status.empty() ? pqxx::zview("quote_pending") : pqxx::zview(input.status.c_str()));
   txn.commit();
   return RowToJob(row);
@@ -120,7 +120,7 @@ MilestoneRecord JobsRepository::CreateMilestone(const MilestoneInput &input) con
       "insert into milestones(job_id, name, amount_cents, due_date) values ($1,$2,$3,$4::date) "
       "returning id, job_id, name, amount_cents, due_date, status",
       input.job_id, input.name, input.amount_cents,
-      input.due_date.empty() ? pqxx::null() : pqxx::zview(input.due_date.c_str()));
+      input.due_date.empty() ? nullptr : input.due_date.c_str());
   txn.commit();
   return RowToMilestone(row);
 }
@@ -145,9 +145,9 @@ DocumentRecord JobsRepository::StoreDocument(const DocumentRecord &input) const 
   const auto row = txn.exec_params1(
       "insert into documents(job_id, doc_type, url, checksum, uploaded_by, version) values ($1,$2,$3,$4,$5,$6) "
       "returning id, job_id, doc_type, url, checksum, uploaded_by, version, created_at",
-      input.job_id, input.doc_type.empty() ? pqxx::null() : pqxx::zview(input.doc_type.c_str()),
-      input.url, input.checksum.empty() ? pqxx::null() : pqxx::zview(input.checksum.c_str()),
-      input.uploaded_by.empty() ? pqxx::null() : pqxx::zview(input.uploaded_by.c_str()), input.version);
+      input.job_id, input.doc_type.empty() ? nullptr : input.doc_type.c_str(),
+      input.url, input.checksum.empty() ? nullptr : input.checksum.c_str(),
+      input.uploaded_by.empty() ? nullptr : input.uploaded_by.c_str(), input.version);
   txn.commit();
   return RowToDocument(row);
 }
@@ -172,7 +172,7 @@ void JobsRepository::AppendMessage(const std::string &job_id, const std::string 
   pqxx::connection conn = config_->Connect();
   pqxx::work txn(conn);
   txn.exec_params("insert into messages(job_id, from_user, content, attachments) values ($1,$2,$3,$4::jsonb)", job_id,
-                  author_id.empty() ? pqxx::null() : pqxx::zview(author_id.c_str()), content, attachments.dump());
+                  author_id.empty() ? nullptr : author_id.c_str(), content, attachments.dump());
   txn.commit();
 }
 
@@ -212,18 +212,18 @@ TemplateRecord JobsRepository::UpsertTemplateVersion(const TemplateUpsertInput &
     const auto row = txn.exec_params1(
         "insert into job_templates(name, jurisdiction, description, integration_url, integration_auth, latest_version) "
         "values ($1,$2,$3,$4,$5::jsonb,0) returning id",
-        input.name, input.jurisdiction.empty() ? pqxx::null() : pqxx::zview(input.jurisdiction.c_str()),
-        input.description.empty() ? pqxx::null() : pqxx::zview(input.description.c_str()),
-        input.integration_url.empty() ? pqxx::null() : pqxx::zview(input.integration_url.c_str()),
+        input.name, input.jurisdiction.empty() ? nullptr : input.jurisdiction.c_str(),
+        input.description.empty() ? nullptr : input.description.c_str(),
+        input.integration_url.empty() ? nullptr : input.integration_url.c_str(),
         input.integration_auth.dump());
     template_id = row["id"].c_str();
   } else {
     txn.exec_params(
         "update job_templates set name=$2, jurisdiction=$3, description=$4, integration_url=$5, integration_auth=$6::jsonb "
         "where id=$1",
-        template_id, input.name, input.jurisdiction.empty() ? pqxx::null() : pqxx::zview(input.jurisdiction.c_str()),
-        input.description.empty() ? pqxx::null() : pqxx::zview(input.description.c_str()),
-        input.integration_url.empty() ? pqxx::null() : pqxx::zview(input.integration_url.c_str()), input.integration_auth.dump());
+        template_id, input.name, input.jurisdiction.empty() ? nullptr : input.jurisdiction.c_str(),
+        input.description.empty() ? nullptr : input.description.c_str(),
+        input.integration_url.empty() ? nullptr : input.integration_url.c_str(), input.integration_auth.dump());
   }
 
   const auto version_row = txn.exec_params1(
