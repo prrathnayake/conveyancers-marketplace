@@ -51,12 +51,12 @@ private:
   std::size_t m_size;
 };
 
-template<> struct nullness<zview> : no_null<zview> {};
-
 template<> struct string_traits<zview>
 {
   static constexpr bool converts_to_string{true};
   static constexpr bool converts_from_string{false};
+
+  static constexpr bool is_null(zview const &) noexcept { return false; }
 
   static constexpr std::size_t size_buffer(zview const &value) noexcept
   {
@@ -67,7 +67,7 @@ template<> struct string_traits<zview>
   {
     auto const size = value.size();
     if (begin + size + 1 > end)
-      throw conversion_overrun{"Not enough buffer space to store this zview."};
+      throw conversion_error{"Not enough buffer space to store this zview."};
     value.copy(begin, size);
     begin[size] = '\0';
     return begin + size + 1;
