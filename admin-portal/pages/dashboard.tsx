@@ -2,7 +2,7 @@ import Head from 'next/head'
 import type { GetServerSideProps } from 'next'
 
 import AdminLayout from '../components/AdminLayout'
-import type { MetricsPayload } from './api/metrics'
+import { loadMetrics, type MetricsPayload } from '../lib/admin-metrics'
 import type { SessionUser } from '../../frontend/lib/session'
 import { getSessionFromRequest } from '../../frontend/lib/session'
 
@@ -255,18 +255,17 @@ export const getServerSideProps: GetServerSideProps<DashboardProps> = async ({ r
     }
   }
 
-  const protocol = (req.headers['x-forwarded-proto'] as string) ?? 'http'
-  const hostHeader = req.headers.host ?? 'localhost:5300'
-  const response = await fetch(`${protocol}://${hostHeader}/api/metrics`, {
-    headers: { cookie: req.headers.cookie ?? '' },
-  })
-
   let metrics: MetricsPayload | null = null
   let error: string | undefined
-  if (response.ok) {
-    metrics = (await response.json()) as MetricsPayload
-  } else {
-    error = `HTTP ${response.status}`
+  try {
+    const result = await loadMetrics()
+    metrics = result.metrics
+    if (result.error) {
+      const { code, detail } = result.error
+      error = detail ? `${code}: ${detail}` : code
+    }
+  } catch (err) {
+    error = err instanceof Error ? err.message : 'unknown_error'
   }
 
   res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate')

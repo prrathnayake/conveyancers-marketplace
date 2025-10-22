@@ -376,6 +376,19 @@ export const getServerSideProps: GetServerSideProps<SafetyProps> = async ({ req,
     }
   }
 
+  const phase = process.env.NEXT_PHASE?.trim().toLowerCase()
+  if (phase === 'phase-production-build') {
+    return {
+      props: {
+        user,
+        policies: [],
+        insights: null,
+        templates: [],
+        error: 'safety_data_unavailable',
+      },
+    }
+  }
+
   const jobsServiceUrl = process.env.JOBS_SERVICE_URL ?? 'http://127.0.0.1:9002'
   const apiKey = process.env.SERVICE_API_KEY ?? 'local-dev-api-key'
 

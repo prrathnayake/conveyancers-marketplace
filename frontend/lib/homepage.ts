@@ -1,5 +1,9 @@
 import db, { ensureSeedData } from './db'
 
+const isDatabaseUnavailable = (error: unknown): boolean => {
+  return error instanceof Error && error.message === 'database_unavailable'
+}
+
 export type HeroCallToAction = { label: string; href: string }
 
 export type HeroContent = {
@@ -120,10 +124,17 @@ const parseSection = <T>(value: string | undefined, fallback: T): T => {
 
 const readSection = <K extends SectionKey>(key: K): HomepageContent[K] => {
   ensureSeedData()
-  const row = db
-    .prepare('SELECT key, content FROM homepage_sections WHERE key = ? LIMIT 1')
-    .get(key) as SectionRecord | undefined
-  return parseSection(row?.content, sectionDefaults[key])
+  try {
+    const row = db
+      .prepare('SELECT key, content FROM homepage_sections WHERE key = ? LIMIT 1')
+      .get(key) as SectionRecord | undefined
+    return parseSection(row?.content, sectionDefaults[key])
+  } catch (error) {
+    if (isDatabaseUnavailable(error)) {
+      return sectionDefaults[key]
+    }
+    throw error
+  }
 }
 
 export const getHomepageContent = (): HomepageContent => {

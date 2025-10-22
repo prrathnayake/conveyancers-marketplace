@@ -20,6 +20,10 @@ type CatalogueRow = {
   features: string
 }
 
+const isDatabaseUnavailable = (error: unknown): boolean => {
+  return error instanceof Error && error.message === 'database_unavailable'
+}
+
 const parseFeatures = (payload: string): string[] => {
   try {
     const parsed = JSON.parse(payload)
@@ -42,22 +46,29 @@ const normalizeEntry = (entry: CatalogueEntry): CatalogueEntry => ({
 })
 
 export const listCatalogueEntries = (): CatalogueEntry[] => {
-  const rows = db
-    .prepare(
-      `SELECT slug, title, summary, audience, preview_markdown, features
-         FROM service_catalogue
-     ORDER BY updated_at DESC`
-    )
-    .all() as CatalogueRow[]
+  try {
+    const rows = db
+      .prepare(
+        `SELECT slug, title, summary, audience, preview_markdown, features
+           FROM service_catalogue
+       ORDER BY updated_at DESC`
+      )
+      .all() as CatalogueRow[]
 
-  return rows.map((row) => ({
-    slug: row.slug,
-    title: row.title,
-    summary: row.summary,
-    audience: row.audience,
-    previewMarkdown: row.preview_markdown,
-    features: parseFeatures(row.features),
-  }))
+    return rows.map((row) => ({
+      slug: row.slug,
+      title: row.title,
+      summary: row.summary,
+      audience: row.audience,
+      previewMarkdown: row.preview_markdown,
+      features: parseFeatures(row.features),
+    }))
+  } catch (error) {
+    if (isDatabaseUnavailable(error)) {
+      return []
+    }
+    throw error
+  }
 }
 
 export const saveCatalogueEntries = (entries: CatalogueEntry[], actor: SessionUser): void => {

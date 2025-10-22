@@ -2,35 +2,13 @@ import Head from 'next/head'
 import type { GetServerSideProps } from 'next'
 
 import AdminLayout from '../components/AdminLayout'
+import { loadAdminSummary, type SummaryPayload } from '../lib/admin-summary'
 import type { SessionUser } from '../../frontend/lib/session'
 import { getSessionFromRequest } from '../../frontend/lib/session'
 
-type MonitoringPanel = {
-  id: string
-  title: string
-  value: string
-  trend: string
-  series: number[]
-  footnote: string
-}
-
-type Summary = {
-  conveyancers: number
-  buyers: number
-  sellers: number
-  reviews: number
-  lastAuditEvent?: {
-    action: string
-    entity: string
-    actorEmail: string | null
-    createdAt: string
-  }
-  monitoringPanels: MonitoringPanel[]
-}
-
 type AdminDashboardProps = {
   user: SessionUser
-  summary: Summary | null
+  summary: SummaryPayload | null
 }
 
 const formatDate = (value?: string): string => {
@@ -164,12 +142,13 @@ export const getServerSideProps: GetServerSideProps<AdminDashboardProps> = async
     }
   }
 
-  const protocol = (req.headers['x-forwarded-proto'] as string) ?? 'http'
-  const hostHeader = req.headers.host ?? 'localhost:5300'
-  const response = await fetch(`${protocol}://${hostHeader}/api/summary`, {
-    headers: { cookie: req.headers.cookie ?? '' },
-  })
-  const summary = response.ok ? ((await response.json()) as Summary) : null
+  let summary: SummaryPayload | null = null
+  try {
+    summary = loadAdminSummary()
+  } catch (error) {
+    console.warn('Failed to load admin summary', error)
+    summary = null
+  }
 
   res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate')
   return { props: { user, summary } }

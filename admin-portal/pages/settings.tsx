@@ -3,6 +3,7 @@ import type { GetServerSideProps } from 'next'
 import { ChangeEvent, FormEvent, useState } from 'react'
 
 import AdminLayout from '../components/AdminLayout'
+import { listSettings } from '../../frontend/lib/settings'
 import type { SessionUser } from '../../frontend/lib/session'
 import { getSessionFromRequest } from '../../frontend/lib/session'
 
@@ -259,14 +260,7 @@ export const getServerSideProps: GetServerSideProps<SettingsPageProps> = async (
     }
   }
 
-  const protocol = (req.headers['x-forwarded-proto'] as string) ?? 'http'
-  const hostHeader = req.headers.host ?? 'localhost:5300'
-  const response = await fetch(`${protocol}://${hostHeader}/api/settings`, {
-    headers: { cookie: req.headers.cookie ?? '' },
-  })
-  const payload = response.ok
-    ? ((await response.json()) as { settings: Record<string, string> })
-    : { settings: {} as Record<string, string> }
+  const payload = { settings: listSettings() }
 
   const initialSettings: SettingsFormState = {
     supportEmail: payload.settings.supportEmail ?? '',
