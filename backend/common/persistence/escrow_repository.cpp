@@ -32,7 +32,7 @@ EscrowRecord EscrowRepository::CreateEscrow(const EscrowCreateInput &input) cons
       "amount_released_cents, provider_ref, status, created_at",
       input.job_id, input.milestone_id.empty() ? nullptr : input.milestone_id.c_str(),
       input.amount_authorised_cents,
-      input.provider_ref.empty() ? nullptr : input.provider_ref.c_str(), pqxx::zview("held"));
+      input.provider_ref.empty() ? nullptr : input.provider_ref.c_str(), "held");
   txn.commit();
   return RowToEscrow(row);
 }
