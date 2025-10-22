@@ -1,7 +1,6 @@
 #include "jobs_repository.h"
 #include "postgres.h"
 
-#include <pqxx/pqxx>
 
 #include "jobs_repository_utils.h"
 

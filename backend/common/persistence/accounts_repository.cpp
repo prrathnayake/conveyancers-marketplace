@@ -1,7 +1,6 @@
 #include "accounts_repository.h"
 #include "postgres.h"
 
-#include <pqxx/pqxx>
 
 #include <sstream>
 #include <stdexcept>
