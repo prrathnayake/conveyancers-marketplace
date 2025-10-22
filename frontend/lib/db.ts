@@ -5,7 +5,16 @@ import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg
 const connectionString =
   process.env.DB_URL || 'postgres://app:change-me@localhost:5432/convey'
 
-const pool = new Pool({ connectionString })
+const pool = new Pool({ connectionString, connectionTimeoutMillis: 1000 })
+
+let dbUnavailable = false
+
+const markDatabaseUnavailable = (error: unknown): void => {
+  if (!dbUnavailable) {
+    dbUnavailable = true
+    console.warn('Database unavailable; falling back to stub data only.', error)
+  }
+}
 
 const runBlocking = <T>(promise: Promise<T>): T => {
   const buffer = new SharedArrayBuffer(4)
@@ -1008,10 +1017,17 @@ const seedArtifacts = async (): Promise<void> => {
 let initPromise: Promise<void> | null = null
 
 const ensureInitialized = (): Promise<void> => {
+  if (dbUnavailable) {
+    return Promise.resolve()
+  }
   if (!initPromise) {
     initPromise = (async () => {
-      await runMigrations()
-      await seedArtifacts()
+      try {
+        await runMigrations()
+        await seedArtifacts()
+      } catch (error) {
+        markDatabaseUnavailable(error)
+      }
     })()
   }
   return initPromise
@@ -1023,6 +1039,9 @@ const executeQuery = <T extends QueryResultRow = QueryResultRow>(
   client?: PoolClient | Pool
 ): Promise<QueryResult<T>> => {
   const target = client ?? transactionClient ?? pool
+  if (dbUnavailable) {
+    throw new Error('database_unavailable')
+  }
   return target.query<T>(text, values)
 }
 
@@ -1032,11 +1051,17 @@ export const query = async <T extends QueryResultRow = QueryResultRow>(
   client?: PoolClient
 ): Promise<QueryResult<T>> => {
   await ensureInitialized()
+  if (dbUnavailable) {
+    throw new Error('database_unavailable')
+  }
   return executeQuery<T>(text, values, client ?? undefined)
 }
 
 export const withTransaction = async <T>(fn: (client: PoolClient) => Promise<T>): Promise<T> => {
   await ensureInitialized()
+  if (dbUnavailable) {
+    throw new Error('database_unavailable')
+  }
   return runInTransaction(fn)
 }
 
@@ -1098,6 +1123,9 @@ class PreparedStatement {
     const params = normalizeParams(this.meta, args)
     const runner = async (): Promise<{ result: QueryResult<any>; lastInsertId: number }> => {
       await ensureInitialized()
+      if (dbUnavailable) {
+        throw new Error('database_unavailable')
+      }
       const client = transactionClient ?? (await pool.connect())
       let releaseClient = false
       if (!transactionClient) {
@@ -1158,6 +1186,10 @@ export const transaction = <Args extends unknown[], Return>(
         const previous = transactionClient
         transactionClient = client
         try {
+          await ensureInitialized()
+          if (dbUnavailable) {
+            throw new Error('database_unavailable')
+          }
           const result = fn(...args)
           return result instanceof Promise ? await result : result
         } finally {
@@ -1169,18 +1201,35 @@ export const transaction = <Args extends unknown[], Return>(
 }
 
 export const ensureSeedData = (): void => {
-  runBlocking(ensureInitialized())
+  try {
+    runBlocking(ensureInitialized())
+  } catch (error) {
+    markDatabaseUnavailable(error)
+  }
 }
 
 export const ensureSchema = (): void => {
-  runBlocking(ensureInitialized())
+  try {
+    runBlocking(ensureInitialized())
+  } catch (error) {
+    markDatabaseUnavailable(error)
+  }
 }
 
 export const getPool = async (): Promise<Pool> => {
   await ensureInitialized()
+  if (dbUnavailable) {
+    throw new Error('database_unavailable')
+  }
   return pool
 }
 
-runBlocking(ensureInitialized())
+try {
+  runBlocking(ensureInitialized())
+} catch (error) {
+  markDatabaseUnavailable(error)
+}
 
-export default { query, prepare, transaction, withTransaction, ensureSchema, ensureSeedData, getPool }
+export const isDatabaseAvailable = (): boolean => !dbUnavailable
+
+export default { query, prepare, transaction, withTransaction, ensureSchema, ensureSeedData, getPool, isDatabaseAvailable }

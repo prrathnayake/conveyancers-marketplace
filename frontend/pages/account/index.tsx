@@ -4,8 +4,31 @@ import type { GetServerSideProps } from 'next'
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import type { SessionUser } from '../../lib/session'
-import { getSessionFromRequest } from '../../lib/session'
 import type { VerificationSummary } from '../../lib/verification'
+import { isStaticGenerationRequest } from '../../lib/ssr'
+
+const FALLBACK_USER: SessionUser = {
+  id: 0,
+  email: 'demo@conveyancers.market',
+  role: 'buyer',
+  fullName: 'Demo Marketplace User',
+  status: 'active',
+  phone: null,
+  verification: {
+    overallVerified: false,
+    email: { verified: false, verifiedAt: null },
+    phone: { verified: false, phoneNumber: null, verifiedAt: null },
+    conveyancing: {
+      required: false,
+      status: 'pending',
+      reference: null,
+      verifiedAt: null,
+      reason: null,
+    },
+  },
+  profileImageUrl: null,
+  profileImageUpdatedAt: null,
+}
 
 interface AccountProps {
   user: SessionUser
@@ -455,7 +478,17 @@ const AccountPage = ({ user }: AccountProps): JSX.Element => {
   )
 }
 
-export const getServerSideProps: GetServerSideProps<AccountProps> = async ({ req, res }) => {
+export const getServerSideProps: GetServerSideProps<AccountProps> = async ({ req }) => {
+  if (isStaticGenerationRequest(req.headers)) {
+    return { props: { user: FALLBACK_USER } }
+  }
+
+  const dbModule = await import('../../lib/db')
+  if (!dbModule.isDatabaseAvailable()) {
+    return { props: { user: FALLBACK_USER } }
+  }
+
+  const { getSessionFromRequest } = await import('../../lib/session')
   const user = getSessionFromRequest(req)
   if (!user) {
     return {

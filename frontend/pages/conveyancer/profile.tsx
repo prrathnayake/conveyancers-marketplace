@@ -2,7 +2,51 @@ import Head from 'next/head'
 import type { GetServerSideProps } from 'next'
 import { ChangeEvent, useState } from 'react'
 import type { SessionUser } from '../../lib/session'
-import { getSessionFromRequest } from '../../lib/session'
+import { isStaticGenerationRequest } from '../../lib/ssr'
+
+const FALLBACK_USER: SessionUser = {
+  id: 0,
+  email: 'placeholder@conveyancers.market',
+  role: 'conveyancer',
+  fullName: 'ConveySafe Demo Conveyancer',
+  status: 'active',
+  phone: null,
+  verification: {
+    overallVerified: false,
+    email: { verified: false, verifiedAt: null },
+    phone: { verified: false, phoneNumber: null, verifiedAt: null },
+    conveyancing: {
+      required: true,
+      status: 'pending',
+      reference: null,
+      verifiedAt: null,
+      reason: null,
+    },
+  },
+  profileImageUrl: null,
+  profileImageUpdatedAt: null,
+}
+
+const FALLBACK_PROFILE: ConveyancerProfileProps['initialProfile'] = {
+  firmName: 'ConveySafe Advisory',
+  bio: 'Keep your ConveySafe profile updated to showcase insurance, response times, and specialist expertise.',
+  phone: '+61 1300 555 010',
+  state: 'VIC',
+  suburb: 'Melbourne',
+  website: 'https://conveysafe.example',
+  remoteFriendly: true,
+  turnaround: 'Within 2 business days',
+  responseTime: 'Under 4 business hours',
+  specialties: ['Residential settlements', 'Off-the-plan contracts', 'Title corrections'],
+  verified: false,
+}
+
+const buildFallbackResponse = () => ({
+  props: {
+    user: FALLBACK_USER,
+    initialProfile: FALLBACK_PROFILE,
+  },
+})
 
 interface ConveyancerProfileProps {
   user: SessionUser
@@ -161,6 +205,16 @@ const ConveyancerProfilePage = ({ user, initialProfile }: ConveyancerProfileProp
 }
 
 export const getServerSideProps: GetServerSideProps<ConveyancerProfileProps> = async ({ req }) => {
+  if (isStaticGenerationRequest(req.headers)) {
+    return buildFallbackResponse()
+  }
+
+  const dbModule = await import('../../lib/db')
+  if (!dbModule.isDatabaseAvailable()) {
+    return buildFallbackResponse()
+  }
+
+  const { getSessionFromRequest } = await import('../../lib/session')
   const user = getSessionFromRequest(req)
   if (!user || (user.role !== 'conveyancer' && user.role !== 'admin')) {
     return {
@@ -172,15 +226,33 @@ export const getServerSideProps: GetServerSideProps<ConveyancerProfileProps> = a
   }
   const protocol = req.headers['x-forwarded-proto'] ?? 'http'
   const host = req.headers.host ?? 'localhost:5173'
-  const response = await fetch(`${protocol}://${host}/api/conveyancers/profile`, {
-    headers: { cookie: req.headers.cookie ?? '' },
-  })
-  const payload = (await response.json()) as ConveyancerProfileProps['initialProfile']
-  return {
-    props: {
-      user,
-      initialProfile: payload,
-    },
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 2000)
+  try {
+    const response = await fetch(`${protocol}://${host}/api/conveyancers/profile`, {
+      headers: { cookie: req.headers.cookie ?? '' },
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      throw new Error(`profile_fetch_failed:${response.status}`)
+    }
+    const payload = (await response.json()) as ConveyancerProfileProps['initialProfile']
+    return {
+      props: {
+        user,
+        initialProfile: payload,
+      },
+    }
+  } catch (error) {
+    console.error('Failed to load conveyancer profile data during SSR. Using fallback payload.', error)
+    return {
+      props: {
+        user,
+        initialProfile: FALLBACK_PROFILE,
+      },
+    }
+  } finally {
+    clearTimeout(timeout)
   }
 }
 
