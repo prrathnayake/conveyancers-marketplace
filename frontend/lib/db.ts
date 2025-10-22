@@ -7,7 +7,27 @@ const connectionString =
 
 const pool = new Pool({ connectionString, connectionTimeoutMillis: 1000 })
 
-let dbUnavailable = false
+const normalizeBoolean = (value: string | undefined): boolean => {
+  if (!value) {
+    return false
+  }
+  const normalized = value.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes'
+}
+
+const shouldSkipInitialization = (): boolean => {
+  if (normalizeBoolean(process.env.CONVEYANCERS_SKIP_DB_INIT)) {
+    return true
+  }
+  const phase = process.env.NEXT_PHASE?.trim().toLowerCase()
+  return phase === 'phase-production-build'
+}
+
+let dbUnavailable = shouldSkipInitialization()
+
+if (dbUnavailable) {
+  console.info('Database initialization skipped during build phase; live queries will be disabled.')
+}
 
 const markDatabaseUnavailable = (error: unknown): void => {
   if (!dbUnavailable) {
@@ -1121,6 +1141,9 @@ class PreparedStatement {
 
   private execute(args: unknown[]): { result: QueryResult<any>; lastInsertId: number } {
     const params = normalizeParams(this.meta, args)
+    if (dbUnavailable) {
+      throw new Error('database_unavailable')
+    }
     const runner = async (): Promise<{ result: QueryResult<any>; lastInsertId: number }> => {
       await ensureInitialized()
       if (dbUnavailable) {
@@ -1181,6 +1204,9 @@ export const transaction = <Args extends unknown[], Return>(
   fn: (...args: Args) => Return
 ): ((...args: Args) => Return) => {
   return (...args: Args): Return => {
+    if (dbUnavailable) {
+      throw new Error('database_unavailable')
+    }
     return runBlocking(
       runInTransaction(async (client) => {
         const previous = transactionClient
@@ -1201,6 +1227,9 @@ export const transaction = <Args extends unknown[], Return>(
 }
 
 export const ensureSeedData = (): void => {
+  if (dbUnavailable) {
+    return
+  }
   try {
     runBlocking(ensureInitialized())
   } catch (error) {
@@ -1209,6 +1238,9 @@ export const ensureSeedData = (): void => {
 }
 
 export const ensureSchema = (): void => {
+  if (dbUnavailable) {
+    return
+  }
   try {
     runBlocking(ensureInitialized())
   } catch (error) {
@@ -1224,10 +1256,12 @@ export const getPool = async (): Promise<Pool> => {
   return pool
 }
 
-try {
-  runBlocking(ensureInitialized())
-} catch (error) {
-  markDatabaseUnavailable(error)
+if (!dbUnavailable) {
+  try {
+    runBlocking(ensureInitialized())
+  } catch (error) {
+    markDatabaseUnavailable(error)
+  }
 }
 
 export const isDatabaseAvailable = (): boolean => !dbUnavailable

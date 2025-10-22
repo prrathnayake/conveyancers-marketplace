@@ -3,7 +3,7 @@ import Head from 'next/head'
 import type { GetServerSideProps } from 'next'
 
 import AdminLayout from '../components/AdminLayout'
-import type { CatalogueEntry } from '../../frontend/lib/catalogue'
+import { listCatalogueEntries, type CatalogueEntry } from '../../frontend/lib/catalogue'
 import type { SessionUser } from '../../frontend/lib/session'
 import { getSessionFromRequest } from '../../frontend/lib/session'
 
@@ -323,12 +323,7 @@ export const getServerSideProps: GetServerSideProps<CatalogueManagerProps> = asy
     }
   }
 
-  const protocol = (req.headers['x-forwarded-proto'] as string) ?? 'http'
-  const hostHeader = req.headers.host ?? 'localhost:5300'
-  const response = await fetch(`${protocol}://${hostHeader}/api/catalogue`, {
-    headers: { cookie: req.headers.cookie ?? '' },
-  })
-  const payload = response.ok ? ((await response.json()) as { entries: CatalogueEntry[] }) : { entries: [] }
+  const payload = { entries: listCatalogueEntries() }
 
   res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate')
   return { props: { user, initialEntries: payload.entries } }

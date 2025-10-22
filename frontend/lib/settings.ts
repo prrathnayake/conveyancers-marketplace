@@ -1,5 +1,9 @@
 import db from './db'
 
+const isDatabaseUnavailable = (error: unknown): boolean => {
+  return error instanceof Error && error.message === 'database_unavailable'
+}
+
 const DEFAULT_SETTINGS: Record<string, string> = {
   supportEmail: 'support@conveyancers-marketplace.test',
   statusBanner: '',
@@ -12,9 +16,15 @@ const DEFAULT_SETTINGS: Record<string, string> = {
 }
 
 export const getSetting = (key: string, fallback?: string): string => {
-  const row = db.prepare('SELECT value FROM platform_settings WHERE key = ?').get(key) as { value: string } | undefined
-  if (row?.value) {
-    return row.value
+  try {
+    const row = db.prepare('SELECT value FROM platform_settings WHERE key = ?').get(key) as { value: string } | undefined
+    if (row?.value) {
+      return row.value
+    }
+  } catch (error) {
+    if (!isDatabaseUnavailable(error)) {
+      throw error
+    }
   }
   if (typeof fallback === 'string') {
     return fallback
@@ -45,10 +55,16 @@ export const getEscrowAccountName = (): string => {
 }
 
 export const listSettings = (keys?: string[]): Record<string, string> => {
-  const rows = db.prepare('SELECT key, value FROM platform_settings').all() as Array<{ key: string; value: string }>
   const payload: Record<string, string> = { ...DEFAULT_SETTINGS }
-  for (const row of rows) {
-    payload[row.key] = row.value
+  try {
+    const rows = db.prepare('SELECT key, value FROM platform_settings').all() as Array<{ key: string; value: string }>
+    for (const row of rows) {
+      payload[row.key] = row.value
+    }
+  } catch (error) {
+    if (!isDatabaseUnavailable(error)) {
+      throw error
+    }
   }
   if (!keys) {
     return payload
