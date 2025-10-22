@@ -1,3 +1,4 @@
+const path = require('path')
 const { loadEnv } = require('../tooling/load-env')
 
 loadEnv({ startDir: __dirname })
@@ -17,6 +18,11 @@ const nextConfig = {
           config.externals.push(pkg)
         }
       }
+    }
+    config.resolve = config.resolve || {}
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      '@frontend': path.resolve(__dirname, '../frontend'),
     }
     return config
   },

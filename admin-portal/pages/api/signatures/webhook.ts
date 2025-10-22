@@ -1,12 +1,12 @@
 import crypto from 'crypto'
 import type { NextApiResponse } from 'next'
-import { computeWebhookSignature } from '../../../../../frontend/lib/esign'
+import { computeWebhookSignature } from '@frontend/lib/esign'
 import {
   ingestSignatureWebhookEvent,
   flagSignatureEnvelopeForManualReconciliation,
   syncSignatureEnvelopeFromProvider,
-} from '../../../../../frontend/lib/signatures'
-import { withObservability, type ObservedRequest } from '../../../../../frontend/lib/observability'
+} from '@frontend/lib/signatures'
+import { withObservability, type ObservedRequest } from '@frontend/lib/observability'
 
 const readRawBody = async (req: ObservedRequest): Promise<string> => {
   const chunks: Buffer[] = []
@@ -115,7 +115,20 @@ const handler = async (req: ObservedRequest, res: NextApiResponse): Promise<void
       if (!email) {
         return null
       }
-      return {
+      const statusValue =
+        stringOrUndefined(raw.status) ?? stringOrUndefined(raw.state) ?? undefined
+      const completedAtValue =
+        stringOrUndefined(raw.completedAt) ??
+        stringOrUndefined(raw.completed_at) ??
+        stringOrUndefined(raw.signedAt) ??
+        undefined
+      const signerUpdate: {
+        email: string
+        name: string | null
+        signingUrl: string | null
+        status?: string
+        completedAt?: string
+      } = {
         email: email.toLowerCase(),
         name: stringOrUndefined(raw.name) ?? stringOrUndefined(raw.fullName) ?? stringOrUndefined(raw.recipientName) ?? null,
         signingUrl:
@@ -124,13 +137,14 @@ const handler = async (req: ObservedRequest, res: NextApiResponse): Promise<void
           stringOrUndefined(raw.recipientUrl) ??
           stringOrUndefined(raw.link) ??
           null,
-        status: stringOrUndefined(raw.status) ?? stringOrUndefined(raw.state) ?? undefined,
-        completedAt:
-          stringOrUndefined(raw.completedAt) ??
-          stringOrUndefined(raw.completed_at) ??
-          stringOrUndefined(raw.signedAt) ??
-          undefined,
       }
+      if (statusValue !== undefined) {
+        signerUpdate.status = statusValue
+      }
+      if (completedAtValue !== undefined) {
+        signerUpdate.completedAt = completedAtValue
+      }
+      return signerUpdate
     })
     .filter((entry): entry is {
       email: string
@@ -154,14 +168,18 @@ const handler = async (req: ObservedRequest, res: NextApiResponse): Promise<void
       if (!email) {
         return null
       }
-      return {
+      const completedAtValue =
+        stringOrUndefined(raw.completedAt) ??
+        stringOrUndefined(raw.completed_at) ??
+        stringOrUndefined(raw.signedAt) ??
+        undefined
+      const completedUpdate: { email: string; completedAt?: string } = {
         email: email.toLowerCase(),
-        completedAt:
-          stringOrUndefined(raw.completedAt) ??
-          stringOrUndefined(raw.completed_at) ??
-          stringOrUndefined(raw.signedAt) ??
-          undefined,
       }
+      if (completedAtValue !== undefined) {
+        completedUpdate.completedAt = completedAtValue
+      }
+      return completedUpdate
     })
     .filter((entry): entry is { email: string; completedAt?: string } => entry !== null)
 
