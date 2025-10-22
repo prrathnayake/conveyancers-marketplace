@@ -2,6 +2,7 @@ import Head from 'next/head'
 import type { GetServerSideProps } from 'next'
 
 import type { ContentPage } from '../lib/cms'
+import { isBuildPhase } from '../lib/ssr'
 
 type AboutPageProps = {
   content: ContentPage
@@ -72,9 +73,6 @@ const AboutUs = ({ content }: AboutPageProps): JSX.Element => {
 }
 
 export const getServerSideProps: GetServerSideProps<AboutPageProps> = async () => {
-  const { getContentPage } = await import('../lib/cms')
-  const page = getContentPage('about-us')
-
   const fallback: ContentPage = {
     slug: 'about-us',
     title: 'About Conveyancers Marketplace',
@@ -85,7 +83,18 @@ export const getServerSideProps: GetServerSideProps<AboutPageProps> = async () =
     updatedAt: new Date().toISOString(),
   }
 
-  return { props: { content: page ?? fallback } }
+  if (isBuildPhase()) {
+    return { props: { content: fallback } }
+  }
+
+  try {
+    const { getContentPage } = await import('../lib/cms')
+    const page = getContentPage('about-us')
+    return { props: { content: page ?? fallback } }
+  } catch (error) {
+    console.error('Failed to load about page content during SSR. Using fallback copy.', error)
+    return { props: { content: fallback } }
+  }
 }
 
 export default AboutUs

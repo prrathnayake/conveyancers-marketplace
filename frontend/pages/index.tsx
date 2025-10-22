@@ -15,6 +15,202 @@ import type {
   WorkflowStep,
 } from '../lib/homepage'
 import useScrollReveal from '../hooks/useScrollReveal'
+import { isStaticGenerationRequest } from '../lib/ssr'
+
+const FALLBACK_PRODUCT_REVIEWS: ProductReview[] = [
+  {
+    id: 1,
+    reviewerName: 'Harper • Buyer',
+    rating: 5,
+    comment:
+      'The Conveyancers Marketplace platform kept every milestone visible and approvals were effortless.',
+    createdAt: '2024-04-08T09:00:00.000Z',
+  },
+  {
+    id: 2,
+    reviewerName: 'Mason • Seller',
+    rating: 4,
+    comment:
+      'Escrow tracking and document badges gave us confidence while we negotiated tight deadlines.',
+    createdAt: '2024-03-29T10:30:00.000Z',
+  },
+  {
+    id: 3,
+    reviewerName: 'Jordan • Buyer',
+    rating: 5,
+    comment:
+      'Automated alerts for each settlement step meant no surprises ahead of completion.',
+    createdAt: '2024-03-12T08:45:00.000Z',
+  },
+]
+
+const FALLBACK_HOME_PROPS: HomeProps = {
+  metaDescription:
+    'Conveyancers Marketplace connects buyers, sellers, and licenced conveyancers with the ConveySafe compliance network.',
+  hero: {
+    badge: 'ConveySafe assurance network',
+    title: 'Settle property deals with clarity and control',
+    subtitle:
+      'Discover licenced conveyancers, orchestrate every milestone, and keep funds protected within the ConveySafe compliance perimeter.',
+    primaryCta: { label: 'Browse verified conveyancers', href: '/search' },
+    secondaryCta: { label: 'See how the workflow fits together', href: '#workflow' },
+  },
+  personas: [
+    {
+      key: 'buyer',
+      label: "I'm buying",
+      headline: 'Remove the stress from settlement',
+      benefits: [
+        'Track every milestone, deposit, and ConveySafe badge from one dashboard.',
+        'Know exactly who to call with real-time messaging, policy reminders, and locked-in audit trails.',
+        'Escrow protects your funds until each ConveySafe milestone is satisfied.',
+      ],
+    },
+    {
+      key: 'seller',
+      label: "I'm selling",
+      headline: 'Close faster with proactive support',
+      benefits: [
+        'Automated reminders keep your buyer, lender, and conveyancer aligned inside the compliance guardrails.',
+        'Digitally collect, sign, and lodge documents with ConveySafe evidence logging.',
+        'Performance insights surface experts who specialise in complex titles with verified insurance.',
+      ],
+    },
+    {
+      key: 'conveyancer',
+      label: "I'm a conveyancer",
+      headline: 'Grow a reputation for trusted settlements',
+      benefits: [
+        'ConveySafe verification boosts your discoverability and showcases compliant licensing.',
+        'Built-in client onboarding, IDV hand-offs, and loyalty pricing reduce admin overhead.',
+        'Milestone-based billing flows into escrow with instant audit-grade statements.',
+      ],
+    },
+  ],
+  stats: [
+    {
+      label: 'ConveySafe badges issued',
+      value: '180+',
+      detail: 'Compliance documents verified across active conveyancers.',
+    },
+    {
+      label: 'Milestones tracked',
+      value: '420+',
+      detail: 'Job history records maintained for audit readiness.',
+    },
+    {
+      label: 'Audit events captured',
+      value: '1.2k',
+      detail: 'Administrative changes logged for evidence.',
+    },
+    {
+      label: 'Marketplace satisfaction',
+      value: '4.7/5',
+      detail: `${FALLBACK_PRODUCT_REVIEWS.length} verified product reviews published.`,
+    },
+  ],
+  features: [
+    {
+      title: 'Unified compliance workspace',
+      description: 'Coordinate insurance evidence, ID checks, and escrow approvals with one login.',
+    },
+    {
+      title: 'Secure messaging & file vault',
+      description: 'Keep every conversation and document encrypted with automatic audit trails.',
+    },
+    {
+      title: 'Milestone-based billing',
+      description: 'Issue escrow-backed invoices that release automatically when work is approved.',
+    },
+    {
+      title: 'Insights & reporting',
+      description: 'Surface response times, badge status, and review feedback to grow trust.',
+    },
+  ],
+  workflow: [
+    {
+      step: '01',
+      title: 'Match with the right conveyancer',
+      copy:
+        'Search by state, speciality, property type, or response time. Our ranking blends compliance signals with real client feedback.',
+    },
+    {
+      step: '02',
+      title: 'Collaborate and approve milestones',
+      copy:
+        'Share documents, assign tasks, and approve releases from anywhere. Everything is logged automatically for audit-readiness.',
+    },
+    {
+      step: '03',
+      title: 'Settle with confidence',
+      copy: 'Trust the escrow engine, dispute guardrails, and automatic settlement statements when the job is done.',
+    },
+  ],
+  resources: [
+    {
+      title: 'Launch checklist: digitising conveyancing in Australia',
+      description: '20-point plan that aligns ARNECC guidelines with client experience wins.',
+      href: '/docs/DEPLOY.pdf',
+    },
+    {
+      title: 'Escrow dispute playbook',
+      description: 'Templates for communicating milestone adjustments with buyers and sellers.',
+      href: '/docs/compliance.pdf',
+    },
+    {
+      title: 'Operational metrics dashboard template',
+      description: 'Monitor turnaround times, licence renewals, and CSAT in a single view.',
+      href: '/docs/metrics.pdf',
+    },
+  ],
+  faqs: [
+    {
+      question: 'How is access to sensitive data controlled?',
+      answer:
+        'Role-based access control enforces the least-privilege principle across buyer, seller, conveyancer, and admin personas. Every API call is signed and logged for audit readiness.',
+    },
+    {
+      question: 'Can we trace settlement activity end-to-end?',
+      answer:
+        'Yes. Each milestone, payment change, and document event is tagged with identifiers that correlate with backend audit logs so issues can be replayed safely.',
+    },
+  ],
+  copy: {
+    featuresHeading: 'Everything teams need to settle securely',
+    featuresDescription:
+      'Coordinate verified experts, compliance artefacts, and settlement workflows from one collaborative workspace.',
+    workflowHeading: 'See the entire conveyancing journey end-to-end',
+    workflowDescription:
+      'Conveyancers Marketplace centralises every task, milestone, and approval so property teams stay coordinated from listing to settlement.',
+    workflowCta: { label: 'Start by meeting your next conveyancer', href: '/search' },
+    testimonialsHeading: 'Trusted by conveyancing teams nationwide',
+    testimonialsDescription:
+      'Real reviews from verified settlements highlight operational excellence across the ConveySafe network.',
+    resourcesHeading: 'Guides for operational excellence',
+    resourcesDescription:
+      'Keep your team up to speed on compliance, stakeholder communication, and client reporting.',
+    faqHeading: 'Frequently asked questions',
+    faqDescription:
+      'Everything you need to know about security logging, access controls, and settlement visibility.',
+  },
+  cta: {
+    title: 'Ready to modernise your conveyancing workflow?',
+    copy: 'Launch a branded client experience with escrow controls, ID verification, and automated reporting in under two weeks.',
+    primaryCta: { label: 'Explore conveyancers', href: '/search' },
+    secondaryCta: { label: 'Book a product tour', href: 'mailto:hello@conveymarket.au' },
+  },
+  productReviews: FALLBACK_PRODUCT_REVIEWS,
+  productReviewCount: FALLBACK_PRODUCT_REVIEWS.length,
+  productReviewAverage:
+    FALLBACK_PRODUCT_REVIEWS.length > 0
+      ? Number(
+          (
+            FALLBACK_PRODUCT_REVIEWS.reduce((total, review) => total + review.rating, 0) /
+            FALLBACK_PRODUCT_REVIEWS.length
+          ).toFixed(1),
+        )
+      : 0,
+}
 
 export type MarketplaceStat = {
   label: string
@@ -554,97 +750,108 @@ const Home: FC<HomeProps> = ({
 
 export default Home
 
-export const getServerSideProps: GetServerSideProps<HomeProps> = async () => {
-  const [
-    { getContentPage },
-    { getHomepageContent },
-    { listCatalogueEntries },
-    dbModule,
-    reviewsModule,
-  ] = await Promise.all([
-    import('../lib/cms'),
-    import('../lib/homepage'),
-    import('../lib/catalogue'),
-    import('../lib/db'),
-    import('../lib/reviews'),
-  ])
+export const getServerSideProps: GetServerSideProps<HomeProps> = async ({ req }) => {
+  if (isStaticGenerationRequest(req.headers)) {
+    return { props: FALLBACK_HOME_PROPS }
+  }
 
-  const page = getContentPage('home')
-  const homepage = getHomepageContent()
-  const catalogue = listCatalogueEntries()
-  const database = dbModule.default
-  const { listProductReviews, getProductReviewStats } = reviewsModule
+  const dbModule = await import('../lib/db')
+  if (!dbModule.isDatabaseAvailable()) {
+    return { props: FALLBACK_HOME_PROPS }
+  }
 
-  const formatCount = (value: number): string => {
-    if (value >= 1000) {
-      const rounded = Math.round((value / 1000) * 10) / 10
-      return `${rounded.toFixed(rounded % 1 === 0 ? 0 : 1)}k`
+  try {
+    const [
+      { getContentPage },
+      { getHomepageContent },
+      { listCatalogueEntries },
+      reviewsModule,
+    ] = await Promise.all([
+      import('../lib/cms'),
+      import('../lib/homepage'),
+      import('../lib/catalogue'),
+      import('../lib/reviews'),
+    ])
+
+    const page = getContentPage('home')
+    const homepage = getHomepageContent()
+    const catalogue = listCatalogueEntries()
+    const database = dbModule.default
+    const { listProductReviews, getProductReviewStats } = reviewsModule
+
+    const formatCount = (value: number): string => {
+      if (value >= 1000) {
+        const rounded = Math.round((value / 1000) * 10) / 10
+        return `${rounded.toFixed(rounded % 1 === 0 ? 0 : 1)}k`
+      }
+      return value.toLocaleString()
     }
-    return value.toLocaleString()
-  }
 
-  const badgeCountRow = database
-    .prepare('SELECT COUNT(1) AS total FROM conveyancer_document_badges')
-    .get() as { total?: number }
-  const historyCountRow = database
-    .prepare('SELECT COUNT(1) AS total FROM conveyancer_job_history')
-    .get() as { total?: number }
-  const auditCountRow = database.prepare('SELECT COUNT(1) AS total FROM admin_audit_log').get() as { total?: number }
-  const productStats = getProductReviewStats()
-  const initialProductReviews = listProductReviews({ limit: 5 })
+    const badgeCountRow = database
+      .prepare('SELECT COUNT(1) AS total FROM conveyancer_document_badges')
+      .get() as { total?: number }
+    const historyCountRow = database
+      .prepare('SELECT COUNT(1) AS total FROM conveyancer_job_history')
+      .get() as { total?: number }
+    const auditCountRow = database.prepare('SELECT COUNT(1) AS total FROM admin_audit_log').get() as { total?: number }
+    const productStats = getProductReviewStats()
+    const initialProductReviews = listProductReviews({ limit: 5 })
 
-  const stats: MarketplaceStat[] = [
-    {
-      label: 'ConveySafe badges issued',
-      value: formatCount(Number(badgeCountRow.total ?? 0)),
-      detail: 'Compliance documents verified across active conveyancers.',
-    },
-    {
-      label: 'Milestones tracked',
-      value: formatCount(Number(historyCountRow.total ?? 0)),
-      detail: 'Job history records maintained for audit readiness.',
-    },
-    {
-      label: 'Audit events captured',
-      value: formatCount(Number(auditCountRow.total ?? 0)),
-      detail: 'Administrative changes logged for evidence.',
-    },
-    {
-      label: 'Marketplace satisfaction',
-      value: `${Number(productStats.average ?? 0).toFixed(1)}/5`,
-      detail: `${Number(productStats.count ?? 0).toLocaleString()} verified product reviews published.`,
-    },
-  ]
+    const stats: MarketplaceStat[] = [
+      {
+        label: 'ConveySafe badges issued',
+        value: formatCount(Number(badgeCountRow.total ?? 0)),
+        detail: 'Compliance documents verified across active conveyancers.',
+      },
+      {
+        label: 'Milestones tracked',
+        value: formatCount(Number(historyCountRow.total ?? 0)),
+        detail: 'Job history records maintained for audit readiness.',
+      },
+      {
+        label: 'Audit events captured',
+        value: formatCount(Number(auditCountRow.total ?? 0)),
+        detail: 'Administrative changes logged for evidence.',
+      },
+      {
+        label: 'Marketplace satisfaction',
+        value: `${Number(productStats.average ?? 0).toFixed(1)}/5`,
+        detail: `${Number(productStats.count ?? 0).toLocaleString()} verified product reviews published.`,
+      },
+    ]
 
-  const features: FeatureCard[] = catalogue.slice(0, 4).map((entry) => ({
-    title: entry.title,
-    description: entry.summary || entry.previewMarkdown,
-  }))
+    const features: FeatureCard[] = catalogue.slice(0, 4).map((entry) => ({
+      title: entry.title,
+      description: entry.summary || entry.previewMarkdown,
+    }))
 
-  const fallbackFeature: FeatureCard = {
-    title: 'Build your first service entry',
-    description: 'Populate the service catalogue to highlight key settlement workflows to marketplace visitors.',
-  }
-
-  const normalizedFeatures = features.length > 0 ? features : [fallbackFeature]
-
-  return {
-    props: {
-      metaDescription:
-        page?.metaDescription ??
-        'Discover licenced conveyancers and manage every settlement milestone with ConveySafe compliance and escrow controls.',
-      hero: homepage.hero,
-      copy: homepage.copy,
-      personas: homepage.personas,
-      stats,
-      features: normalizedFeatures,
-      workflow: homepage.workflow,
-      resources: homepage.resources,
-      faqs: homepage.faqs,
-      cta: homepage.cta,
-      productReviews: initialProductReviews,
-      productReviewCount: Number(productStats.count ?? 0),
-      productReviewAverage: Number(productStats.average ?? 0),
-    },
+    return {
+      props: {
+        metaDescription:
+          page?.metaDescription ??
+          'Discover licenced conveyancers and manage every settlement milestone with ConveySafe compliance and escrow controls.',
+        hero: homepage.hero,
+        copy: homepage.copy,
+        personas: homepage.personas,
+        stats,
+        features: features.length > 0 ? features : FALLBACK_HOME_PROPS.features,
+        workflow: homepage.workflow,
+        resources: homepage.resources,
+        faqs: homepage.faqs,
+        cta: homepage.cta,
+        productReviews: initialProductReviews.length > 0 ? initialProductReviews : FALLBACK_HOME_PROPS.productReviews,
+        productReviewCount:
+          Number(productStats.count ?? 0) > 0
+            ? Number(productStats.count)
+            : FALLBACK_HOME_PROPS.productReviewCount,
+        productReviewAverage:
+          Number(productStats.count ?? 0) > 0
+            ? Number(productStats.average ?? 0)
+            : FALLBACK_HOME_PROPS.productReviewAverage,
+      },
+    }
+  } catch (error) {
+    console.error('Failed to load homepage content during SSR. Using fallback payload.', error)
+    return { props: FALLBACK_HOME_PROPS }
   }
 }

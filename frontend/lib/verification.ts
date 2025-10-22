@@ -1,5 +1,22 @@
 import db from './db'
 
+const isDatabaseUnavailable = (error: unknown): boolean => {
+  return error instanceof Error && error.message === 'database_unavailable'
+}
+
+const defaultVerificationSummary = (role: 'buyer' | 'seller' | 'conveyancer' | 'admin' = 'buyer'): VerificationSummary => ({
+  overallVerified: false,
+  email: { verified: false, verifiedAt: null },
+  phone: { verified: false, phoneNumber: null, verifiedAt: null },
+  conveyancing: {
+    required: role === 'conveyancer',
+    status: 'pending',
+    reference: null,
+    verifiedAt: null,
+    reason: null,
+  },
+})
+
 export type ConveyancerGovStatus = 'pending' | 'submitted' | 'approved' | 'declined'
 
 export type VerificationSummary = {
@@ -23,81 +40,88 @@ const normalizeStatus = (status: unknown): ConveyancerGovStatus => {
 }
 
 export const recomputeVerificationStatus = (userId: number): VerificationSummary => {
-  const row = db
-    .prepare(
-      `SELECT id, role, email_verified_at, phone_verified_at, is_verified, phone
-         FROM users WHERE id = ?`
-    )
-    .get(userId) as
-    | {
-        id: number
-        role: 'buyer' | 'seller' | 'conveyancer' | 'admin'
-        email_verified_at: string | null
-        phone_verified_at: string | null
-        is_verified: number
-        phone: string | null
-      }
-    | undefined
-
-  if (!row) {
-    throw new Error('user_not_found')
-  }
-
-  let conveyancing: VerificationSummary['conveyancing'] = {
-    required: row.role === 'conveyancer',
-    status: 'pending',
-    reference: null,
-    verifiedAt: null,
-    reason: null,
-  }
-
-  if (row.role === 'conveyancer') {
-    const profile = db
+  try {
+    const row = db
       .prepare(
-        `SELECT gov_status, gov_check_reference, gov_verified_at, gov_denial_reason, verified
-           FROM conveyancer_profiles
-          WHERE user_id = ?`
+        `SELECT id, role, email_verified_at, phone_verified_at, is_verified, phone
+           FROM users WHERE id = ?`
       )
       .get(userId) as
       | {
-          gov_status: string | null
-          gov_check_reference: string | null
-          gov_verified_at: string | null
-          gov_denial_reason: string | null
-          verified: number
+          id: number
+          role: 'buyer' | 'seller' | 'conveyancer' | 'admin'
+          email_verified_at: string | null
+          phone_verified_at: string | null
+          is_verified: number
+          phone: string | null
         }
       | undefined
 
-    if (profile) {
-      conveyancing = {
-        required: true,
-        status: normalizeStatus(profile.gov_status),
-        reference: profile.gov_check_reference ?? null,
-        verifiedAt: profile.gov_verified_at ?? null,
-        reason: profile.gov_denial_reason ?? null,
+    if (!row) {
+      throw new Error('user_not_found')
+    }
+
+    let conveyancing: VerificationSummary['conveyancing'] = {
+      required: row.role === 'conveyancer',
+      status: 'pending',
+      reference: null,
+      verifiedAt: null,
+      reason: null,
+    }
+
+    if (row.role === 'conveyancer') {
+      const profile = db
+        .prepare(
+          `SELECT gov_status, gov_check_reference, gov_verified_at, gov_denial_reason, verified
+             FROM conveyancer_profiles
+            WHERE user_id = ?`
+        )
+        .get(userId) as
+        | {
+            gov_status: string | null
+            gov_check_reference: string | null
+            gov_verified_at: string | null
+            gov_denial_reason: string | null
+            verified: number
+          }
+        | undefined
+
+      if (profile) {
+        conveyancing = {
+          required: true,
+          status: normalizeStatus(profile.gov_status),
+          reference: profile.gov_check_reference ?? null,
+          verifiedAt: profile.gov_verified_at ?? null,
+          reason: profile.gov_denial_reason ?? null,
+        }
       }
     }
-  }
 
-  const emailVerified = Boolean(row.email_verified_at)
-  const phoneVerified = Boolean(row.phone_verified_at)
-  const conveyancerVerified = conveyancing.required ? conveyancing.status === 'approved' : true
-  const overall = emailVerified && phoneVerified && conveyancerVerified
+    const emailVerified = Boolean(row.email_verified_at)
+    const phoneVerified = Boolean(row.phone_verified_at)
+    const conveyancerVerified = conveyancing.required ? conveyancing.status === 'approved' : true
+    const overall = emailVerified && phoneVerified && conveyancerVerified
 
-  db.prepare('UPDATE users SET is_verified = ? WHERE id = ?').run(overall ? 1 : 0, userId)
-  if (row.role === 'conveyancer') {
-    db.prepare('UPDATE conveyancer_profiles SET verified = ? WHERE user_id = ?').run(overall ? 1 : 0, userId)
-  }
+    db.prepare('UPDATE users SET is_verified = ? WHERE id = ?').run(overall ? 1 : 0, userId)
+    if (row.role === 'conveyancer') {
+      db.prepare('UPDATE conveyancer_profiles SET verified = ? WHERE user_id = ?').run(overall ? 1 : 0, userId)
+    }
 
-  return {
-    overallVerified: overall,
-    email: { verified: emailVerified, verifiedAt: row.email_verified_at ?? null },
-    phone: {
-      verified: phoneVerified,
-      phoneNumber: row.phone ?? null,
-      verifiedAt: row.phone_verified_at ?? null,
-    },
-    conveyancing,
+    return {
+      overallVerified: overall,
+      email: { verified: emailVerified, verifiedAt: row.email_verified_at ?? null },
+      phone: {
+        verified: phoneVerified,
+        phoneNumber: row.phone ?? null,
+        verifiedAt: row.phone_verified_at ?? null,
+      },
+      conveyancing,
+    }
+  } catch (error) {
+    if (isDatabaseUnavailable(error)) {
+      return defaultVerificationSummary()
+    }
+    throw error
   }
 }
 

@@ -6,6 +6,10 @@ import type { SerializeOptions } from 'cookie'
 import db from './db'
 import { getVerificationSummary, type VerificationSummary } from './verification'
 
+const isDatabaseUnavailable = (error: unknown): boolean => {
+  return error instanceof Error && error.message === 'database_unavailable'
+}
+
 type JwtSession = {
   sub: number
   role: 'buyer' | 'seller' | 'conveyancer' | 'admin'
@@ -152,11 +156,18 @@ const mapUser = (row: any): SessionUser | null => {
 }
 
 export const getUserById = (id: number): SessionUser | null => {
-  const stmt = db.prepare(
-    `SELECT id, email, role, full_name, status, phone, profile_image_data, profile_image_mime, profile_image_updated_at
-       FROM users WHERE id = ?`
-  )
-  return mapUser(stmt.get(id))
+  try {
+    const stmt = db.prepare(
+      `SELECT id, email, role, full_name, status, phone, profile_image_data, profile_image_mime, profile_image_updated_at
+         FROM users WHERE id = ?`
+    )
+    return mapUser(stmt.get(id))
+  } catch (error) {
+    if (!isDatabaseUnavailable(error)) {
+      console.warn('Failed to load user by id', error)
+    }
+    return null
+  }
 }
 
 type RequestWithCookies = {

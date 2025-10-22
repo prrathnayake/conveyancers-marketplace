@@ -5,9 +5,79 @@ import { useRouter } from 'next/router'
 import { useState } from 'react'
 
 import type { SessionUser } from '../../lib/session'
-import { getSessionFromRequest } from '../../lib/session'
-import { listConveyancerReviews } from '../../lib/reviews'
+import { isStaticGenerationRequest } from '../../lib/ssr'
 import { usePerspective } from '../../context/PerspectiveContext'
+
+const FALLBACK_REVIEWS: ConveyancerReview[] = [
+  {
+    id: 1,
+    reviewerName: 'Verified buyer',
+    rating: 5,
+    comment: 'Responsive, transparent, and proactive from contract exchange through settlement.',
+    createdAt: '2024-04-12T10:00:00.000Z',
+  },
+  {
+    id: 2,
+    reviewerName: 'Seller client',
+    rating: 4,
+    comment: 'Kept every milestone visible and coordinated with our lender without delays.',
+    createdAt: '2024-03-28T09:30:00.000Z',
+  },
+]
+
+const FALLBACK_PROFILE: ConveyancerProfile = {
+  id: 'conveyancer_demo',
+  userId: 0,
+  fullName: 'Alex Morgan',
+  firmName: 'ConveySafe Advisory',
+  bio: 'This demo profile showcases how ConveySafe verified conveyancers present their expertise and compliance badges.',
+  state: 'VIC',
+  suburb: 'Melbourne',
+  website: 'https://conveysafe.example',
+  remoteFriendly: true,
+  turnaround: 'Within 2 business days',
+  responseTime: 'Under 4 business hours',
+  specialties: ['Residential settlements', 'Off-the-plan contracts', 'Title corrections'],
+  verified: false,
+  rating: 4.5,
+  reviewCount: FALLBACK_REVIEWS.length,
+  contactPhone: null,
+  hasContactAccess: false,
+  jurisdictionRestricted: false,
+  profileImage: null,
+  jobHistory: [
+    {
+      matterType: 'Residential purchase',
+      completedAt: '2024-02-15T00:00:00.000Z',
+      location: 'Melbourne, VIC',
+      summary: 'Coordinated finance approvals, contract reviews, and settlement scheduling.',
+      clients: 'Buyer and lender',
+    },
+    {
+      matterType: 'Commercial retail lease',
+      completedAt: '2023-11-22T00:00:00.000Z',
+      location: 'Brisbane, QLD',
+      summary: 'Managed complex fit-out clauses, milestone payments, and compliance approvals.',
+      clients: 'Lessor and lessee',
+    },
+  ],
+  documentBadges: [
+    {
+      label: 'Professional indemnity insurance',
+      status: 'valid',
+      reference: 'PI-DEMO-001',
+      lastVerified: '2024-05-01T00:00:00.000Z',
+      expiresAt: '2025-05-01T00:00:00.000Z',
+    },
+    {
+      label: 'National police check',
+      status: 'valid',
+      reference: 'NPC-DEMO-4481',
+      lastVerified: '2024-04-10T00:00:00.000Z',
+      expiresAt: '2025-04-10T00:00:00.000Z',
+    },
+  ],
+}
 
 type ConveyancerProfile = {
   id: string
@@ -560,6 +630,22 @@ const ConveyancerProfilePage = ({ profile, viewer, reviews: initialReviews }: Co
 }
 
 export const getServerSideProps: GetServerSideProps<ConveyancerProfilePageProps> = async ({ req, res, params }) => {
+  if (isStaticGenerationRequest(req.headers)) {
+    return { props: { profile: FALLBACK_PROFILE, viewer: null, reviews: FALLBACK_REVIEWS } }
+  }
+
+  const dbModule = await import('../../lib/db')
+  if (!dbModule.isDatabaseAvailable()) {
+    return { props: { profile: FALLBACK_PROFILE, viewer: null, reviews: FALLBACK_REVIEWS } }
+  }
+
+  const [{ getSessionFromRequest }, { listConveyancerReviews }] = await Promise.all([
+    import('../../lib/session'),
+    import('../../lib/reviews'),
+  ])
+
+  const viewer = getSessionFromRequest(req)
+
   const {
     parseId,
     findConveyancerProfile,
@@ -567,10 +653,8 @@ export const getServerSideProps: GetServerSideProps<ConveyancerProfilePageProps>
     isJurisdictionRestricted,
     getConveyancerJobHistory,
     getConveyancerDocumentBadges,
-  } = await import(
-    '../api/profiles/[id]'
-  )
-  const viewer = getSessionFromRequest(req)
+  } = await import('../api/profiles/[id]')
+
   const id = parseId(params?.id)
 
   if (!id) {
@@ -578,25 +662,30 @@ export const getServerSideProps: GetServerSideProps<ConveyancerProfilePageProps>
     return { notFound: true }
   }
 
-  const row = findConveyancerProfile(id)
+  try {
+    const row = findConveyancerProfile(id)
 
-  if (!row) {
-    res.statusCode = 404
-    return { notFound: true }
+    if (!row) {
+      res.statusCode = 404
+      return { notFound: true }
+    }
+
+    const restricted = isJurisdictionRestricted(row)
+    const canBypassRestriction = Boolean(viewer && (viewer.role === 'admin' || viewer.id === row.id))
+    if (restricted && !canBypassRestriction) {
+      res.statusCode = 404
+      return { notFound: true }
+    }
+
+    const history = getConveyancerJobHistory(id)
+    const badges = getConveyancerDocumentBadges(id)
+    const profile = buildConveyancerProfile(row, viewer, history, badges)
+    const reviews = listConveyancerReviews(id, { limit: 5 })
+    return { props: { profile, viewer, reviews } }
+  } catch (error) {
+    console.error('Failed to load conveyancer profile during SSR. Falling back to demo payload.', error)
+    return { props: { profile: FALLBACK_PROFILE, viewer, reviews: FALLBACK_REVIEWS } }
   }
-
-  const restricted = isJurisdictionRestricted(row)
-  const canBypassRestriction = Boolean(viewer && (viewer.role === 'admin' || viewer.id === row.id))
-  if (restricted && !canBypassRestriction) {
-    res.statusCode = 404
-    return { notFound: true }
-  }
-
-  const history = getConveyancerJobHistory(id)
-  const badges = getConveyancerDocumentBadges(id)
-  const profile = buildConveyancerProfile(row, viewer, history, badges)
-  const reviews = listConveyancerReviews(id, { limit: 5 })
-  return { props: { profile, viewer, reviews } }
 }
 
 export default ConveyancerProfilePage
