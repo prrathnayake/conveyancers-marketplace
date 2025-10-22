@@ -82,7 +82,7 @@ JobRecord JobsRepository::CreateJob(const JobCreateInput &input) const {
       input.conveyancer_id.empty() ? nullptr : input.conveyancer_id.c_str(),
       input.state.empty() ? nullptr : input.state.c_str(),
       input.property_type.empty() ? nullptr : input.property_type.c_str(),
-      input.status.empty() ? pqxx::zview("quote_pending") : pqxx::zview(input.status.c_str()));
+      input.status.empty() ? "quote_pending" : input.status.c_str());
   txn.commit();
   return RowToJob(row);
 }
