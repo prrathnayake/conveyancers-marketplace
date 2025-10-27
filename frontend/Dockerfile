@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1
 
-FROM node:20-alpine AS base
+FROM node:20.11-alpine3.18 AS base
+
+# Ensure predictable UID/GID for the application user.
+USER root
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 
@@ -17,23 +20,30 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY frontend ./
 COPY tooling /tooling
 ENV NODE_ENV=production
-RUN npm run build
+RUN npm run build && npm prune --omit=dev
 
 FROM base AS runner
 ENV NODE_ENV=production
+
 # Expose the port Next.js listens on
 EXPOSE 3000
 
 # hadolint ignore=DL3018
-RUN apk add --no-cache libstdc++
+RUN apk add --no-cache dumb-init libstdc++ curl
 
 # Copy only the runtime assets to keep the image leaner
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/next.config.js ./next.config.js
-COPY --from=builder /app/tsconfig.json ./tsconfig.json
-COPY --from=builder /tooling /tooling
+COPY --from=builder --chown=node:node /app/public ./public
+COPY --from=builder --chown=node:node /app/.next ./.next
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/package.json ./package.json
+COPY --from=builder --chown=node:node /app/next.config.js ./next.config.js
+COPY --from=builder --chown=node:node /app/tsconfig.json ./tsconfig.json
+COPY --from=builder --chown=node:node /tooling /tooling
 
+USER node
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=5 \
+  CMD curl -fsS http://127.0.0.1:3000/ || exit 1
+
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["npm", "run", "start"]

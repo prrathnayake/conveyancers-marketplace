@@ -4,9 +4,15 @@ x-common-env: &common-env
   env_file:
     - ../.env
 
+x-service-defaults: &service-defaults
+  <<: *common-env
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+
 services:
   nginx:
-    <<: *common-env
+    <<: *service-defaults
     image: nginx:1.25-alpine
     container_name: nginx
     volumes:
@@ -30,17 +36,39 @@ services:
       fi;
       exec nginx -g "daemon off;";
       '
-    depends_on: [frontend, gateway]
+    depends_on:
+      frontend:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
   postgres:
-    <<: *common-env
+    <<: *service-defaults
     image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ../backend/sql/1_schema.sql:/docker-entrypoint-initdb.d/1_schema.sql:ro
       - ../backend/sql/2_seed.sql:/docker-entrypoint-initdb.d/2_seed.sql:ro
     ports: ["5432:5432"]
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h 127.0.0.1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
   frontend:
-    <<: *common-env
+    <<: *service-defaults
     build:
       context: ..
       dockerfile: frontend/Dockerfile
@@ -54,9 +82,13 @@ services:
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD}
       ADMIN_SEED_PASSWORD_HASH: ${ADMIN_SEED_PASSWORD_HASH}
       DB_URL: ${DB_URL}
-    depends_on: [gateway, postgres]
+    depends_on:
+      gateway:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
   admin-portal:
-    <<: *common-env
+    <<: *service-defaults
     build:
       context: ..
       dockerfile: admin-portal/Dockerfile
@@ -71,12 +103,16 @@ services:
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD}
       ADMIN_SEED_PASSWORD_HASH: ${ADMIN_SEED_PASSWORD_HASH}
       DB_URL: ${DB_URL}
-    depends_on: [gateway, postgres]
+    depends_on:
+      gateway:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     ports: ["4300:4300"]
     volumes:
       - ../logs:/workspace/logs:ro
   gateway:
-    <<: *common-env
+    <<: *service-defaults
     build:
       context: ../backend
       dockerfile: gateway/Dockerfile
@@ -87,28 +123,42 @@ services:
       IDENTITY_PORT: ${IDENTITY_PORT}
       PSP_PROVIDER: ${PSP_PROVIDER}
       PSP_SECRET: ${PSP_SECRET}
-    depends_on: [postgres, identity, jobs, payments]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      identity:
+        condition: service_healthy
+      jobs:
+        condition: service_healthy
+      payments:
+        condition: service_healthy
     ports: ["8080:8080"]
   identity:
-    <<: *common-env
+    <<: *service-defaults
     build:
       context: ../backend
       dockerfile: services/identity/Dockerfile
     environment:
       DB_URL: ${DB_URL}
       JWT_SECRET: ${JWT_SECRET}
-    depends_on: [postgres]
+      IDENTITY_PORT: ${IDENTITY_PORT:-7001}
+    depends_on:
+      postgres:
+        condition: service_healthy
   jobs:
-    <<: *common-env
+    <<: *service-defaults
     build:
       context: ../backend
       dockerfile: services/jobs/Dockerfile
     environment:
       DB_URL: ${DB_URL}
-    depends_on: [postgres]
-    ports: ["9002:9002"]  # WebSocket chat
+      JOBS_PORT: ${JOBS_PORT:-9002}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports: ["${JOBS_PORT:-9002}:${JOBS_PORT:-9002}"]  # WebSocket chat
   payments:
-    <<: *common-env
+    <<: *service-defaults
     build:
       context: ../backend
       dockerfile: services/payments/Dockerfile
@@ -116,6 +166,9 @@ services:
       DB_URL: ${DB_URL}
       PSP_PROVIDER: ${PSP_PROVIDER}
       PSP_SECRET: ${PSP_SECRET}
-    depends_on: [postgres]
+      PAYMENTS_PORT: ${PAYMENTS_PORT:-9103}
+    depends_on:
+      postgres:
+        condition: service_healthy
 volumes:
   pgdata: {}
