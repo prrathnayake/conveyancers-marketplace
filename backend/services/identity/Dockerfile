@@ -40,7 +40,7 @@ USER appuser
 EXPOSE 7001
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
-  CMD-SHELL curl -fsS "http://127.0.0.1:${IDENTITY_PORT:-8081}/health" || exit 1
+  CMD curl -fsS "http://127.0.0.1:${IDENTITY_PORT:-8081}/health" || exit 1
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/usr/local/bin/identity"]
