@@ -10,7 +10,7 @@ scrape_configs:
   - job_name: otel_collector
     static_configs:
       - targets:
-          - otel:8888
+          - otel:8889
   - job_name: loki
     metrics_path: /metrics
     static_configs:
