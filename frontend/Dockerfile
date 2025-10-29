@@ -5,13 +5,18 @@ FROM node:20.11-alpine3.18 AS base
 # Ensure predictable UID/GID for the application user.
 USER root
 WORKDIR /app
-ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_mintimeout=20000 \
+    npm_config_fetch_retry_maxtimeout=120000 \
+    npm_config_fetch_timeout=120000 \
+    npm_config_registry="https://registry.npmjs.org"
 
 FROM base AS deps
 # hadolint ignore=DL3018
 RUN apk add --no-cache python3 make g++
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN npm ci --no-audit --prefer-offline
 
 FROM base AS builder
 # hadolint ignore=DL3018
