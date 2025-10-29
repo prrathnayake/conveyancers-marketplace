@@ -1,4 +1,5 @@
-FROM debian:bookworm-slim as build
+ARG DEBIAN_IMAGE=debian:bookworm-slim
+FROM ${DEBIAN_IMAGE} as build
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -17,7 +18,7 @@ RUN rm -rf build \
     && cmake -S . -B build \
     && cmake --build build -j --target gateway
 
-FROM debian:bookworm-slim
+FROM ${DEBIAN_IMAGE}
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
 RUN apt-get update \
@@ -29,7 +30,7 @@ RUN apt-get update \
         libgcc-s1 \
         libssl3 \
         libpq5 \
-        libpqxx-6.4 \
+        libpqxx-7.8t64 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --system --create-home --home-dir /home/appuser --shell /usr/sbin/nologin appuser
