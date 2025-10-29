@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 
-FROM node:20.11-alpine3.18 AS base
+ARG NODE_IMAGE=node:20-alpine3.20
+FROM ${NODE_IMAGE} AS base
 
 USER root
 WORKDIR /workspace
