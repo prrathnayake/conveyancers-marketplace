@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "next dev -p 5300",
     "build": "next build",
-    "start": "next start -p 4300",
+    "start": "next start -H 0.0.0.0 -p 4300",
     "check:backend": "node scripts/check-backend-coverage.cjs",
     "test": "jest"
   },

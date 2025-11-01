@@ -33,7 +33,8 @@ RUN npm run build && npm prune --omit=dev
 
 FROM base AS runner
 WORKDIR /workspace/admin-portal
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    HOST=0.0.0.0
 ENV NEXT_TELEMETRY_DISABLED=1
 # hadolint ignore=DL3018
 RUN apk add --no-cache dumb-init libstdc++ curl
@@ -51,8 +52,8 @@ RUN mkdir -p ../data && chown node:node ../data
 EXPOSE 4300
 USER node
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=5 \
-  CMD curl -fsS http://127.0.0.1:4300/ || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=5 \
+  CMD nc -z 127.0.0.1 4300
 
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["npm", "run", "start"]

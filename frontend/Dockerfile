@@ -28,7 +28,8 @@ ENV NODE_ENV=production
 RUN npm run build && npm prune --omit=dev
 
 FROM base AS runner
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    HOST=0.0.0.0
 
 # Expose the port Next.js listens on
 EXPOSE 3000
@@ -47,8 +48,8 @@ COPY --from=builder --chown=node:node /tooling /tooling
 
 USER node
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=5 \
-  CMD curl -fsS http://127.0.0.1:3000/ || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=5 \
+  CMD nc -z 127.0.0.1 3000
 
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["npm", "run", "start"]
