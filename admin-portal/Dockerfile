@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-ARG NODE_IMAGE=node:20-alpine3.20
+ARG NODE_IMAGE=node:18.20.3-alpine3.19
 FROM ${NODE_IMAGE} AS base
 
 USER root
@@ -39,6 +39,7 @@ ENV NODE_ENV=production \
 ENV NEXT_TELEMETRY_DISABLED=1
 # hadolint ignore=DL3018
 RUN apk add --no-cache dumb-init libstdc++ curl
+RUN mkdir -p /workspace/logs && chown -R node:node /workspace
 COPY --from=builder --chown=node:node /workspace/admin-portal/public ./public
 COPY --from=builder --chown=node:node /workspace/admin-portal/.next ./.next
 COPY --from=builder --chown=node:node /workspace/admin-portal/node_modules ./node_modules

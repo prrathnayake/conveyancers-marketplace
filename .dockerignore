@@ -1,5 +1,14 @@
 .git
-logs
+logs/
+codex-log
+codex-log/
+codex-log.md
+*.env
+*.env.local
+.env
+.env.local
+infra/.env
+infra/env/.env
 frontend/node_modules
 admin-portal/node_modules
 **/node_modules

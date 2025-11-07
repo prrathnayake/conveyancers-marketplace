@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "../../common/env_loader.h"
-#include "../../common/security.h"
+#include "../../common/logger.h"
 #include "../../common/persistence/audit_repository.h"
 #include "../../common/persistence/escrow_repository.h"
 #include "../../common/persistence/postgres.h"
@@ -58,6 +58,8 @@ json EscrowToJson(const persistence::EscrowRecord &record) {
 int main() {
   env::LoadEnvironment();
 
+  auto &logger = logging::ServiceLogger::Instance("payments");
+
   const auto database_url = GetEnvOrDefault("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/conveyancers");
   auto config = persistence::MakePostgresConfigFromEnv("DATABASE_URL", database_url);
 
@@ -85,9 +87,10 @@ int main() {
       const auto record = escrow.CreateEscrow(input);
       audit.RecordEvent(body.value("actorId", ""), "escrow_created", record.job_id,
                         json{{"escrowId", record.id}, {"amountCents", record.amount_authorised_cents}}, req.remote_addr);
+      logger.Info("escrow_created", json{{"escrowId", record.id}, {"jobId", record.job_id}}.dump());
       SendJson(res, EscrowToJson(record), 201);
     } catch (const std::exception &ex) {
-      security::LogEvent("payments", "error", "create_escrow_failed", ex.what());
+      logger.Error("create_escrow_failed", ex.what());
       SendJson(res, json{{"error", "create_escrow_failed"}}, 500);
     }
   });
@@ -109,9 +112,10 @@ int main() {
         SendJson(res, json{{"error", "not_found"}}, 404);
         return;
       }
+      logger.Info("escrow_released", json{{"escrowId", escrow_id}, {"amountCents", amount}}.dump());
       SendJson(res, EscrowToJson(*updated));
     } catch (const std::exception &ex) {
-      security::LogEvent("payments", "error", "release_escrow_failed", ex.what());
+      logger.Error("release_escrow_failed", ex.what());
       SendJson(res, json{{"error", "release_escrow_failed"}}, 500);
     }
   });
@@ -125,7 +129,7 @@ int main() {
       }
       SendJson(res, EscrowToJson(*record));
     } catch (const std::exception &ex) {
-      security::LogEvent("payments", "error", "get_escrow_failed", ex.what());
+      logger.Error("get_escrow_failed", ex.what());
       SendJson(res, json{{"error", "get_escrow_failed"}}, 500);
     }
   });
@@ -139,13 +143,13 @@ int main() {
       }
       SendJson(res, json{{"escrow", array}});
     } catch (const std::exception &ex) {
-      security::LogEvent("payments", "error", "list_escrow_failed", ex.what());
+      logger.Error("list_escrow_failed", ex.what());
       SendJson(res, json{{"error", "list_escrow_failed"}}, 500);
     }
   });
 
   const int port = ParseInt(GetEnvOrDefault("PAYMENTS_PORT", "8083"), 8083);
-  security::LogEvent("payments", "info", "starting_payments_service", json{{"port", port}}.dump());
+  logger.Info("starting_payments_service", json{{"port", port}}.dump());
   server.listen("0.0.0.0", port);
   return 0;
 }

@@ -18,7 +18,7 @@
 #include <vector>
 
 #include "../../common/env_loader.h"
-#include "../../common/security.h"
+#include "../../common/logger.h"
 #include "../../common/persistence/audit_repository.h"
 #include "../../common/persistence/jobs_repository.h"
 #include "../../common/persistence/postgres.h"
@@ -40,6 +40,11 @@
 using json = nlohmann::json;
 
 namespace {
+
+logging::ServiceLogger &JobsLogger() {
+  static auto &logger = logging::ServiceLogger::Instance("jobs");
+  return logger;
+}
 
 int ParseInt(const std::string &value, int fallback);
 
@@ -327,7 +332,7 @@ class RedisAdapter {
       socket.ReadLine();
       return true;
     } catch (const std::exception &ex) {
-      security::LogEvent("jobs", "error", "redis_publish_failed", ex.what());
+      JobsLogger().Error("redis_publish_failed", ex.what());
       return false;
     }
   }
@@ -509,7 +514,7 @@ class ClamAvAdapter {
       }
       return true;
     } catch (const std::exception &ex) {
-      security::LogEvent("jobs", "warn", "clamav_unavailable", ex.what());
+      JobsLogger().Warn("clamav_unavailable", ex.what());
       return true;
     }
   }
@@ -611,7 +616,7 @@ int main() {
                         json{{"conveyancerId", input.conveyancer_id}, {"state", input.state}}, req.remote_addr);
       SendJson(res, JobToJson(job), 201);
     } catch (const std::exception &ex) {
-      security::LogEvent("jobs", "error", "create_job_failed", ex.what());
+      JobsLogger().Error("create_job_failed", ex.what());
       SendJson(res, json{{"error", "create_job_failed"}}, 500);
     }
   });
@@ -634,7 +639,7 @@ int main() {
       }
       SendJson(res, json{{"jobs", array}});
     } catch (const std::exception &ex) {
-      security::LogEvent("jobs", "error", "list_jobs_failed", ex.what());
+      JobsLogger().Error("list_jobs_failed", ex.what());
       SendJson(res, json{{"error", "list_jobs_failed"}}, 500);
     }
   });
@@ -648,7 +653,7 @@ int main() {
       }
       SendJson(res, json{{"templates", payload}});
     } catch (const std::exception &ex) {
-      security::LogEvent("jobs", "error", "list_templates_failed", ex.what());
+      JobsLogger().Error("list_templates_failed", ex.what());
       SendJson(res, json{{"error", "list_templates_failed"}}, 500);
     }
   });
@@ -726,7 +731,7 @@ int main() {
       audit.RecordEvent(actor_id, "template_version_created", record.id, audit_details, req.remote_addr);
       SendJson(res, TemplateToJson(record), input.template_id.empty() ? 201 : 200);
     } catch (const std::exception &ex) {
-      security::LogEvent("jobs", "error", "upsert_template_failed", ex.what());
+      JobsLogger().Error("upsert_template_failed", ex.what());
       SendJson(res, json{{"error", "upsert_template_failed"}}, 500);
     }
   });
@@ -740,7 +745,7 @@ int main() {
       }
       SendJson(res, JobToJson(*job));
     } catch (const std::exception &ex) {
-      security::LogEvent("jobs", "error", "get_job_failed", ex.what());
+      JobsLogger().Error("get_job_failed", ex.what());
       SendJson(res, json{{"error", "get_job_failed"}}, 500);
     }
   });
@@ -758,7 +763,7 @@ int main() {
                         json{{"milestoneId", milestone.id}, {"amountCents", milestone.amount_cents}}, req.remote_addr);
       SendJson(res, MilestoneToJson(milestone), 201);
     } catch (const std::exception &ex) {
-      security::LogEvent("jobs", "error", "create_milestone_failed", ex.what());
+      JobsLogger().Error("create_milestone_failed", ex.what());
       SendJson(res, json{{"error", "create_milestone_failed"}}, 500);
     }
   });
@@ -772,7 +777,7 @@ int main() {
       }
       SendJson(res, json{{"milestones", array}});
     } catch (const std::exception &ex) {
-      security::LogEvent("jobs", "error", "list_milestones_failed", ex.what());
+      JobsLogger().Error("list_milestones_failed", ex.what());
       SendJson(res, json{{"error", "list_milestones_failed"}}, 500);
     }
   });
@@ -815,7 +820,7 @@ int main() {
       response["uploadUrl"] = upload_url;
       SendJson(res, response, 201);
     } catch (const std::exception &ex) {
-      security::LogEvent("jobs", "error", "store_document_failed", ex.what());
+      JobsLogger().Error("store_document_failed", ex.what());
       SendJson(res, json{{"error", "store_document_failed"}}, 500);
     }
   });
@@ -829,7 +834,7 @@ int main() {
       }
       SendJson(res, json{{"documents", array}});
     } catch (const std::exception &ex) {
-      security::LogEvent("jobs", "error", "list_documents_failed", ex.what());
+      JobsLogger().Error("list_documents_failed", ex.what());
       SendJson(res, json{{"error", "list_documents_failed"}}, 500);
     }
   });
@@ -846,7 +851,7 @@ int main() {
       redis.Publish("jobs:" + job_id, payload);
       SendJson(res, payload, 201);
     } catch (const std::exception &ex) {
-      security::LogEvent("jobs", "error", "append_message_failed", ex.what());
+      JobsLogger().Error("append_message_failed", ex.what());
       SendJson(res, json{{"error", "append_message_failed"}}, 500);
     }
   });
@@ -856,13 +861,13 @@ int main() {
       const auto messages = jobs.FetchMessages(req.matches[1], 100);
       SendJson(res, json{{"messages", messages}});
     } catch (const std::exception &ex) {
-      security::LogEvent("jobs", "error", "list_messages_failed", ex.what());
+      JobsLogger().Error("list_messages_failed", ex.what());
       SendJson(res, json{{"error", "list_messages_failed"}}, 500);
     }
   });
 
   const int port = ParseInt(GetEnvOrDefault("JOBS_PORT", "8082"), 8082);
-  security::LogEvent("jobs", "info", "starting_jobs_service", json{{"port", port}}.dump());
+  JobsLogger().Info("starting_jobs_service", json{{"port", port}}.dump());
   server.listen("0.0.0.0", port);
   return 0;
 }

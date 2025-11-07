@@ -82,11 +82,14 @@ services:
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD}
       ADMIN_SEED_PASSWORD_HASH: ${ADMIN_SEED_PASSWORD_HASH}
       DB_URL: ${DB_URL}
+      LOG_DIRECTORY: ${LOG_DIRECTORY}
     depends_on:
       gateway:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    volumes:
+      - ../logs:/workspace/logs
   admin-portal:
     <<: *service-defaults
     build:
@@ -110,7 +113,7 @@ services:
         condition: service_healthy
     ports: ["4300:4300"]
     volumes:
-      - ../logs:/workspace/logs:ro
+      - ../logs:/workspace/logs
   gateway:
     <<: *service-defaults
     build:

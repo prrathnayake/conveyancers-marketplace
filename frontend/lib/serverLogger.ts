@@ -35,8 +35,21 @@ const serviceName = detectServiceName()
 const resolveLogDirectory = (): string => {
   const configured = process.env.LOG_DIRECTORY?.trim()
   const target = configured && configured.length > 0 ? path.resolve(configured) : path.resolve(process.cwd(), '..', 'logs')
-  fs.mkdirSync(target, { recursive: true })
-  return target
+  try {
+    fs.mkdirSync(target, { recursive: true })
+    return target
+  } catch (error) {
+    const fallback = path.join('/tmp', serviceName, 'logs')
+    try {
+      fs.mkdirSync(fallback, { recursive: true })
+    } catch (fallbackError) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to create fallback log directory', fallbackError)
+    }
+    // eslint-disable-next-line no-console
+    console.warn('Falling back to writable log directory', { target, fallback, error })
+    return fallback
+  }
 }
 
 const logDirectory = resolveLogDirectory()

@@ -30,7 +30,7 @@ RUN apt-get update \
         libgcc-s1 \
         libssl3 \
         libpq5 \
-        libpqxx-7.8t64 \
+        libpqxx-6.4 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --system --create-home --home-dir /home/appuser --shell /usr/sbin/nologin appuser

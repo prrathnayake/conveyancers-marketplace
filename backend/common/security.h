@@ -2,14 +2,9 @@
 #define CONVEYANCERS_MARKETPLACE_SECURITY_H
 
 #include <algorithm>
-#include <chrono>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
 #include <functional>
 #include <initializer_list>
-#include <iostream>
-#include <iomanip>
 #include <map>
 #include <mutex>
 #include <sstream>
@@ -17,156 +12,11 @@
 #include <string_view>
 #include <tuple>
 #include <utility>
-#include <vector>
-#include <cstdio>
-#include <ctime>
-#include <system_error>
 
 #include "../third_party/httplib.h"
+#include "logger.h"
 
 namespace security {
-
-namespace detail {
-
-inline std::string EscapeJson(std::string_view value) {
-  std::string escaped;
-  escaped.reserve(value.size());
-  for (const char ch : value) {
-    switch (ch) {
-      case '"':
-        escaped += "\\\"";
-        break;
-      case '\\':
-        escaped += "\\\\";
-        break;
-      case '\n':
-        escaped += "\\n";
-        break;
-      case '\r':
-        escaped += "\\r";
-        break;
-      case '\t':
-        escaped += "\\t";
-        break;
-      default:
-        if (static_cast<unsigned char>(ch) < 0x20) {
-          char buffer[7];
-          std::snprintf(buffer, sizeof(buffer), "\\u%04x", ch);
-          escaped += buffer;
-        } else {
-          escaped += ch;
-        }
-        break;
-    }
-  }
-  return escaped;
-}
-
-inline std::string TimestampNow() {
-  using clock = std::chrono::system_clock;
-  const auto now = clock::now();
-  const auto seconds = clock::to_time_t(now);
-#ifdef _WIN32
-  std::tm tm;
-  gmtime_s(&tm, &seconds);
-#else
-  std::tm tm;
-  gmtime_r(&seconds, &tm);
-#endif
-  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
-  std::ostringstream oss;
-  oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S") << '.' << std::setfill('0') << std::setw(3) << ms.count() << 'Z';
-  return oss.str();
-}
-
-inline std::string SanitizeServiceName(std::string_view service) {
-  std::string sanitized;
-  sanitized.reserve(service.size());
-  for (const char ch : service) {
-    if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-') {
-      sanitized += ch;
-    } else {
-      sanitized += '_';
-    }
-  }
-  if (sanitized.empty()) {
-    sanitized = "service";
-  }
-  return sanitized;
-}
-
-inline const std::filesystem::path &LogDirectoryPath() {
-  static std::once_flag flag;
-  static std::filesystem::path directory;
-  std::call_once(flag, []() {
-    if (const char *env = std::getenv("LOG_DIRECTORY")) {
-      directory = env;
-    } else {
-      directory = "logs";
-    }
-    if (!directory.is_absolute()) {
-      directory = std::filesystem::current_path() / directory;
-    }
-    std::error_code ec;
-    std::filesystem::create_directories(directory, ec);
-  });
-  return directory;
-}
-
-inline std::filesystem::path LogFilePath(std::string_view service) {
-  return LogDirectoryPath() / (SanitizeServiceName(service) + ".log");
-}
-
-inline std::filesystem::path ErrorLogFilePath() {
-  return LogDirectoryPath() / "errors.log";
-}
-
-inline std::string BuildLogEntry(std::string_view timestamp, std::string_view service,
-                                 std::string_view category, std::string_view message,
-                                 std::string_view context) {
-  std::ostringstream oss;
-  oss << "{\"timestamp\":\"" << EscapeJson(timestamp) << "\",\"service\":\"" << EscapeJson(service)
-      << "\",\"category\":\"" << EscapeJson(category) << "\",\"message\":\"" << EscapeJson(message) << "\"";
-  if (!context.empty()) {
-    oss << ",\"context\":\"" << EscapeJson(context) << "\"";
-  }
-  oss << '}';
-  return oss.str();
-}
-
-inline void AppendLogEntry(const std::filesystem::path &path, const std::string &entry) {
-  std::error_code ec;
-  std::filesystem::create_directories(path.parent_path(), ec);
-  std::ofstream stream(path, std::ios::app);
-  if (!stream.is_open()) {
-    return;
-  }
-  stream << entry << '\n';
-}
-
-inline void WriteLogToFile(std::string_view service, std::string_view category, std::string_view message,
-                           std::string_view context) {
-  static std::mutex log_mutex;
-  const std::lock_guard<std::mutex> lock(log_mutex);
-  const auto timestamp = TimestampNow();
-  const auto entry = BuildLogEntry(timestamp, service, category, message, context);
-  AppendLogEntry(LogFilePath(service), entry);
-  if (category == "error") {
-    AppendLogEntry(ErrorLogFilePath(), entry);
-  }
-}
-
-inline void EmitLog(std::string_view service, std::string_view category, const std::string &message,
-                    std::string_view context) {
-  WriteLogToFile(service, category, message, context);
-  if (context.empty()) {
-    std::clog << '[' << service << "] " << message << std::endl;
-  } else {
-    std::clog << '[' << service << "] " << message << " (" << context << ")" << std::endl;
-  }
-}
-
-}  // namespace detail
 
 class MetricsRegistry {
  public:
@@ -221,9 +71,9 @@ class MetricsRegistry {
   std::map<std::string, std::map<std::string, long long>> auth_failures_;
 };
 
-inline void LogEvent(std::string_view service, std::string_view category, const std::string &message,
+inline void LogEvent(std::string_view service, std::string_view category, std::string_view message,
                      std::string_view context = {}) {
-  detail::EmitLog(service, category, message, context);
+  logging::ServiceLogger::Instance(service).Log(category, message, context);
 }
 
 inline std::string ExpectedApiKey() {

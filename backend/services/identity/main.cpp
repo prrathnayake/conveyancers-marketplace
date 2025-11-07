@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "../../common/env_loader.h"
-#include "../../common/security.h"
+#include "../../common/logger.h"
 #include "../../common/persistence/accounts_repository.h"
 #include "../../common/persistence/audit_repository.h"
 #include "../../common/persistence/postgres.h"
@@ -170,6 +170,8 @@ json AccountToJson(const persistence::AccountRecord &account) {
 int main() {
   env::LoadEnvironment();
 
+  auto &logger = logging::ServiceLogger::Instance("identity");
+
   const auto database_url = GetEnvOrDefault("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/conveyancers");
   auto config = persistence::MakePostgresConfigFromEnv("DATABASE_URL", database_url);
 
@@ -231,7 +233,7 @@ int main() {
 
       SendJson(res, json{{"accountId", account.id}, {"twoFactorSecret", secret}}, 201);
     } catch (const std::exception &ex) {
-      security::LogEvent("identity", "error", "registration_failed", ex.what());
+      logger.Error("registration_failed", ex.what());
       SendJson(res, json{{"error", "registration_failed"}}, 500);
     }
   });
@@ -259,7 +261,7 @@ int main() {
       audit.RecordEvent(account->id, "login", account->id, json{{"email", account->email}}, req.remote_addr);
       SendJson(res, json{{"accountId", account->id}, {"twoFactorSecret", account->two_factor_secret}});
     } catch (const std::exception &ex) {
-      security::LogEvent("identity", "error", "login_failed", ex.what());
+      logger.Error("login_failed", ex.what());
       SendJson(res, json{{"error", "login_failed"}}, 500);
     }
   });
@@ -273,7 +275,7 @@ int main() {
       }
       SendJson(res, AccountToJson(*account));
     } catch (const std::exception &ex) {
-      security::LogEvent("identity", "error", "profile_lookup_failed", ex.what());
+      logger.Error("profile_lookup_failed", ex.what());
       SendJson(res, json{{"error", "profile_lookup_failed"}}, 500);
     }
   });
@@ -297,13 +299,13 @@ int main() {
       }
       SendJson(res, json{{"profiles", response}});
     } catch (const std::exception &ex) {
-      security::LogEvent("identity", "error", "search_failed", ex.what());
+      logger.Error("search_failed", ex.what());
       SendJson(res, json{{"error", "search_failed"}}, 500);
     }
   });
 
   const int port = ParseInt(GetEnvOrDefault("IDENTITY_PORT", "8081"), 8081);
-  security::LogEvent("identity", "info", "starting_identity_service", json{{"port", port}}.dump());
+  logger.Info("starting_identity_service", json{{"port", port}}.dump());
   server.listen("0.0.0.0", port);
   return 0;
 }

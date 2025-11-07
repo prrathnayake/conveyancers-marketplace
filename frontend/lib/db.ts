@@ -36,27 +36,39 @@ const markDatabaseUnavailable = (error: unknown): void => {
   }
 }
 
+const candidateBindingRoots = [
+  path.join(process.cwd(), 'node_modules'),
+  path.join(process.cwd(), '..', 'node_modules'),
+  path.join(__dirname, '..', 'node_modules'),
+  path.join(__dirname, '..', '..', 'node_modules'),
+]
+
+const joinedBindingRoots = candidateBindingRoots.join(path.delimiter)
+process.env.NODE_BINDINGS_DEFAULT_ROOT =
+  process.env.NODE_BINDINGS_DEFAULT_ROOT || candidateBindingRoots[0]
+process.env.NODE_BINDINGS_LOAD_PATH = process.env.NODE_BINDINGS_LOAD_PATH
+  ? `${process.env.NODE_BINDINGS_LOAD_PATH}${path.delimiter}${joinedBindingRoots}`
+  : joinedBindingRoots
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const deasync = require('deasync') as typeof import('deasync')
+
 const runBlocking = <T>(promise: Promise<T>): T => {
-  const buffer = new SharedArrayBuffer(4)
-  const view = new Int32Array(buffer)
   let result: T | undefined
   let error: unknown
+  let done = false
 
   promise
     .then((value) => {
       result = value
-      Atomics.store(view, 0, 1)
-      Atomics.notify(view, 0, 1)
+      done = true
     })
     .catch((err) => {
       error = err
-      Atomics.store(view, 0, 1)
-      Atomics.notify(view, 0, 1)
+      done = true
     })
 
-  while (Atomics.load(view, 0) === 0) {
-    Atomics.wait(view, 0, 0, 1000)
-  }
+  deasync.loopWhile(() => !done)
 
   if (error) {
     throw error

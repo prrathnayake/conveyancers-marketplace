@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-ARG NODE_IMAGE=node:20-alpine3.20
+ARG NODE_IMAGE=node:18.20.3-alpine3.19
 FROM ${NODE_IMAGE} AS base
 
 # Ensure predictable UID/GID for the application user.
@@ -37,6 +37,8 @@ EXPOSE 3000
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache dumb-init libstdc++ curl
+
+RUN mkdir -p /workspace/logs && chown -R node:node /workspace
 
 # Copy only the runtime assets to keep the image leaner
 COPY --from=builder --chown=node:node /app/public ./public

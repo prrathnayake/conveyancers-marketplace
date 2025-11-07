@@ -10,3 +10,16 @@ node_modules
 .next
 build
 .vscode
+infra/tls
+
+# Local logs and tooling artifacts
+logs/
+codex-log
+codex-log/
+codex-log.md
+
+# Developer-specific env files
+admin-portal/.env
+backend/.env
+frontend/.env
+infra/env/.env

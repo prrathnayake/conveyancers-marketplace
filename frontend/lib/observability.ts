@@ -7,10 +7,21 @@ export type ObservedRequest = NextApiRequest & { correlationId: string }
 
 const resolveLogLocation = (): string => {
   const directory = path.join(process.cwd(), 'logs')
-  if (!fs.existsSync(directory)) {
-    fs.mkdirSync(directory, { recursive: true })
+  try {
+    if (!fs.existsSync(directory)) {
+      fs.mkdirSync(directory, { recursive: true })
+    }
+    return path.join(directory, 'api-observability.log')
+  } catch (error) {
+    const fallbackDir = path.join('/tmp', 'conveyancers')
+    try {
+      fs.mkdirSync(fallbackDir, { recursive: true })
+    } catch (fallbackError) {
+      console.warn('Failed to create observability log directory fallback', fallbackError)
+    }
+    console.warn('Falling back to temporary observability log directory', { directory, error })
+    return path.join(fallbackDir, 'api-observability.log')
   }
-  return path.join(directory, 'api-observability.log')
 }
 
 const logFile = resolveLogLocation()

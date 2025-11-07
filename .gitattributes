@@ -1,0 +1,2 @@
+*.sh text eol=lf
+infra/tls/dev_certs.sh text eol=lf
