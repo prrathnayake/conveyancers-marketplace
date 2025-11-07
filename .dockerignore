@@ -18,3 +18,4 @@ admin-portal/node_modules
 .DS_Store
 infra/tls/dev.crt
 infra/tls/dev.key
+logins.txt
